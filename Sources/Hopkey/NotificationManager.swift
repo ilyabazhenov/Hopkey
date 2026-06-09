@@ -3,8 +3,8 @@ import UserNotifications
 import HopkeyCore
 
 /// Показывает кликабельный баннер «Открыть тикет». Клик по баннеру открывает ссылку(и).
-/// Если уведомления недоступны (нет авторизации / запуск вне бандла) — открывает напрямую,
-/// чтобы приложение оставалось рабочим в любом случае.
+/// Запуск вне бандла (dev) — выполняет действие напрямую, чтобы оставаться рабочим.
+/// Уведомления запрещены пользователем — мягкий сигнал + разовая подсказка (без авто-открытия).
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private var center: UNUserNotificationCenter? {
@@ -34,7 +34,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized ||
                   settings.authorizationStatus == .provisional else {
-                self.perform(action, urls: matches.map(\.url))
+                // Уведомления запрещены. Пользователь выбрал «не открывать сразу»,
+                // поэтому вкладку молча не открываем — даём мягкий сигнал и разово
+                // подсказываем, как вернуть баннеры (или включить авто-открытие).
+                self.handleNotificationsDenied()
                 return
             }
 
@@ -58,6 +61,40 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 trigger: nil
             )
             center.add(request, withCompletionHandler: nil)
+        }
+    }
+
+    /// Фолбэк, когда уведомления запрещены: мягкий сигнал на каждое срабатывание
+    /// плюс однократная подсказка, как починить. Вкладку не открываем — это нарушило бы
+    /// выбор «не открывать сразу». Открыть тикет всё ещё можно из меню в строке статуса.
+    private func handleNotificationsDenied() {
+        DispatchQueue.main.async {
+            NSSound.beep()
+            self.showPermissionHintOnce()
+        }
+    }
+
+    /// Показывает подсказку про выключенные уведомления один раз за всё время.
+    private func showPermissionHintOnce() {
+        let key = "notifPermissionHintShown"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: key)
+
+        let alert = NSAlert()
+        alert.messageText = "Уведомления выключены"
+        alert.informativeText = """
+        Hopkey нашёл ключ тикета в буфере, но не может показать баннер для открытия — \
+        уведомления для приложения отключены.
+
+        Включите их в Системных настройках, либо выберите «Открывать сразу» в меню Hopkey.
+        """
+        alert.addButton(withTitle: "Открыть настройки уведомлений")
+        alert.addButton(withTitle: "Позже")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+            NSWorkspace.shared.open(url)
         }
     }
 
