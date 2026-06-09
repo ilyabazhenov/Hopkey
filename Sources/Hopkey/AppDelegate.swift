@@ -1,5 +1,4 @@
 import AppKit
-import ServiceManagement
 import HopkeyCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -123,40 +122,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "ticket", accessibilityDescription: "Hopkey")
-            button.image?.isTemplate = true
+            let image = NSImage(named: "MenuBarIcon")
+                ?? NSImage(systemSymbolName: "ticket", accessibilityDescription: "Hopkey")
+            image?.isTemplate = true
+            image?.size = NSSize(width: 18, height: 18)
+            button.image = image
+            button.imagePosition = .imageOnly
             button.toolTip = "Hopkey — открыть тикет по ключу"
         }
-        rebuildMenu()
-    }
-
-    private func rebuildMenu() {
+        // Меню статично: действия с буфером и служебные пункты. Все переключатели
+        // (авто-открытие, хоткеи, запуск при входе) живут в окне «Настройки…».
         let menu = NSMenu()
         menu.addItem(withTitle: "Открыть тикет из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
         menu.addItem(.separator())
-
-        let autoOpenItem = NSMenuItem(title: "Открывать сразу", action: #selector(toggleAutoOpen), keyEquivalent: "")
-        autoOpenItem.state = config.autoOpen ? .on : .off
-        menu.addItem(autoOpenItem)
-
-        let openCombo = hotKeyDisplayString(keyCode: UInt32(config.openHotKeyKeyCode), modifiers: UInt32(config.openHotKeyModifiers))
-        let openItem = NSMenuItem(title: "Открывать по хоткею (\(openCombo))", action: #selector(toggleOpenHotKey), keyEquivalent: "")
-        openItem.state = config.openHotKeyEnabled ? .on : .off
-        menu.addItem(openItem)
-
-        let copyCombo = hotKeyDisplayString(keyCode: UInt32(config.copyHotKeyKeyCode), modifiers: UInt32(config.copyHotKeyModifiers))
-        let copyItem = NSMenuItem(title: "Копировать по хоткею (\(copyCombo))", action: #selector(toggleCopyHotKey), keyEquivalent: "")
-        copyItem.state = config.copyHotKeyEnabled ? .on : .off
-        menu.addItem(copyItem)
-
-        let loginItem = NSMenuItem(title: "Запускать при входе", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        loginItem.state = launchAtLoginEnabled ? .on : .off
-        menu.addItem(loginItem)
-
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: ",")
-        menu.addItem(withTitle: "Выход", action: #selector(quit), keyEquivalent: "q")
+        // Без keyEquivalent ",": иначе macOS опознаёт пункт как стандартные настройки
+        // и сам подставляет шестерёнку. image = nil — страховка на случай авто-иконки.
+        let settingsItem = menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: "")
+        settingsItem.image = nil
+        menu.addItem(withTitle: "Выход", action: #selector(quit), keyEquivalent: "")
 
         for item in menu.items where item.action != nil {
             item.target = self
@@ -184,34 +168,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         perform(action, on: matches)
     }
 
-    @objc private func toggleAutoOpen() {
-        config.autoOpen.toggle()
-        rebuildMenu()
-    }
-
-    @objc private func toggleOpenHotKey() {
-        config.openHotKeyEnabled.toggle()
-        applyConfig()
-    }
-
-    @objc private func toggleCopyHotKey() {
-        config.copyHotKeyEnabled.toggle()
-        applyConfig()
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            NSLog("Launch at login error: \(error.localizedDescription)")
-        }
-        rebuildMenu()
-    }
-
     @objc private func openSettings() {
         settings.showWindow()
     }
@@ -229,7 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             hotKey.unregisterAll()
         }
-        rebuildMenu()
     }
 
     private var anyHotKeyEnabled: Bool {
@@ -251,9 +206,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             keyCode: UInt32(config.copyHotKeyKeyCode),
                             modifiers: UInt32(config.copyHotKeyModifiers))
         }
-    }
-
-    private var launchAtLoginEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
     }
 }

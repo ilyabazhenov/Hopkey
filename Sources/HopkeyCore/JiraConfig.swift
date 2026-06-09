@@ -50,6 +50,33 @@ public final class JiraConfig {
         ])
     }
 
+    /// Все ключи приложения в `UserDefaults` — для полного сброса.
+    private static let allKeys = [
+        Key.projects, Key.autoOpen,
+        Key.hotKeyEnabled, Key.hotKeyKeyCode, Key.hotKeyModifiers,
+        Key.defaultAction, Key.hotKeyAction, Key.clipboardAction,
+        Key.openHotKeyEnabled, Key.openHotKeyKeyCode, Key.openHotKeyModifiers,
+        Key.copyHotKeyEnabled, Key.copyHotKeyKeyCode, Key.copyHotKeyModifiers,
+        Key.hotKeysV2Migrated,
+    ]
+
+    /// Сбрасывает все настройки к значениям по умолчанию: проекты, действие при
+    /// копировании и оба хоткея (⌃⌥J / ⌃⌥K, выключены). После вызова окно настроек
+    /// следует перечитать через `loadValues()`, а хоткеи — переприменить.
+    public func resetToDefaults() {
+        Self.allKeys.forEach(defaults.removeObject(forKey:))
+        registerDefaults()
+        // Слоты хоткеев не входят в `registerDefaults` — задаём дефолты явно. Флаг
+        // миграции выставляем, чтобы повторная инициализация не перетёрла их легаси-данными.
+        defaults.set(true, forKey: Key.hotKeysV2Migrated)
+        defaults.set(Self.defaultOpenKeyCode, forKey: Key.openHotKeyKeyCode)
+        defaults.set(Self.defaultModifiers, forKey: Key.openHotKeyModifiers)
+        defaults.set(false, forKey: Key.openHotKeyEnabled)
+        defaults.set(Self.defaultCopyKeyCode, forKey: Key.copyHotKeyKeyCode)
+        defaults.set(Self.defaultModifiers, forKey: Key.copyHotKeyModifiers)
+        defaults.set(false, forKey: Key.copyHotKeyEnabled)
+    }
+
     /// Однократно переносит единственный legacy-хоткей в нужный из двух новых слотов
     /// (по его прежнему действию) и задаёт дефолты для второго слота. Идемпотентно.
     private func migrateHotKeysIfNeeded() {

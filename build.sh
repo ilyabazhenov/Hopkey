@@ -11,6 +11,7 @@ BUNDLE_ID="com.local.hopkey"
 # Можно переопределить через env: VERSION=1.2.3 ./build.sh — удобно для проб.
 VERSION="${VERSION:-$(cat "$(dirname "$0")/VERSION" 2>/dev/null || echo 0.0.0)}"
 APP_ICON="Assets/AppIcon.icns"
+MENU_BAR_ICON="Assets/MenuBarIcon.pdf"
 
 cd "$(dirname "$0")"
 
@@ -29,6 +30,7 @@ rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RES_DIR}"
 cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
 cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
+cp "${MENU_BAR_ICON}" "${RES_DIR}/MenuBarIcon.pdf"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

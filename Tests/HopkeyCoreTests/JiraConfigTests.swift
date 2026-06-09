@@ -136,6 +136,50 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertFalse(makeConfig().openHotKeyEnabled)
     }
 
+    // MARK: Сброс настроек
+
+    func testResetToDefaultsRestoresEverything() {
+        let config = makeConfig()
+        config.projects = [JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: ["PROJ"])]
+        config.autoOpen = true
+        // Legacy-ключ defaultAction, который наследует clipboardAction, тоже должен сброситься.
+        config.defaultAction = .copyURL
+        config.clipboardAction = .copyURL
+        config.openHotKeyEnabled = true
+        config.openHotKeyKeyCode = 1
+        config.copyHotKeyEnabled = true
+        config.copyHotKeyKeyCode = 2
+
+        config.resetToDefaults()
+
+        XCTAssertEqual(config.projects, [])
+        XCTAssertFalse(config.autoOpen)
+        XCTAssertEqual(config.defaultAction, .openInBrowser)
+        XCTAssertEqual(config.clipboardAction, .openInBrowser)
+        // Хоткеи возвращаются к дефолтам ⌃⌥J / ⌃⌥K и выключаются.
+        XCTAssertFalse(config.openHotKeyEnabled)
+        XCTAssertEqual(config.openHotKeyKeyCode, 38)
+        XCTAssertEqual(config.openHotKeyModifiers, 6144)
+        XCTAssertFalse(config.copyHotKeyEnabled)
+        XCTAssertEqual(config.copyHotKeyKeyCode, 40)
+        XCTAssertEqual(config.copyHotKeyModifiers, 6144)
+    }
+
+    func testResetToDefaultsPersistsAndSurvivesReload() {
+        let config = makeConfig()
+        config.projects = [JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: ["PROJ"])]
+        config.copyHotKeyKeyCode = 9
+
+        config.resetToDefaults()
+
+        // Новый объект (в т.ч. его миграция) не должен «воскрешать» прежние значения.
+        let reloaded = makeConfig()
+        XCTAssertEqual(reloaded.projects, [])
+        XCTAssertEqual(reloaded.copyHotKeyKeyCode, 40)
+        XCTAssertFalse(reloaded.openHotKeyEnabled)
+        XCTAssertFalse(reloaded.copyHotKeyEnabled)
+    }
+
     func testProjectsRoundTrip() {
         let config = makeConfig()
         let projects = [

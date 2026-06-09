@@ -25,6 +25,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Копировать ссылку", target: nil, action: nil)
     private let copyHotKeyRecorder = HotKeyRecorderView()
 
+    /// Общая опция приложения: автозапуск при входе (через `SMAppService`, не хранится в конфиге).
+    private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
+
     /// Подпись поля, выровненного в колонку.
     private let clipboardActionLabel = NSTextField(labelWithString: "Действие при копировании ключа:")
     /// Заголовок блока хоткеев (с напоминанием про разрешение Accessibility).
@@ -48,7 +51,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     init(config: JiraConfig) {
         self.config = config
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -171,6 +174,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.keyEquivalent = "\r"
 
+        // Сброс всех настроек к значениям по умолчанию — в левом нижнем углу, подальше от «Сохранить».
+        let resetButton = NSButton(title: "Сбросить настройки", target: self, action: #selector(resetToDefaults))
+        resetButton.translatesAutoresizingMaskIntoConstraints = false
+
         // Горизонтальные разделители делят окно на три блока:
         // проекты · реакция на копирование · глобальный хоткей.
         func separator() -> NSBox {
@@ -181,6 +188,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
         let clipboardSeparator = separator()
         let hotKeySeparator = separator()
+        let loginSeparator = separator()
+
+        launchAtLoginCheck.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [
             introLabel,
@@ -193,6 +203,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             hotKeysHeader,
             openHotKeyRow,
             copyHotKeyRow,
+            loginSeparator,
+            launchAtLoginCheck,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -203,9 +215,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         stack.setCustomSpacing(16, after: clipboardSeparator)
         stack.setCustomSpacing(16, after: clipboardActionRow)
         stack.setCustomSpacing(16, after: hotKeySeparator)
+        stack.setCustomSpacing(16, after: copyHotKeyRow)
+        stack.setCustomSpacing(16, after: loginSeparator)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         content.addSubview(saveButton)
+        content.addSubview(resetButton)
 
         // Две галочки хоткеев — одинаковой ширины, чтобы рекордеры справа были на одной вертикали.
         let hotKeyCheckWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
@@ -219,6 +234,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             scroll.heightAnchor.constraint(equalToConstant: 160),
             clipboardSeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
             hotKeySeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            loginSeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
             emptyStateLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             emptyStateLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             openHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
@@ -227,6 +243,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             copyHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
+            resetButton.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            resetButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
         ])
     }
 
@@ -351,6 +369,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
         copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
         copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
+        launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         updateDependentControls()
     }
 
@@ -378,8 +397,35 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         config.copyHotKeyKeyCode = Int(copyHotKeyRecorder.combo.keyCode)
         config.copyHotKeyModifiers = Int(copyHotKeyRecorder.combo.modifiers)
 
+        // Запуск при входе хранится не в конфиге, а в системе — синхронизируем по факту.
+        LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
+
         onSave?()
         window?.close()
+    }
+
+    /// Сбрасывает все настройки к значениям по умолчанию после подтверждения,
+    /// перечитывает поля окна и применяет изменения (через `onSave`), не закрывая окно.
+    @objc private func resetToDefaults() {
+        let alert = NSAlert()
+        alert.messageText = "Сбросить настройки?"
+        alert.informativeText = "Проекты, действие при копировании и хоткеи вернутся к значениям по умолчанию. Действие нельзя отменить."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Сбросить")
+        alert.addButton(withTitle: "Отмена")
+
+        let apply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            self.config.resetToDefaults()
+            self.loadValues()
+            self.onSave?()
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: apply)
+        } else {
+            apply(alert.runModal())
+        }
     }
 }
 
