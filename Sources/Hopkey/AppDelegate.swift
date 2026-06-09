@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let clipboard = ClipboardWatcher()
     private let hotKey = HotKeyManager()
     private let notifications = NotificationManager()
+    private let updater = UpdaterController()
     private lazy var settings = SettingsWindowController(config: config)
 
     // Защита от двойной обработки одного и того же текста
@@ -140,6 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // и сам подставляет шестерёнку. image = nil — страховка на случай авто-иконки.
         let settingsItem = menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: "")
         settingsItem.image = nil
+        menu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Выход", action: #selector(quit), keyEquivalent: "")
 
         for item in menu.items where item.action != nil {
@@ -170,6 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settings.showWindow()
+    }
+
+    @objc private func checkForUpdates() {
+        updater.checkForUpdates()
     }
 
     @objc private func quit() {

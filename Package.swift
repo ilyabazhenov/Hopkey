@@ -6,6 +6,10 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [
+        // Автообновление через appcast + EdDSA-подпись (см. build.sh, release.sh).
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+    ],
     targets: [
         // Чистое ядро: парсер тикетов + настройки. Без UI, поэтому легко тестируется.
         .target(
@@ -14,7 +18,10 @@ let package = Package(
         // GUI-приложение в строке меню.
         .executableTarget(
             name: "Hopkey",
-            dependencies: ["HopkeyCore"]
+            dependencies: [
+                "HopkeyCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ]
         ),
         .testTarget(
             name: "HopkeyCoreTests",

@@ -24,13 +24,26 @@ BIN_PATH="${BIN_DIR}/${APP_NAME}"
 APP_DIR="build/${APP_NAME}.app"
 MACOS_DIR="${APP_DIR}/Contents/MacOS"
 RES_DIR="${APP_DIR}/Contents/Resources"
+FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
 
 echo "==> Сборка бандла ${APP_DIR}…"
 rm -rf "${APP_DIR}"
-mkdir -p "${MACOS_DIR}" "${RES_DIR}"
+mkdir -p "${MACOS_DIR}" "${RES_DIR}" "${FRAMEWORKS_DIR}"
 cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
 cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
 cp "${MENU_BAR_ICON}" "${RES_DIR}/MenuBarIcon.pdf"
+
+# Встраивание Sparkle. SwiftPM (в отличие от Xcode) не копирует Sparkle.framework
+# в бандл — делаем это вручную: копируем фреймворк (ditto сохраняет симлинки
+# Versions/) и добавляем rpath, чтобы бинарник нашёл его внутри .app на любой машине.
+SPARKLE_FW="${BIN_DIR}/Sparkle.framework"
+if [ -d "${SPARKLE_FW}" ]; then
+    echo "==> Встраивание Sparkle.framework…"
+    ditto "${SPARKLE_FW}" "${FRAMEWORKS_DIR}/Sparkle.framework"
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "${MACOS_DIR}/${APP_NAME}" 2>/dev/null || true
+else
+    echo "(!) Sparkle.framework не найден в ${BIN_DIR} — автообновление работать не будет"
+fi
 
 cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,22 +62,41 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
     <key>LSUIElement</key>             <true/>
     <key>NSPrincipalClass</key>        <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>Hopkey</string>
+    <!-- Sparkle: фид обновлений и публичный EdDSA-ключ для проверки подписи. -->
+    <key>SUFeedURL</key>               <string>https://raw.githubusercontent.com/ilyabazhenov/Hopkey/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>           <string>WPYI42Z1jbfBdFNmyBey6tOcbWyU1x6GGVlmn/nNY/I=</string>
 </dict>
 </plist>
 PLIST
 
 # Подпись. Если есть стабильный self-signed сертификат "Hopkey Dev" (см.
 # setup-signing.sh), подписываем им — тогда разрешение Accessibility переживает
-# пересборки. Иначе откатываемся на ad-hoc (доверие слетает при каждой сборке).
+# пересборки, а Sparkle принимает обновление (совпадение идентичности подписи).
+# Иначе откатываемся на ad-hoc (доверие слетает при каждой сборке).
 SIGN_ID="Hopkey Dev"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "${SIGN_ID}"; then
-    echo "==> Подпись сертификатом «${SIGN_ID}»…"
-    codesign --force --deep --sign "${SIGN_ID}" "${APP_DIR}"
-else
-    echo "==> Ad-hoc подпись (для постоянного Accessibility запустите ./setup-signing.sh)…"
-    codesign --force --deep --sign - "${APP_DIR}" 2>/dev/null || \
-        echo "(!) codesign пропущен — приложение всё равно запустится"
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "${SIGN_ID}"; then
+    echo "==> Сертификат «${SIGN_ID}» не найден — ad-hoc подпись (запустите ./setup-signing.sh)…"
+    SIGN_ID="-"
 fi
+
+# Подписываем строго изнутри наружу: вложенные хелперы Sparkle, затем сам
+# фреймворк, и только потом приложение (--deep некорректно пере-подписывает
+# вложенные XPC-сервисы, поэтому каждый компонент подписываем явно).
+sign() { codesign --force --timestamp=none --sign "${SIGN_ID}" "$1"; }
+
+EMBEDDED_FW="${FRAMEWORKS_DIR}/Sparkle.framework"
+if [ -d "${EMBEDDED_FW}" ]; then
+    echo "==> Подпись компонентов Sparkle сертификатом «${SIGN_ID}»…"
+    FW_V="${EMBEDDED_FW}/Versions/B"
+    sign "${FW_V}/XPCServices/Downloader.xpc"
+    sign "${FW_V}/XPCServices/Installer.xpc"
+    sign "${FW_V}/Updater.app"
+    sign "${FW_V}/Autoupdate"
+    sign "${FW_V}"
+fi
+
+echo "==> Подпись приложения сертификатом «${SIGN_ID}»…"
+sign "${APP_DIR}"
 
 echo ""
 echo "✅ Готово: ${APP_DIR}"
