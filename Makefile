@@ -35,6 +35,8 @@ install: app ## Собрать .app и установить в /Applications
 	rm -rf "/Applications/$(APP_NAME).app"
 	cp -R "$(APP_BUNDLE)" /Applications/
 	@echo "✅ Установлено: /Applications/$(APP_NAME).app"
+	@echo "   Если macOS блокирует запуск — снимите карантин:"
+	@echo "     xattr -dr com.apple.quarantine /Applications/$(APP_NAME).app"
 
 uninstall: ## Остановить и удалить приложение из /Applications
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
