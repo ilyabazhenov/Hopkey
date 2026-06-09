@@ -25,8 +25,11 @@ final class JiraConfigTests: XCTestCase {
         let config = makeConfig()
         XCTAssertEqual(config.baseURL, "")
         XCTAssertEqual(config.prefixes, [])
-        XCTAssertFalse(config.autoOpen)
+        XCTAssertTrue(config.autoOpen)
         XCTAssertFalse(config.hotKeyEnabled)
+        // По умолчанию ⌃⌥J: keyCode 38, модификаторы controlKey | optionKey = 6144.
+        XCTAssertEqual(config.hotKeyKeyCode, 38)
+        XCTAssertEqual(config.hotKeyModifiers, 6144)
     }
 
     func testBaseURLRoundTrip() {
@@ -56,6 +59,20 @@ final class JiraConfigTests: XCTestCase {
         config.hotKeyEnabled = true
         XCTAssertTrue(config.hotKeyEnabled)
         XCTAssertTrue(makeConfig().hotKeyEnabled)
+    }
+
+    func testHotKeyKeyCodeRoundTrip() {
+        let config = makeConfig()
+        config.hotKeyKeyCode = 40 // K
+        XCTAssertEqual(config.hotKeyKeyCode, 40)
+        XCTAssertEqual(makeConfig().hotKeyKeyCode, 40)
+    }
+
+    func testHotKeyModifiersRoundTrip() {
+        let config = makeConfig()
+        config.hotKeyModifiers = 0x0100 | 0x0200 // cmdKey | shiftKey
+        XCTAssertEqual(config.hotKeyModifiers, 0x0300)
+        XCTAssertEqual(makeConfig().hotKeyModifiers, 0x0300)
     }
 
     func testIsConfiguredFalseWhenEmpty() {

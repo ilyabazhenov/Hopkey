@@ -46,9 +46,18 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc подпись: стабильнее работают уведомления и запоминание прав Accessibility.
-codesign --force --deep --sign - "${APP_DIR}" 2>/dev/null || \
-    echo "(!) codesign пропущен — приложение всё равно запустится"
+# Подпись. Если есть стабильный self-signed сертификат "Hopkey Dev" (см.
+# setup-signing.sh), подписываем им — тогда разрешение Accessibility переживает
+# пересборки. Иначе откатываемся на ad-hoc (доверие слетает при каждой сборке).
+SIGN_ID="Hopkey Dev"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "${SIGN_ID}"; then
+    echo "==> Подпись сертификатом «${SIGN_ID}»…"
+    codesign --force --deep --sign "${SIGN_ID}" "${APP_DIR}"
+else
+    echo "==> Ad-hoc подпись (для постоянного Accessibility запустите ./setup-signing.sh)…"
+    codesign --force --deep --sign - "${APP_DIR}" 2>/dev/null || \
+        echo "(!) codesign пропущен — приложение всё равно запустится"
+fi
 
 echo ""
 echo "✅ Готово: ${APP_DIR}"

@@ -6,7 +6,7 @@ APP_BUNDLE := build/$(APP_NAME).app
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test app run watch install uninstall clean
+.PHONY: help build test app run watch install uninstall clean setup-signing
 
 help: ## Показать список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -26,6 +26,9 @@ run: app ## Собрать .app и запустить (иконка в стро�
 
 watch: ## Dev: следить за Sources/ и пересобирать+перезапускать при изменениях
 	./dev-watch.sh
+
+setup-signing: ## Создать self-signed сертификат, чтобы Accessibility не слетал при пересборках
+	./setup-signing.sh
 
 install: app ## Собрать .app и установить в /Applications
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true

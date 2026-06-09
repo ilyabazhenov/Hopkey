@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         notifications.requestAuthorization()
+        setupMainMenu()
         setupStatusItem()
 
         clipboard.onChange = { [weak self] text in self?.handle(text, source: .clipboard) }
@@ -28,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey.onCapture = { [weak self] text in self?.handle(text, source: .hotkey) }
         if config.hotKeyEnabled {
             HotKeyManager.ensureAccessibility(prompt: false)
-            hotKey.register()
+            registerHotKey()
         }
 
         settings.onSave = { [weak self] in self?.applyConfig() }
@@ -62,6 +63,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboard.syncChangeCount()
     }
 
+    // MARK: - Главное меню
+
+    /// Приложение работает как `.accessory` без иконки в Dock, поэтому AppKit
+    /// не создаёт стандартное меню. Без меню «Правка» системные сочетания
+    /// ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z не доходят до текстовых полей через цепочку
+    /// ответчиков — добавляем его явно, чтобы вставка работала в настройках.
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+
+        let editMenu = NSMenu(title: "Правка")
+        editMenu.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "Z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Скопировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Выбрать всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
+    }
+
     // MARK: - Строка меню
 
     private func setupStatusItem() {
@@ -83,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoOpenItem.state = config.autoOpen ? .on : .off
         menu.addItem(autoOpenItem)
 
-        let hotKeyItem = NSMenuItem(title: "Глобальный хоткей ⌃⌥J", action: #selector(toggleHotKey), keyEquivalent: "")
+        let hotKeyTitle = "Глобальный хоткей \(hotKeyDisplayString(keyCode: UInt32(config.hotKeyKeyCode), modifiers: UInt32(config.hotKeyModifiers)))"
+        let hotKeyItem = NSMenuItem(title: hotKeyTitle, action: #selector(toggleHotKey), keyEquivalent: "")
         hotKeyItem.state = config.hotKeyEnabled ? .on : .off
         menu.addItem(hotKeyItem)
 
@@ -125,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             config.hotKeyEnabled = true
             HotKeyManager.ensureAccessibility(prompt: true)
-            hotKey.register()
+            registerHotKey()
         }
         rebuildMenu()
     }
@@ -156,11 +184,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyConfig() {
         if config.hotKeyEnabled {
             HotKeyManager.ensureAccessibility(prompt: true)
-            hotKey.register()
+            registerHotKey()
         } else {
             hotKey.unregister()
         }
         rebuildMenu()
+    }
+
+    /// Перерегистрирует хоткей с актуальной комбинацией из конфига.
+    private func registerHotKey() {
+        hotKey.unregister()
+        hotKey.register(keyCode: UInt32(config.hotKeyKeyCode),
+                        modifiers: UInt32(config.hotKeyModifiers))
     }
 
     private var launchAtLoginEnabled: Bool {

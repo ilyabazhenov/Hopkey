@@ -12,12 +12,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let baseURLField = NSTextField()
     private let prefixesField = NSTextField()
     private let autoOpenCheck = NSButton(checkboxWithTitle: "Открывать сразу (без уведомления)", target: nil, action: nil)
-    private let hotKeyCheck = NSButton(checkboxWithTitle: "Включить глобальный хоткей ⌃⌥J (нужен Accessibility)", target: nil, action: nil)
+    private let hotKeyCheck = NSButton(checkboxWithTitle: "Включить глобальный хоткей (нужен Accessibility)", target: nil, action: nil)
+    private let hotKeyRecorder = HotKeyRecorderView()
 
     init(config: JiraConfig) {
         self.config = config
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 280),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 330),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -51,6 +52,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         autoOpenCheck.translatesAutoresizingMaskIntoConstraints = false
         hotKeyCheck.translatesAutoresizingMaskIntoConstraints = false
 
+        let hotKeyLabel = label("Комбинация:")
+        hotKeyRecorder.translatesAutoresizingMaskIntoConstraints = false
+        let hotKeyRow = NSStackView(views: [hotKeyLabel, hotKeyRecorder])
+        hotKeyRow.orientation = .horizontal
+        hotKeyRow.alignment = .centerY
+        hotKeyRow.spacing = 8
+        hotKeyRow.translatesAutoresizingMaskIntoConstraints = false
+
         let saveButton = NSButton(title: "Сохранить", target: self, action: #selector(save))
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.keyEquivalent = "\r"
@@ -59,6 +68,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             baseLabel, baseURLField,
             prefixesLabel, prefixesField,
             autoOpenCheck, hotKeyCheck,
+            hotKeyRow,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -73,6 +83,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
             baseURLField.widthAnchor.constraint(equalTo: stack.widthAnchor),
             prefixesField.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            hotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
         ])
@@ -83,6 +94,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         prefixesField.stringValue = config.prefixes.joined(separator: ", ")
         autoOpenCheck.state = config.autoOpen ? .on : .off
         hotKeyCheck.state = config.hotKeyEnabled ? .on : .off
+        hotKeyRecorder.combo = (UInt32(config.hotKeyKeyCode), UInt32(config.hotKeyModifiers))
     }
 
     func showWindow() {
@@ -102,6 +114,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         config.autoOpen = autoOpenCheck.state == .on
         config.hotKeyEnabled = hotKeyCheck.state == .on
+        config.hotKeyKeyCode = Int(hotKeyRecorder.combo.keyCode)
+        config.hotKeyModifiers = Int(hotKeyRecorder.combo.modifiers)
 
         onSave?()
         window?.close()

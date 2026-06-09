@@ -19,12 +19,18 @@ public final class JiraConfig {
         static let prefixes = "prefixes"
         static let autoOpen = "autoOpen"
         static let hotKeyEnabled = "hotKeyEnabled"
+        static let hotKeyKeyCode = "hotKeyKeyCode"
+        static let hotKeyModifiers = "hotKeyModifiers"
     }
 
     private func registerDefaults() {
         defaults.register(defaults: [
-            Key.autoOpen: false,
+            Key.autoOpen: true,
             Key.hotKeyEnabled: false,
+            // По умолчанию ⌃⌥J: keyCode 38 (kVK_ANSI_J),
+            // модификаторы в Carbon-формате controlKey | optionKey = 0x1000 | 0x0800.
+            Key.hotKeyKeyCode: 38,
+            Key.hotKeyModifiers: 0x1000 | 0x0800,
         ])
     }
 
@@ -45,7 +51,7 @@ public final class JiraConfig {
         !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !prefixes.isEmpty
     }
 
-    /// Открывать сразу (true) или показывать уведомление (false).
+    /// Открывать сразу (true, по умолчанию) или показывать уведомление (false).
     public var autoOpen: Bool {
         get { defaults.bool(forKey: Key.autoOpen) }
         set { defaults.set(newValue, forKey: Key.autoOpen) }
@@ -55,5 +61,17 @@ public final class JiraConfig {
     public var hotKeyEnabled: Bool {
         get { defaults.bool(forKey: Key.hotKeyEnabled) }
         set { defaults.set(newValue, forKey: Key.hotKeyEnabled) }
+    }
+
+    /// Виртуальный код клавиши хоткея (kVK_*). По умолчанию 38 — клавиша J.
+    public var hotKeyKeyCode: Int {
+        get { defaults.integer(forKey: Key.hotKeyKeyCode) }
+        set { defaults.set(newValue, forKey: Key.hotKeyKeyCode) }
+    }
+
+    /// Модификаторы хоткея в Carbon-формате (controlKey/optionKey/cmdKey/shiftKey).
+    public var hotKeyModifiers: Int {
+        get { defaults.integer(forKey: Key.hotKeyModifiers) }
+        set { defaults.set(newValue, forKey: Key.hotKeyModifiers) }
     }
 }

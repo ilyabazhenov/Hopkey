@@ -13,9 +13,6 @@ final class HotKeyManager {
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
-    // ⌃⌥J : keyCode J = 38; модификаторы — control + option.
-    private let keyCode = UInt32(kVK_ANSI_J)
-    private let modifiers = UInt32(controlKey | optionKey)
     private let hotKeyID = EventHotKeyID(signature: fourCharCode("JOPN"), id: 1)
 
     /// Есть ли разрешение Accessibility. `prompt: true` покажет системный запрос.
@@ -25,7 +22,8 @@ final class HotKeyManager {
         return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
     }
 
-    func register() {
+    /// Регистрирует комбинацию `keyCode` + `modifiers` (Carbon-формат модификаторов).
+    func register(keyCode: UInt32, modifiers: UInt32) {
         guard hotKeyRef == nil else { return }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
@@ -45,8 +43,11 @@ final class HotKeyManager {
             return noErr
         }, 1, &eventType, selfPtr, &eventHandler)
 
-        RegisterEventHotKey(keyCode, modifiers, hotKeyID,
-                            GetApplicationEventTarget(), 0, &hotKeyRef)
+        let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID,
+                                         GetApplicationEventTarget(), 0, &hotKeyRef)
+        if status != noErr {
+            NSLog("Hopkey: не удалось зарегистрировать хоткей (status=\(status)) — комбинация занята системой?")
+        }
     }
 
     func unregister() {
@@ -73,6 +74,10 @@ final class HotKeyManager {
             if pasteboard.changeCount != beforeCount,
                let text = pasteboard.string(forType: .string), !text.isEmpty {
                 self.onCapture?(text)
+            } else {
+                // Буфер не изменился: синтетический Cmd+C не сработал.
+                // Почти всегда это значит, что не выдан Accessibility для текущего бинарника.
+                NSLog("Hopkey: хоткей сработал, но буфер не изменился — проверьте разрешение Accessibility (после пересборки его нужно выдать заново).")
             }
         }
     }
