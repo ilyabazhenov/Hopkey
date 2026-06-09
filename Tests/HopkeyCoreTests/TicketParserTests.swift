@@ -133,7 +133,7 @@ final class TicketParserTests: XCTestCase {
 
     func testExactMatchRejectsURL() {
         // Главный кейс: скопированная ссылка не должна срабатывать автоматически.
-        let url = "https://jira.moscow.alfaintra.net/browse/PROJ-36075"
+        let url = "https://jira.example.com/browse/PROJ-36075"
         XCTAssertNil(TicketParser.exactMatch(in: url, projects: sampleProjects))
     }
 

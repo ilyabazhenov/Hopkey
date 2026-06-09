@@ -1,6 +1,20 @@
+<div align="center">
+
+<img src="Assets/icon-256.png" alt="Hopkey" width="160" height="160">
+
 # Hopkey
 
-> **Увидел ключ — прыгнул в задачу.** *Hop to the key.*
+**Увидел ключ — прыгнул в задачу.** · *Hop to the key.*
+
+A macOS menu-bar app that spots Jira issue keys (`PROJ-123`) anywhere — in your
+clipboard or selection — and jumps straight to the ticket.
+
+[![Release](https://img.shields.io/github/v/release/ilyabazhenov/Hopkey?label=release&color=f5a623)](https://github.com/ilyabazhenov/Hopkey/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/ilyabazhenov/Hopkey?color=blue)](LICENSE)
+![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
+![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-f05138?logo=swift&logoColor=white)
+
+</div>
 
 Приложение для macOS в строке меню, которое распознаёт ID задач вида `PROJ-12345`
 где угодно в системе и открывает соответствующую ссылку Jira
@@ -126,3 +140,7 @@ Sources/Hopkey/       # GUI в строке меню
 Tests/HopkeyCoreTests/
 build.sh
 ```
+
+## Лицензия
+
+[MIT](LICENSE) © Ilya Bazhenov
