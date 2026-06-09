@@ -7,6 +7,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
                                       NSTableViewDataSource, NSTableViewDelegate {
 
     private let config: JiraConfig
+    /// Управление автообновлением (Sparkle): флаг живёт не в конфиге, а в апдейтере.
+    private let updater: UpdaterController
     /// Вызывается после сохранения, чтобы AppDelegate применил изменения (хоткей и т.п.).
     var onSave: (() -> Void)?
 
@@ -28,6 +30,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Общая опция приложения: автозапуск при входе (через `SMAppService`, не хранится в конфиге).
     private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
 
+    /// Автоматическая проверка обновлений (Sparkle) — флаг проброшен в `SPUUpdater`.
+    private let autoUpdateCheck = NSButton(checkboxWithTitle: "Автоматически проверять обновления", target: nil, action: nil)
+
     /// Подпись поля, выровненного в колонку.
     private let clipboardActionLabel = NSTextField(labelWithString: "Действие при копировании ключа:")
     /// Заголовок блока хоткеев (с напоминанием про разрешение Accessibility).
@@ -48,10 +53,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
     }
 
-    init(config: JiraConfig) {
+    init(config: JiraConfig, updater: UpdaterController) {
         self.config = config
+        self.updater = updater
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 640),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -205,6 +211,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             copyHotKeyRow,
             loginSeparator,
             launchAtLoginCheck,
+            autoUpdateCheck,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -243,6 +250,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             copyHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
+            // Нижняя панель кнопок не должна налезать на «Запускать при входе» — держим зазор.
+            saveButton.topAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 20),
             resetButton.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             resetButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
         ])
@@ -370,6 +379,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
         copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
+        autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()
     }
 
@@ -399,6 +409,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         // Запуск при входе хранится не в конфиге, а в системе — синхронизируем по факту.
         LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
+        // Автообновление — пробрасываем флаг в Sparkle (он сам персистит его в UserDefaults).
+        updater.automaticallyChecksForUpdates = autoUpdateCheck.state == .on
 
         onSave?()
         window?.close()

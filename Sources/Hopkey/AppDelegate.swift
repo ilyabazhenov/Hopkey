@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKey = HotKeyManager()
     private let notifications = NotificationManager()
     private let updater = UpdaterController()
-    private lazy var settings = SettingsWindowController(config: config)
+    private lazy var settings = SettingsWindowController(config: config, updater: updater)
 
     // Защита от двойной обработки одного и того же текста
     // (наш синтетический Cmd+C виден и наблюдателю буфера тоже).
@@ -137,10 +137,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Открыть тикет из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
         menu.addItem(.separator())
-        // Без keyEquivalent ",": иначе macOS опознаёт пункт как стандартные настройки
-        // и сам подставляет шестерёнку. image = nil — страховка на случай авто-иконки.
-        let settingsItem = menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: "")
-        settingsItem.image = nil
+        // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
+        // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu
+        // зарезервировать колонку под картинки и сдвинуть текст всех пунктов вправо.
+        // image = nil здесь не держится: система перерисовывает иконку при показе,
+        // поэтому окончательно гасим её в menuNeedsUpdate (см. NSMenuDelegate ниже).
+        menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Выход", action: #selector(quit), keyEquivalent: "")
@@ -148,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in menu.items where item.action != nil {
             item.target = self
         }
+        menu.delegate = self
         statusItem.menu = menu
     }
 
@@ -212,6 +215,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotKey.register(id: 2, action: .copyURL,
                             keyCode: UInt32(config.copyHotKeyKeyCode),
                             modifiers: UInt32(config.copyHotKeyModifiers))
+        }
+    }
+}
+
+// MARK: - NSMenuDelegate
+
+extension AppDelegate: NSMenuDelegate {
+    /// Вызывается прямо перед показом меню — последняя точка, где можно убрать
+    /// авто-шестерёнку, которую macOS навешивает на пункт «Настройки…».
+    /// Гасим иконки у всех пунктов, чтобы NSMenu не резервировал колонку под
+    /// картинки и не сдвигал текст влево.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items where item.image != nil {
+            item.image = nil
         }
     }
 }
