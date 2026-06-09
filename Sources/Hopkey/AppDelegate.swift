@@ -26,10 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboard.onChange = { [weak self] text in self?.handle(text, source: .clipboard) }
         clipboard.start()
 
-        hotKey.onCapture = { [weak self] text in self?.handle(text, source: .hotkey) }
-        if config.hotKeyEnabled {
+        hotKey.onCapture = { [weak self] text, action in
+            self?.handle(text, source: .hotkey, hotKeyAction: action)
+        }
+        if anyHotKeyEnabled {
             HotKeyManager.ensureAccessibility(prompt: false)
-            registerHotKey()
+            registerHotKeys()
         }
 
         settings.onSave = { [weak self] in self?.applyConfig() }
@@ -42,8 +44,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Обработка текста
 
-    private func handle(_ text: String, source: Source) {
-        let matches = TicketParser.matches(in: text, prefixes: config.prefixes, baseURL: config.baseURL)
+    private func handle(_ text: String, source: Source, hotKeyAction: TicketAction? = nil) {
+        let matches: [TicketMatch]
+        switch source {
+        case .hotkey:
+            // Хоткей — явное намерение: извлекаем ключи из произвольного выделенного текста.
+            matches = TicketParser.matches(in: text, projects: config.projects)
+        case .clipboard:
+            // Автонаблюдение: срабатываем, только если в буфере ровно ключ тикета.
+            // Случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер.
+            matches = TicketParser.exactMatch(in: text, projects: config.projects).map { [$0] } ?? []
+        }
         guard !matches.isEmpty else { return }
 
         let joined = matches.map(\.id).joined(separator: ",")
@@ -54,11 +65,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastHandledText = joined
         lastHandledAt = Date()
 
-        // Хоткей — явное намерение пользователя, поэтому открываем сразу.
+        // Хоткей — явное намерение пользователя, поэтому выполняем действие сразу.
+        // Для хоткея действие приходит от сработавшей комбинации, для буфера — из настроек.
+        let action = source == .hotkey ? (hotKeyAction ?? .openInBrowser) : config.clipboardAction
         if source == .hotkey || config.autoOpen {
-            URLOpener.open(matches.map(\.url))
+            perform(action, on: matches)
         } else {
-            notifications.notify(matches: matches)
+            // Авто-открытие выключено: спрашиваем кликом. Уведомление несёт то же
+            // действие — клик по баннеру выполнит именно его (открыть или скопировать).
+            notifications.notify(matches: matches, action: action)
+            clipboard.syncChangeCount()
+        }
+    }
+
+    /// Выполняет действие над найденными тикетами.
+    /// Любая запись в буфер обязана сопровождаться `clipboard.syncChangeCount()`,
+    /// иначе наблюдатель буфера увидит свою же запись с ID и зациклит обработку.
+    private func perform(_ action: TicketAction, on matches: [TicketMatch]) {
+        switch action {
+        case .openInBrowser:
+            URLOpener.open(matches.map(\.url))
+        case .copyURL:
+            URLOpener.copy(TicketAction.clipboardString(for: matches))
+            notifications.confirmCopy(matches: matches)
         }
         clipboard.syncChangeCount()
     }
@@ -104,16 +133,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.addItem(withTitle: "Открыть тикет из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
+        menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
         menu.addItem(.separator())
 
         let autoOpenItem = NSMenuItem(title: "Открывать сразу", action: #selector(toggleAutoOpen), keyEquivalent: "")
         autoOpenItem.state = config.autoOpen ? .on : .off
         menu.addItem(autoOpenItem)
 
-        let hotKeyTitle = "Глобальный хоткей \(hotKeyDisplayString(keyCode: UInt32(config.hotKeyKeyCode), modifiers: UInt32(config.hotKeyModifiers)))"
-        let hotKeyItem = NSMenuItem(title: hotKeyTitle, action: #selector(toggleHotKey), keyEquivalent: "")
-        hotKeyItem.state = config.hotKeyEnabled ? .on : .off
-        menu.addItem(hotKeyItem)
+        let openCombo = hotKeyDisplayString(keyCode: UInt32(config.openHotKeyKeyCode), modifiers: UInt32(config.openHotKeyModifiers))
+        let openItem = NSMenuItem(title: "Открывать по хоткею (\(openCombo))", action: #selector(toggleOpenHotKey), keyEquivalent: "")
+        openItem.state = config.openHotKeyEnabled ? .on : .off
+        menu.addItem(openItem)
+
+        let copyCombo = hotKeyDisplayString(keyCode: UInt32(config.copyHotKeyKeyCode), modifiers: UInt32(config.copyHotKeyModifiers))
+        let copyItem = NSMenuItem(title: "Копировать по хоткею (\(copyCombo))", action: #selector(toggleCopyHotKey), keyEquivalent: "")
+        copyItem.state = config.copyHotKeyEnabled ? .on : .off
+        menu.addItem(copyItem)
 
         let loginItem = NSMenuItem(title: "Запускать при входе", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         loginItem.state = launchAtLoginEnabled ? .on : .off
@@ -132,13 +167,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Действия меню
 
     @objc private func openFromClipboard() {
+        actionFromClipboard(.openInBrowser)
+    }
+
+    @objc private func copyFromClipboard() {
+        actionFromClipboard(.copyURL)
+    }
+
+    private func actionFromClipboard(_ action: TicketAction) {
         guard let text = NSPasteboard.general.string(forType: .string),
-              case let matches = TicketParser.matches(in: text, prefixes: config.prefixes, baseURL: config.baseURL),
+              case let matches = TicketParser.matches(in: text, projects: config.projects),
               !matches.isEmpty else {
             NSSound.beep()
             return
         }
-        URLOpener.open(matches.map(\.url))
+        perform(action, on: matches)
     }
 
     @objc private func toggleAutoOpen() {
@@ -146,16 +189,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    @objc private func toggleHotKey() {
-        if config.hotKeyEnabled {
-            config.hotKeyEnabled = false
-            hotKey.unregister()
-        } else {
-            config.hotKeyEnabled = true
-            HotKeyManager.ensureAccessibility(prompt: true)
-            registerHotKey()
-        }
-        rebuildMenu()
+    @objc private func toggleOpenHotKey() {
+        config.openHotKeyEnabled.toggle()
+        applyConfig()
+    }
+
+    @objc private func toggleCopyHotKey() {
+        config.copyHotKeyEnabled.toggle()
+        applyConfig()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -182,20 +223,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Применение настроек
 
     private func applyConfig() {
-        if config.hotKeyEnabled {
+        if anyHotKeyEnabled {
             HotKeyManager.ensureAccessibility(prompt: true)
-            registerHotKey()
+            registerHotKeys()
         } else {
-            hotKey.unregister()
+            hotKey.unregisterAll()
         }
         rebuildMenu()
     }
 
-    /// Перерегистрирует хоткей с актуальной комбинацией из конфига.
-    private func registerHotKey() {
-        hotKey.unregister()
-        hotKey.register(keyCode: UInt32(config.hotKeyKeyCode),
-                        modifiers: UInt32(config.hotKeyModifiers))
+    private var anyHotKeyEnabled: Bool {
+        config.openHotKeyEnabled || config.copyHotKeyEnabled
+    }
+
+    /// Перерегистрирует оба хоткея с актуальными комбинациями из конфига.
+    /// Каждый регистрируется только если включён; id 1 — открыть, id 2 — скопировать.
+    private func registerHotKeys() {
+        hotKey.unregisterAll()
+        // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
+        if config.openHotKeyEnabled, config.openHotKeyModifiers != 0 {
+            hotKey.register(id: 1, action: .openInBrowser,
+                            keyCode: UInt32(config.openHotKeyKeyCode),
+                            modifiers: UInt32(config.openHotKeyModifiers))
+        }
+        if config.copyHotKeyEnabled, config.copyHotKeyModifiers != 0 {
+            hotKey.register(id: 2, action: .copyURL,
+                            keyCode: UInt32(config.copyHotKeyKeyCode),
+                            modifiers: UInt32(config.copyHotKeyModifiers))
+        }
     }
 
     private var launchAtLoginEnabled: Bool {

@@ -15,6 +15,19 @@ final class HotKeyRecorderView: NSView {
         didSet { updateTitle() }
     }
 
+    /// Выключённый рекордер не реагирует на клики и приглушён — используется,
+    /// когда глобальный хоткей отключён и комбинация ни на что не влияет.
+    var isEnabled = true {
+        didSet {
+            if !isEnabled, isRecording {
+                isRecording = false
+                window?.makeFirstResponder(nil)
+            }
+            updateTitle()
+            needsDisplay = true
+        }
+    }
+
     private var isRecording = false {
         didSet {
             updateTitle()
@@ -45,9 +58,10 @@ final class HotKeyRecorderView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { isEnabled }
 
     override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         window?.makeFirstResponder(self)
         isRecording = true
     }
@@ -99,13 +113,19 @@ final class HotKeyRecorderView: NSView {
             label.textColor = .secondaryLabelColor
         } else {
             label.stringValue = hotKeyDisplayString(keyCode: combo.keyCode, modifiers: combo.modifiers)
-            label.textColor = .labelColor
+            label.textColor = isEnabled ? .labelColor : .disabledControlTextColor
         }
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        layer?.borderColor = (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        let borderColor: NSColor
+        if !isEnabled {
+            borderColor = .quaternaryLabelColor
+        } else {
+            borderColor = isRecording ? .controlAccentColor : .separatorColor
+        }
+        layer?.borderColor = borderColor.cgColor
     }
 }
 

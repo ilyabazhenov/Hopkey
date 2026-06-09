@@ -81,4 +81,68 @@ final class TicketParserTests: XCTestCase {
                                      baseURL: "https://bad host/browse")
         XCTAssertTrue(m.isEmpty)
     }
+
+    // MARK: - Несколько проектов
+
+    func testMultipleProjectsRouteByPrefix() {
+        let projects = [
+            JiraProject(baseURL: "https://a.example.com/browse/", prefixes: ["PROJ"]),
+            JiraProject(baseURL: "https://b.example.com/browse/", prefixes: ["ABC"]),
+        ]
+        let m = TicketParser.matches(in: "PROJ-1 ABC-2", projects: projects)
+        XCTAssertEqual(m.map(\.id), ["PROJ-1", "ABC-2"])
+        XCTAssertEqual(m.map { $0.url.absoluteString },
+                       ["https://a.example.com/browse/PROJ-1",
+                        "https://b.example.com/browse/ABC-2"])
+    }
+
+    func testMultipleProjectsDedupByID() {
+        // Один и тот же префикс в двух проектах — первый выигрывает, дубликата нет.
+        let projects = [
+            JiraProject(baseURL: "https://a.example.com/browse/", prefixes: ["PROJ"]),
+            JiraProject(baseURL: "https://b.example.com/browse/", prefixes: ["PROJ"]),
+        ]
+        let m = TicketParser.matches(in: "PROJ-1", projects: projects)
+        XCTAssertEqual(m.map(\.id), ["PROJ-1"])
+        XCTAssertEqual(m.first?.url.absoluteString, "https://a.example.com/browse/PROJ-1")
+    }
+
+    func testNoProjectsYieldsNothing() {
+        XCTAssertTrue(TicketParser.matches(in: "PROJ-1", projects: []).isEmpty)
+    }
+
+    // MARK: - Точное совпадение (автонаблюдение за буфером)
+
+    private var sampleProjects: [JiraProject] {
+        [JiraProject(baseURL: base, prefixes: prefixes)]
+    }
+
+    func testExactMatchOnlyKey() {
+        let m = TicketParser.exactMatch(in: "PROJ-12345", projects: sampleProjects)
+        XCTAssertEqual(m?.id, "PROJ-12345")
+        XCTAssertEqual(m?.url.absoluteString, "https://jira.example.com/browse/PROJ-12345")
+    }
+
+    func testExactMatchTrimsWhitespace() {
+        XCTAssertEqual(TicketParser.exactMatch(in: "  PROJ-7\n", projects: sampleProjects)?.id, "PROJ-7")
+    }
+
+    func testExactMatchCaseInsensitive() {
+        XCTAssertEqual(TicketParser.exactMatch(in: "proj-7", projects: sampleProjects)?.id, "PROJ-7")
+    }
+
+    func testExactMatchRejectsURL() {
+        // Главный кейс: скопированная ссылка не должна срабатывать автоматически.
+        let url = "https://jira.moscow.alfaintra.net/browse/PROJ-36075"
+        XCTAssertNil(TicketParser.exactMatch(in: url, projects: sampleProjects))
+    }
+
+    func testExactMatchRejectsSurroundingText() {
+        XCTAssertNil(TicketParser.exactMatch(in: "ping PROJ-1 please", projects: sampleProjects))
+        XCTAssertNil(TicketParser.exactMatch(in: "PROJ-1 PROJ-2", projects: sampleProjects))
+    }
+
+    func testExactMatchEmptyYieldsNil() {
+        XCTAssertNil(TicketParser.exactMatch(in: "   ", projects: sampleProjects))
+    }
 }

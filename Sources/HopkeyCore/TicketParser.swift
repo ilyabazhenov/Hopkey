@@ -59,6 +59,41 @@ public enum TicketParser {
         return result
     }
 
+    /// Извлекает совпадения сразу по нескольким проектам: каждый тикет получает ссылку
+    /// от того проекта, чей префикс совпал. Дубликаты по ID не повторяются (первый выигрывает).
+    /// - Parameters:
+    ///   - text: произвольный текст.
+    ///   - projects: проекты, каждый со своим `baseURL` и `prefixes`.
+    /// - Returns: совпадения, сгруппированные по проектам; внутри проекта — в порядке появления.
+    public static func matches(in text: String, projects: [JiraProject]) -> [TicketMatch] {
+        var seen = Set<String>()
+        var result: [TicketMatch] = []
+        for project in projects {
+            for m in matches(in: text, prefixes: project.prefixes, baseURL: project.baseURL)
+            where !seen.contains(m.id) {
+                seen.insert(m.id)
+                result.append(m)
+            }
+        }
+        return result
+    }
+
+    /// Точное совпадение: возвращает тикет, только если **весь** текст (без пробелов по краям) —
+    /// это ровно один ключ тикета, например `PROJ-12345`. URL, предложения и любой лишний текст
+    /// не срабатывают. Нужно для автонаблюдения за буфером, чтобы случайно скопированная ссылка
+    /// не открывала браузер сама собой.
+    /// - Parameters:
+    ///   - text: содержимое буфера обмена.
+    ///   - projects: проекты, каждый со своим `baseURL` и `prefixes`.
+    /// - Returns: совпадение, если текст целиком равен ключу тикета; иначе `nil`.
+    public static func exactMatch(in text: String, projects: [JiraProject]) -> TicketMatch? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalizedID = trimmed.uppercased()
+        // Текст должен быть ровно ключом: единственное совпадение, занимающее всю строку.
+        return matches(in: trimmed, projects: projects).first { $0.id == normalizedID }
+    }
+
     /// Гарантирует один завершающий слэш, чтобы `base` + `ID` всегда был корректным.
     private static func normalizeBaseURL(_ base: String) -> String {
         let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)

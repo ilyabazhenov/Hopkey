@@ -1,24 +1,54 @@
 import AppKit
 import HopkeyCore
 
-/// Простое окно настроек: базовый URL, список префиксов, переключатели.
+/// Окно настроек: таблица проектов (URL + префиксы), переключатели и хоткей.
 /// Изменения сохраняются по кнопке «Сохранить» и сообщаются через `onSave`.
-final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate,
+                                      NSTableViewDataSource, NSTableViewDelegate {
 
     private let config: JiraConfig
     /// Вызывается после сохранения, чтобы AppDelegate применил изменения (хоткей и т.п.).
     var onSave: (() -> Void)?
 
-    private let baseURLField = NSTextField()
-    private let prefixesField = NSTextField()
-    private let autoOpenCheck = NSButton(checkboxWithTitle: "Открывать сразу (без уведомления)", target: nil, action: nil)
-    private let hotKeyCheck = NSButton(checkboxWithTitle: "Включить глобальный хоткей (нужен Accessibility)", target: nil, action: nil)
-    private let hotKeyRecorder = HotKeyRecorderView()
+    /// Рабочая копия проектов, которую редактирует таблица.
+    private var projects: [JiraProject] = []
+
+    private let tableView = NSTableView()
+    private let removeButton = NSButton()
+    private let emptyStateLabel = NSTextField(labelWithString: "Нажмите +, чтобы добавить проект Jira")
+    private let autoOpenCheck = NSButton(checkboxWithTitle: "Выполнять действие сразу при копировании ключа (иначе — показать уведомление)", target: nil, action: nil)
+    private let clipboardActionPopup = NSPopUpButton()
+
+    /// Два независимых хоткея с фиксированным действием: открыть / скопировать.
+    private let openHotKeyCheck = NSButton(checkboxWithTitle: "Открывать в браузере", target: nil, action: nil)
+    private let openHotKeyRecorder = HotKeyRecorderView()
+    private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Копировать ссылку", target: nil, action: nil)
+    private let copyHotKeyRecorder = HotKeyRecorderView()
+
+    /// Подпись поля, выровненного в колонку.
+    private let clipboardActionLabel = NSTextField(labelWithString: "Действие при копировании ключа:")
+    /// Заголовок блока хоткеев (с напоминанием про разрешение Accessibility).
+    private let hotKeysHeader = NSTextField(labelWithString: "Глобальные хоткеи (нужен доступ в «Конфиденциальность и безопасность ▸ Универсальный доступ»):")
+
+    /// Действия в порядке отображения в выпадающем списке.
+    private let actions: [TicketAction] = TicketAction.allCases
+
+    private enum Column {
+        static let url = NSUserInterfaceItemIdentifier("url")
+        static let prefixes = NSUserInterfaceItemIdentifier("prefixes")
+    }
+
+    private func title(for action: TicketAction) -> String {
+        switch action {
+        case .openInBrowser: return "Открыть в браузере"
+        case .copyURL: return "Скопировать ссылку"
+        }
+    }
 
     init(config: JiraConfig) {
         self.config = config
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 330),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -41,60 +71,287 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             return l
         }
 
-        let baseLabel = label("Базовый URL Jira:")
-        let prefixesLabel = label("Префиксы (через запятую или пробел):")
+        // Вводная строка о механике приложения — окно открывается первым при первом запуске.
+        let introLabel = label("Hopkey превращает ключи тикетов в ссылки: скопируйте ключ (например, ONECOLLECT-123) — и тикет откроется; либо выделите текст и нажмите хоткей.")
+        introLabel.textColor = .secondaryLabelColor
+        introLabel.font = .systemFont(ofSize: 11)
+        introLabel.lineBreakMode = .byWordWrapping
+        introLabel.maximumNumberOfLines = 0
+        introLabel.preferredMaxLayoutWidth = 500
 
-        for field in [baseURLField, prefixesField] {
-            field.translatesAutoresizingMaskIntoConstraints = false
+        let projectsLabel = label("Проекты Jira (префиксы через запятую или пробел):")
+
+        // Таблица проектов с заголовками колонок.
+        let urlColumn = NSTableColumn(identifier: Column.url)
+        urlColumn.title = "Базовый URL"
+        urlColumn.minWidth = 200
+        urlColumn.width = 300
+
+        let prefixColumn = NSTableColumn(identifier: Column.prefixes)
+        prefixColumn.title = "Префиксы"
+        prefixColumn.minWidth = 120
+
+        tableView.addTableColumn(urlColumn)
+        tableView.addTableColumn(prefixColumn)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        tableView.allowsMultipleSelection = false
+        tableView.rowHeight = 24
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.documentView = tableView
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        // Подсказка по центру таблицы, пока проектов нет.
+        emptyStateLabel.textColor = .secondaryLabelColor
+        emptyStateLabel.font = .systemFont(ofSize: 12)
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(emptyStateLabel)
+
+        // Панель +/− под таблицей.
+        let addButton = NSButton(title: "+", target: self, action: #selector(addRow))
+        addButton.bezelStyle = .smallSquare
+        addButton.setButtonType(.momentaryPushIn)
+        removeButton.title = "−"
+        removeButton.target = self
+        removeButton.action = #selector(removeSelectedRow)
+        removeButton.bezelStyle = .smallSquare
+        removeButton.setButtonType(.momentaryPushIn)
+        removeButton.isEnabled = false
+        for b in [addButton, removeButton] {
+            b.translatesAutoresizingMaskIntoConstraints = false
+            b.widthAnchor.constraint(equalToConstant: 28).isActive = true
         }
-        baseURLField.placeholderString = "https://your-jira/browse/"
-        prefixesField.placeholderString = "PROJ, TEAM"
-        autoOpenCheck.translatesAutoresizingMaskIntoConstraints = false
-        hotKeyCheck.translatesAutoresizingMaskIntoConstraints = false
+        let buttonBar = NSStackView(views: [addButton, removeButton])
+        buttonBar.orientation = .horizontal
+        buttonBar.spacing = 0
+        buttonBar.translatesAutoresizingMaskIntoConstraints = false
 
-        let hotKeyLabel = label("Комбинация:")
-        hotKeyRecorder.translatesAutoresizingMaskIntoConstraints = false
-        let hotKeyRow = NSStackView(views: [hotKeyLabel, hotKeyRecorder])
-        hotKeyRow.orientation = .horizontal
-        hotKeyRow.alignment = .centerY
-        hotKeyRow.spacing = 8
-        hotKeyRow.translatesAutoresizingMaskIntoConstraints = false
+        autoOpenCheck.translatesAutoresizingMaskIntoConstraints = false
+
+        // Строка «подпись + контрол» для действия буфера.
+        clipboardActionLabel.translatesAutoresizingMaskIntoConstraints = false
+        clipboardActionPopup.removeAllItems()
+        clipboardActionPopup.addItems(withTitles: actions.map(title(for:)))
+        clipboardActionPopup.translatesAutoresizingMaskIntoConstraints = false
+        let clipboardActionRow = NSStackView(views: [clipboardActionLabel, clipboardActionPopup])
+        clipboardActionRow.orientation = .horizontal
+        clipboardActionRow.alignment = .centerY
+        clipboardActionRow.spacing = 8
+        clipboardActionRow.translatesAutoresizingMaskIntoConstraints = false
+
+        // Блок хоткеев: приглушённый заголовок + две строки «галочка + рекордер».
+        hotKeysHeader.translatesAutoresizingMaskIntoConstraints = false
+        hotKeysHeader.textColor = .secondaryLabelColor
+        hotKeysHeader.font = .systemFont(ofSize: 11)
+        hotKeysHeader.lineBreakMode = .byWordWrapping
+        hotKeysHeader.maximumNumberOfLines = 0
+        hotKeysHeader.preferredMaxLayoutWidth = 500
+
+        func hotKeyRow(_ check: NSButton, _ recorder: HotKeyRecorderView) -> NSStackView {
+            check.translatesAutoresizingMaskIntoConstraints = false
+            check.target = self
+            check.action = #selector(updateDependentControls)
+            recorder.translatesAutoresizingMaskIntoConstraints = false
+            let row = NSStackView(views: [check, recorder])
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 8
+            row.translatesAutoresizingMaskIntoConstraints = false
+            return row
+        }
+        let openHotKeyRow = hotKeyRow(openHotKeyCheck, openHotKeyRecorder)
+        let copyHotKeyRow = hotKeyRow(copyHotKeyCheck, copyHotKeyRecorder)
 
         let saveButton = NSButton(title: "Сохранить", target: self, action: #selector(save))
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.keyEquivalent = "\r"
 
+        // Горизонтальные разделители делят окно на три блока:
+        // проекты · реакция на копирование · глобальный хоткей.
+        func separator() -> NSBox {
+            let box = NSBox()
+            box.boxType = .separator
+            box.translatesAutoresizingMaskIntoConstraints = false
+            return box
+        }
+        let clipboardSeparator = separator()
+        let hotKeySeparator = separator()
+
         let stack = NSStackView(views: [
-            baseLabel, baseURLField,
-            prefixesLabel, prefixesField,
-            autoOpenCheck, hotKeyCheck,
-            hotKeyRow,
+            introLabel,
+            projectsLabel,
+            scroll,
+            buttonBar,
+            clipboardSeparator,
+            autoOpenCheck, clipboardActionRow,
+            hotKeySeparator,
+            hotKeysHeader,
+            openHotKeyRow,
+            copyHotKeyRow,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
+        stack.setCustomSpacing(2, after: scroll)
+        // Воздух вокруг разделителей, чтобы блоки читались как отдельные группы.
+        stack.setCustomSpacing(16, after: buttonBar)
+        stack.setCustomSpacing(16, after: clipboardSeparator)
+        stack.setCustomSpacing(16, after: clipboardActionRow)
+        stack.setCustomSpacing(16, after: hotKeySeparator)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         content.addSubview(saveButton)
+
+        // Две галочки хоткеев — одинаковой ширины, чтобы рекордеры справа были на одной вертикали.
+        let hotKeyCheckWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
+                                        copyHotKeyCheck.intrinsicContentSize.width))
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            baseURLField.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            prefixesField.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            hotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
+            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: 160),
+            clipboardSeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            hotKeySeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            emptyStateLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            emptyStateLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            openHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
+            copyHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
+            openHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
+            copyHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
         ])
     }
 
-    private func loadValues() {
-        baseURLField.stringValue = config.baseURL
-        prefixesField.stringValue = config.prefixes.joined(separator: ", ")
+    // MARK: - Таблица
+
+    func numberOfRows(in tableView: NSTableView) -> Int { projects.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let tableColumn, projects.indices.contains(row) else { return nil }
+
+        let field = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NSTextField)
+            ?? makeCellField(identifier: tableColumn.identifier)
+
+        let project = projects[row]
+        switch tableColumn.identifier {
+        case Column.url:
+            field.stringValue = project.baseURL
+            field.placeholderString = "https://jira.company.net/browse/"
+            field.toolTip = "Адрес до ключа тикета; Hopkey допишет ключ в конец (слэш можно не ставить)."
+        case Column.prefixes:
+            field.stringValue = project.prefixes.joined(separator: ", ")
+            field.placeholderString = "PROJ, TEAM"
+        default:
+            break
+        }
+        return field
+    }
+
+    private func makeCellField(identifier: NSUserInterfaceItemIdentifier) -> NSTextField {
+        let field = NSTextField()
+        // Свой cell центрирует текст по вертикали: иначе в строке высотой 24 он
+        // прижимается к верхнему краю. Замена cell сбрасывает дефолты — выставляем явно.
+        field.cell = VerticallyCenteredTextFieldCell()
+        field.identifier = identifier
+        field.isEditable = true
+        field.isSelectable = true
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.usesSingleLineMode = true
+        field.font = .systemFont(ofSize: 12)
+        field.lineBreakMode = .byTruncatingTail
+        field.target = self
+        field.action = #selector(cellEdited(_:))
+        return field
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        removeButton.isEnabled = tableView.selectedRow >= 0
+    }
+
+    /// Показывает подсказку по центру таблицы, только пока проектов нет.
+    private func updateEmptyState() {
+        emptyStateLabel.isHidden = !projects.isEmpty
+    }
+
+    /// Каждый рекордер активен только при включённой своей галочке.
+    /// «Действие при копировании ключа» не трогаем — оно применяется всегда:
+    /// сразу при включённой галочке либо по клику на уведомление при выключенной.
+    @objc private func updateDependentControls() {
+        openHotKeyRecorder.isEnabled = openHotKeyCheck.state == .on
+        copyHotKeyRecorder.isEnabled = copyHotKeyCheck.state == .on
+    }
+
+    @objc private func cellEdited(_ sender: NSTextField) {
+        let row = tableView.row(for: sender)
+        let col = tableView.column(for: sender)
+        guard projects.indices.contains(row), col >= 0 else { return }
+
+        switch tableView.tableColumns[col].identifier {
+        case Column.url:
+            projects[row].baseURL = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        case Column.prefixes:
+            projects[row].prefixes = parsePrefixes(sender.stringValue)
+        default:
+            break
+        }
+    }
+
+    @objc private func addRow() {
+        commitEditing()
+        projects.append(JiraProject(baseURL: "", prefixes: []))
+        tableView.reloadData()
+        updateEmptyState()
+        let newRow = projects.count - 1
+        tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
+        tableView.editColumn(0, row: newRow, with: nil, select: true)
+    }
+
+    @objc private func removeSelectedRow() {
+        let row = tableView.selectedRow
+        guard projects.indices.contains(row) else { return }
+        commitEditing()
+        projects.remove(at: row)
+        tableView.reloadData()
+        updateEmptyState()
+        removeButton.isEnabled = tableView.selectedRow >= 0
+    }
+
+    private func parsePrefixes(_ raw: String) -> [String] {
+        raw.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Завершает активное редактирование ячейки, чтобы значение попало в модель.
+    private func commitEditing() {
+        window?.makeFirstResponder(tableView)
+    }
+
+    func loadValues() {
+        projects = config.projects
+        tableView.reloadData()
+        updateEmptyState()
+        removeButton.isEnabled = false
+
         autoOpenCheck.state = config.autoOpen ? .on : .off
-        hotKeyCheck.state = config.hotKeyEnabled ? .on : .off
-        hotKeyRecorder.combo = (UInt32(config.hotKeyKeyCode), UInt32(config.hotKeyModifiers))
+        if let index = actions.firstIndex(of: config.clipboardAction) {
+            clipboardActionPopup.selectItem(at: index)
+        }
+        openHotKeyCheck.state = config.openHotKeyEnabled ? .on : .off
+        openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
+        copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
+        copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
+        updateDependentControls()
     }
 
     func showWindow() {
@@ -105,19 +362,54 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func save() {
-        config.baseURL = baseURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        config.prefixes = prefixesField.stringValue
-            .components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        commitEditing()
+        config.projects = projects.filter(\.isValid)
 
         config.autoOpen = autoOpenCheck.state == .on
-        config.hotKeyEnabled = hotKeyCheck.state == .on
-        config.hotKeyKeyCode = Int(hotKeyRecorder.combo.keyCode)
-        config.hotKeyModifiers = Int(hotKeyRecorder.combo.modifiers)
+        let clipboardIndex = clipboardActionPopup.indexOfSelectedItem
+        if actions.indices.contains(clipboardIndex) {
+            config.clipboardAction = actions[clipboardIndex]
+        }
+
+        config.openHotKeyEnabled = openHotKeyCheck.state == .on
+        config.openHotKeyKeyCode = Int(openHotKeyRecorder.combo.keyCode)
+        config.openHotKeyModifiers = Int(openHotKeyRecorder.combo.modifiers)
+        config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
+        config.copyHotKeyKeyCode = Int(copyHotKeyRecorder.combo.keyCode)
+        config.copyHotKeyModifiers = Int(copyHotKeyRecorder.combo.modifiers)
 
         onSave?()
         window?.close()
+    }
+}
+
+/// Текстовая ячейка, центрирующая содержимое по вертикали. Нужна в таблице проектов,
+/// где высота строки (24) больше высоты текста, а `NSTextFieldCell` по умолчанию
+/// прижимает текст к верхнему краю. Сдвиг применяется и при отрисовке, и при редактировании.
+private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    private func centered(_ rect: NSRect) -> NSRect {
+        let textHeight = cellSize(forBounds: rect).height
+        let dy = (rect.height - textHeight) / 2
+        guard dy > 0 else { return rect }
+        var r = rect
+        r.origin.y += dy
+        r.size.height -= dy * 2
+        return r
+    }
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        super.drawInterior(withFrame: centered(cellFrame), in: controlView)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView,
+                       editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: centered(rect), in: controlView,
+                   editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView,
+                         editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: centered(rect), in: controlView,
+                     editor: textObj, delegate: delegate, start: selStart, length: selLength)
     }
 }

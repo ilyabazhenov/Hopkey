@@ -8,6 +8,7 @@ APP_NAME="Hopkey"
 DISPLAY_NAME="Hopkey"
 BUNDLE_ID="com.local.hopkey"
 VERSION="1.0.0"
+APP_ICON="Assets/AppIcon.icns"
 
 cd "$(dirname "$0")"
 
@@ -25,6 +26,7 @@ echo "==> Сборка бандла ${APP_DIR}…"
 rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RES_DIR}"
 cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
+cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +37,7 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key>     <string>${DISPLAY_NAME}</string>
     <key>CFBundleExecutable</key>      <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>      <string>${BUNDLE_ID}</string>
+    <key>CFBundleIconFile</key>        <string>AppIcon</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleShortVersionString</key> <string>${VERSION}</string>
     <key>CFBundleVersion</key>         <string>${VERSION}</string>
