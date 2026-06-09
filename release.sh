@@ -72,7 +72,10 @@ EOF
 
 echo "==> Создание GitHub Release ${TAG}…"
 if gh release view "${TAG}" --repo "${REPO}" >/dev/null 2>&1; then
+    # Релиз уже есть: перезаливаем ассеты И обновляем текст notes (иначе памятка
+    # про xattr не попадёт в уже созданный релиз).
     gh release upload "${TAG}" "${DIST_DIR}/${ZIP_NAME}" "${DIST_DIR}/${DMG_NAME}" --repo "${REPO}" --clobber
+    gh release edit "${TAG}" --repo "${REPO}" --title "${APP_NAME} ${VERSION}" --notes "${NOTES}"
 else
     gh release create "${TAG}" "${DIST_DIR}/${ZIP_NAME}" "${DIST_DIR}/${DMG_NAME}" --repo "${REPO}" \
         --title "${APP_NAME} ${VERSION}" --notes "${NOTES}"
