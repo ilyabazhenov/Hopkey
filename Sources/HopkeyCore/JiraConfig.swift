@@ -32,14 +32,21 @@ public final class JiraConfig {
         static let copyHotKeyEnabled = "copyHotKeyEnabled"
         static let copyHotKeyKeyCode = "copyHotKeyKeyCode"
         static let copyHotKeyModifiers = "copyHotKeyModifiers"
+        // Хоткей, открывающий окно ручного ввода тикета (не требует Accessibility).
+        static let showInputHotKeyEnabled = "showInputHotKeyEnabled"
+        static let showInputHotKeyKeyCode = "showInputHotKeyKeyCode"
+        static let showInputHotKeyModifiers = "showInputHotKeyModifiers"
+        // Префикс проекта, выбранный в окне ввода последним — для предвыбора.
+        static let lastQuickPrefix = "lastQuickPrefix"
         static let hotKeysV2Migrated = "hotKeysV2Migrated"
     }
 
     /// Carbon-модификаторы controlKey | optionKey (⌃⌥).
     private static let defaultModifiers = 0x1000 | 0x0800
-    /// Дефолтные комбинации хоткеев: ⌃⌥J — открыть, ⌃⌥K — скопировать.
+    /// Дефолтные комбинации хоткеев: ⌃⌥J — открыть, ⌃⌥K — скопировать, ⌃⌥O — окно ввода.
     private static let defaultOpenKeyCode = 38  // kVK_ANSI_J
     private static let defaultCopyKeyCode = 40  // kVK_ANSI_K
+    private static let defaultShowInputKeyCode = 31  // kVK_ANSI_O
 
     private func registerDefaults() {
         defaults.register(defaults: [
@@ -47,6 +54,12 @@ public final class JiraConfig {
             Key.hotKeyEnabled: false,
             Key.hotKeyKeyCode: Self.defaultOpenKeyCode,
             Key.hotKeyModifiers: Self.defaultModifiers,
+            // Слот «окно ввода» появился позже миграции в два слота, поэтому его дефолты
+            // живут здесь (регистрационный домен) — так и новые, и обновившиеся
+            // пользователи получают ⌃⌥O без отдельной миграции.
+            Key.showInputHotKeyEnabled: false,
+            Key.showInputHotKeyKeyCode: Self.defaultShowInputKeyCode,
+            Key.showInputHotKeyModifiers: Self.defaultModifiers,
         ])
     }
 
@@ -57,6 +70,8 @@ public final class JiraConfig {
         Key.defaultAction, Key.hotKeyAction, Key.clipboardAction,
         Key.openHotKeyEnabled, Key.openHotKeyKeyCode, Key.openHotKeyModifiers,
         Key.copyHotKeyEnabled, Key.copyHotKeyKeyCode, Key.copyHotKeyModifiers,
+        Key.showInputHotKeyEnabled, Key.showInputHotKeyKeyCode, Key.showInputHotKeyModifiers,
+        Key.lastQuickPrefix,
         Key.hotKeysV2Migrated,
     ]
 
@@ -205,5 +220,33 @@ public final class JiraConfig {
     public var copyHotKeyModifiers: Int {
         get { defaults.integer(forKey: Key.copyHotKeyModifiers) }
         set { defaults.set(newValue, forKey: Key.copyHotKeyModifiers) }
+    }
+
+    // MARK: Hotkey «открыть окно ввода»
+
+    /// Включён ли хоткей, открывающий окно ручного ввода тикета.
+    /// В отличие от двух хоткеев выше, Accessibility ему не нужен — он лишь показывает окно.
+    public var showInputHotKeyEnabled: Bool {
+        get { defaults.bool(forKey: Key.showInputHotKeyEnabled) }
+        set { defaults.set(newValue, forKey: Key.showInputHotKeyEnabled) }
+    }
+
+    /// Код клавиши хоткея «окно ввода». По умолчанию 31 (O → ⌃⌥O).
+    public var showInputHotKeyKeyCode: Int {
+        get { defaults.integer(forKey: Key.showInputHotKeyKeyCode) }
+        set { defaults.set(newValue, forKey: Key.showInputHotKeyKeyCode) }
+    }
+
+    /// Модификаторы хоткея «окно ввода» в Carbon-формате.
+    public var showInputHotKeyModifiers: Int {
+        get { defaults.integer(forKey: Key.showInputHotKeyModifiers) }
+        set { defaults.set(newValue, forKey: Key.showInputHotKeyModifiers) }
+    }
+
+    /// Префикс проекта, выбранный в окне ручного ввода последним. Пусто, пока не выбирали.
+    /// Используется лишь для предвыбора в списке — если префикс исчез, окно берёт первый.
+    public var lastQuickPrefix: String {
+        get { defaults.string(forKey: Key.lastQuickPrefix) ?? "" }
+        set { defaults.set(newValue, forKey: Key.lastQuickPrefix) }
     }
 }

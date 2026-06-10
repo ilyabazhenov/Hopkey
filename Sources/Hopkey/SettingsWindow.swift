@@ -27,6 +27,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let openHotKeyRecorder = HotKeyRecorderView()
     private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Копировать ссылку", target: nil, action: nil)
     private let copyHotKeyRecorder = HotKeyRecorderView()
+    /// Отдельный хоткей: открыть окно ручного ввода тикета (Accessibility не нужен).
+    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: "Открыть окно ввода тикета", target: nil, action: nil)
+    private let showInputHotKeyRecorder = HotKeyRecorderView()
+    private let showInputHotKeyNote = NSTextField(labelWithString: "Эта комбинация открывает окно ввода и не требует Универсального доступа.")
 
     /// Общая опция приложения: автозапуск при входе (через `SMAppService`, не хранится в конфиге).
     private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
@@ -178,6 +182,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
         let openHotKeyRow = hotKeyRow(openHotKeyCheck, openHotKeyRecorder)
         let copyHotKeyRow = hotKeyRow(copyHotKeyCheck, copyHotKeyRecorder)
+        let showInputHotKeyRow = hotKeyRow(showInputHotKeyCheck, showInputHotKeyRecorder)
+
+        showInputHotKeyNote.translatesAutoresizingMaskIntoConstraints = false
+        showInputHotKeyNote.textColor = .secondaryLabelColor
+        showInputHotKeyNote.font = .systemFont(ofSize: 11)
+        showInputHotKeyNote.lineBreakMode = .byWordWrapping
+        showInputHotKeyNote.maximumNumberOfLines = 0
+        showInputHotKeyNote.preferredMaxLayoutWidth = 500
 
         let saveButton = NSButton(title: "Сохранить", target: self, action: #selector(save))
         saveButton.translatesAutoresizingMaskIntoConstraints = false
@@ -212,6 +224,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             hotKeysHeader,
             openHotKeyRow,
             copyHotKeyRow,
+            showInputHotKeyRow,
+            showInputHotKeyNote,
             loginSeparator,
             launchAtLoginCheck,
             autoUpdateCheck,
@@ -225,7 +239,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         stack.setCustomSpacing(16, after: clipboardSeparator)
         stack.setCustomSpacing(16, after: clipboardActionRow)
         stack.setCustomSpacing(16, after: hotKeySeparator)
-        stack.setCustomSpacing(16, after: copyHotKeyRow)
+        // Подсказку прижимаем к своей строке хоткея, а воздух даём уже после неё.
+        stack.setCustomSpacing(4, after: showInputHotKeyRow)
+        stack.setCustomSpacing(16, after: showInputHotKeyNote)
         stack.setCustomSpacing(16, after: loginSeparator)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
@@ -234,9 +250,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         content.addSubview(saveButton)
         content.addSubview(resetButton)
 
-        // Две галочки хоткеев — одинаковой ширины, чтобы рекордеры справа были на одной вертикали.
+        // Галочки хоткеев — одинаковой ширины, чтобы рекордеры справа были на одной вертикали.
         let hotKeyCheckWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
-                                        copyHotKeyCheck.intrinsicContentSize.width))
+                                        copyHotKeyCheck.intrinsicContentSize.width,
+                                        showInputHotKeyCheck.intrinsicContentSize.width))
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
@@ -251,8 +268,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             emptyStateLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             openHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
             copyHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
+            showInputHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
             openHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             copyHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
+            showInputHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
             saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
             // Нижняя панель кнопок не должна налезать на «Запускать при входе» — держим зазор.
@@ -326,6 +345,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     @objc private func updateDependentControls() {
         openHotKeyRecorder.isEnabled = openHotKeyCheck.state == .on
         copyHotKeyRecorder.isEnabled = copyHotKeyCheck.state == .on
+        showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
     }
 
     @objc private func cellEdited(_ sender: NSTextField) {
@@ -401,6 +421,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
         copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
         copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
+        showInputHotKeyCheck.state = config.showInputHotKeyEnabled ? .on : .off
+        showInputHotKeyRecorder.combo = (UInt32(config.showInputHotKeyKeyCode), UInt32(config.showInputHotKeyModifiers))
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()
@@ -429,6 +451,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
         config.copyHotKeyKeyCode = Int(copyHotKeyRecorder.combo.keyCode)
         config.copyHotKeyModifiers = Int(copyHotKeyRecorder.combo.modifiers)
+        config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
+        config.showInputHotKeyKeyCode = Int(showInputHotKeyRecorder.combo.keyCode)
+        config.showInputHotKeyModifiers = Int(showInputHotKeyRecorder.combo.modifiers)
 
         // Запуск при входе хранится не в конфиге, а в системе — синхронизируем по факту.
         LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)

@@ -12,9 +12,17 @@ final class HotKeyManager {
     /// Текст выделения и действие сработавшего хоткея.
     var onCapture: ((String, TicketAction) -> Void)?
 
+    /// Что делает хоткей при срабатывании.
+    private enum Behavior {
+        /// Синтезировать Cmd+C, прочитать выделение и отдать его в `onCapture` (нужен Accessibility).
+        case capture(TicketAction)
+        /// Просто вызвать колбэк — например, показать окно (Accessibility не нужен).
+        case fire(() -> Void)
+    }
+
     private struct Registered {
         let ref: EventHotKeyRef
-        let action: TicketAction
+        let behavior: Behavior
     }
 
     /// Зарегистрированные хоткеи по их `EventHotKeyID.id`.
@@ -30,8 +38,19 @@ final class HotKeyManager {
         return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
     }
 
-    /// Регистрирует комбинацию под уникальным `id`, привязывая к ней действие.
+    /// Регистрирует комбинацию под уникальным `id`, привязывая к ней действие над выделением
+    /// (синтез Cmd+C → чтение буфера → `onCapture`). Требует Accessibility.
     func register(id: UInt32, action: TicketAction, keyCode: UInt32, modifiers: UInt32) {
+        register(id: id, keyCode: keyCode, modifiers: modifiers, behavior: .capture(action))
+    }
+
+    /// Регистрирует комбинацию, которая при срабатывании просто вызывает `onFire`
+    /// (например, показывает окно). Accessibility не требуется.
+    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, onFire: @escaping () -> Void) {
+        register(id: id, keyCode: keyCode, modifiers: modifiers, behavior: .fire(onFire))
+    }
+
+    private func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, behavior: Behavior) {
         installHandlerIfNeeded()
         guard registered[id] == nil else { return }
 
@@ -40,7 +59,7 @@ final class HotKeyManager {
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID,
                                          GetApplicationEventTarget(), 0, &ref)
         if status == noErr, let ref {
-            registered[id] = Registered(ref: ref, action: action)
+            registered[id] = Registered(ref: ref, behavior: behavior)
         } else {
             NSLog("Hopkey: не удалось зарегистрировать хоткей id=\(id) (status=\(status)) — комбинация занята?")
         }
@@ -78,8 +97,17 @@ final class HotKeyManager {
     }
 
     private func handleFire(id: UInt32) {
-        guard let action = registered[id]?.action else { return }
+        switch registered[id]?.behavior {
+        case .fire(let callback):
+            callback()
+        case .capture(let action):
+            capture(action: action)
+        case nil:
+            break
+        }
+    }
 
+    private func capture(action: TicketAction) {
         let pasteboard = NSPasteboard.general
         let beforeCount = pasteboard.changeCount
 

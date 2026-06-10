@@ -10,6 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notifications = NotificationManager()
     private let updater = UpdaterController()
     private lazy var settings = SettingsWindowController(config: config, updater: updater)
+    private lazy var quickTicket: QuickTicketWindowController = {
+        let controller = QuickTicketWindowController(config: config)
+        controller.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
+        return controller
+    }()
 
     // Защита от двойной обработки одного и того же текста
     // (наш синтетический Cmd+C виден и наблюдателю буфера тоже).
@@ -30,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handle(text, source: .hotkey, hotKeyAction: action)
         }
         if anyHotKeyEnabled {
-            HotKeyManager.ensureAccessibility(prompt: false)
+            if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: false) }
             registerHotKeys()
         }
 
@@ -136,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Открыть тикет из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
+        menu.addItem(withTitle: "Открыть тикет…", action: #selector(openQuickTicket), keyEquivalent: "")
         menu.addItem(.separator())
         // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
         // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu
@@ -174,6 +180,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         perform(action, on: matches)
     }
 
+    @objc private func openQuickTicket() {
+        quickTicket.showWindow()
+    }
+
     @objc private func openSettings() {
         settings.showWindow()
     }
@@ -190,7 +200,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyConfig() {
         if anyHotKeyEnabled {
-            HotKeyManager.ensureAccessibility(prompt: true)
+            // Accessibility нужен только хоткеям над выделением (синтез Cmd+C),
+            // не хоткею окна ввода — поэтому запрашиваем его лишь при необходимости.
+            if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: true) }
             registerHotKeys()
         } else {
             hotKey.unregisterAll()
@@ -198,11 +210,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var anyHotKeyEnabled: Bool {
+        needsAccessibility || config.showInputHotKeyEnabled
+    }
+
+    /// Включён ли хоть один хоткей, которому требуется Accessibility (синтез Cmd+C
+    /// над выделением). Хоткей окна ввода сюда не входит — он лишь показывает окно.
+    private var needsAccessibility: Bool {
         config.openHotKeyEnabled || config.copyHotKeyEnabled
     }
 
-    /// Перерегистрирует оба хоткея с актуальными комбинациями из конфига.
-    /// Каждый регистрируется только если включён; id 1 — открыть, id 2 — скопировать.
+    /// Перерегистрирует все хоткеи с актуальными комбинациями из конфига.
+    /// Каждый регистрируется только если включён; id 1 — открыть, id 2 — скопировать,
+    /// id 3 — окно ручного ввода.
     private func registerHotKeys() {
         hotKey.unregisterAll()
         // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
@@ -215,6 +234,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotKey.register(id: 2, action: .copyURL,
                             keyCode: UInt32(config.copyHotKeyKeyCode),
                             modifiers: UInt32(config.copyHotKeyModifiers))
+        }
+        if config.showInputHotKeyEnabled, config.showInputHotKeyModifiers != 0 {
+            hotKey.register(id: 3,
+                            keyCode: UInt32(config.showInputHotKeyKeyCode),
+                            modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
+                self?.openQuickTicket()
+            }
         }
     }
 }

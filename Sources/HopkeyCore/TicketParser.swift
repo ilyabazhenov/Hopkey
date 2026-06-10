@@ -94,6 +94,17 @@ public enum TicketParser {
         return matches(in: trimmed, projects: projects).first { $0.id == normalizedID }
     }
 
+    /// Собирает `TicketMatch` из готового ID и базового URL — без парсинга текста.
+    /// Нужен для ручного ввода: ID уже известен (например, собран из префикса и номера).
+    /// Нормализует регистр ID и завершающий слэш базы той же логикой, что и `matches`.
+    /// - Returns: совпадение, либо `nil`, если ID пуст или URL не собирается.
+    public static func makeMatch(id: String, baseURL: String) -> TicketMatch? {
+        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalizedID.isEmpty else { return nil }
+        guard let url = URL(string: normalizeBaseURL(baseURL) + normalizedID) else { return nil }
+        return TicketMatch(id: normalizedID, url: url)
+    }
+
     /// Гарантирует один завершающий слэш, чтобы `base` + `ID` всегда был корректным.
     private static func normalizeBaseURL(_ base: String) -> String {
         let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
