@@ -4,7 +4,8 @@ import HopkeyCore
 /// Окно настроек: таблица проектов (URL + префиксы), переключатели и хоткей.
 /// Изменения сохраняются по кнопке «Сохранить» и сообщаются через `onSave`.
 final class SettingsWindowController: NSWindowController, NSWindowDelegate,
-                                      NSTableViewDataSource, NSTableViewDelegate {
+                                      NSTableViewDataSource, NSTableViewDelegate,
+                                      NSTextFieldDelegate {
 
     private let config: JiraConfig
     /// Управление автообновлением (Sparkle): флаг живёт не в конфиге, а в апдейтере.
@@ -115,11 +116,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         scroll.documentView = tableView
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
-        // Подсказка по центру таблицы, пока проектов нет.
+        // Подсказка по центру таблицы, пока проектов нет. Лейбл оверлеится ПОВЕРХ
+        // скролла (добавляется в `content` ниже), а не внутрь него: `NSScrollView`
+        // сам тайлит свои подвью и прибивает постороннюю вью к верхнему краю —
+        // тогда подсказка наезжает на заголовки колонок.
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.font = .systemFont(ofSize: 12)
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(emptyStateLabel)
 
         // Панель +/− под таблицей.
         let addButton = NSButton(title: "+", target: self, action: #selector(addRow))
@@ -226,6 +229,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         stack.setCustomSpacing(16, after: loginSeparator)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
+        // Поверх скролла, чтобы подсказка пустого состояния висела по центру таблицы.
+        content.addSubview(emptyStateLabel)
         content.addSubview(saveButton)
         content.addSubview(resetButton)
 
@@ -298,6 +303,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         field.lineBreakMode = .byTruncatingTail
         field.target = self
         field.action = #selector(cellEdited(_:))
+        // Делегат ловит завершение редактирования при ЛЮБОЙ потере фокуса
+        // (клик мимо, Tab, программный `commitEditing`), а не только по Return —
+        // `action` у `NSTextField` срабатывает лишь на Return, поэтому значения
+        // последней правки терялись, и проект «уезжал» в фильтр невалидных при сохранении.
+        field.delegate = self
         return field
     }
 
@@ -319,15 +329,28 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func cellEdited(_ sender: NSTextField) {
-        let row = tableView.row(for: sender)
-        let col = tableView.column(for: sender)
+        commitCell(sender)
+    }
+
+    /// Завершение редактирования ячейки по любой причине (Return, Tab, потеря
+    /// фокуса при клике по «Сохранить»). На `action` полагаться нельзя — у
+    /// `NSTextField` он шлётся только по Return.
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        commitCell(field)
+    }
+
+    /// Переносит значение ячейки в рабочую копию `projects`.
+    private func commitCell(_ field: NSTextField) {
+        let row = tableView.row(for: field)
+        let col = tableView.column(for: field)
         guard projects.indices.contains(row), col >= 0 else { return }
 
         switch tableView.tableColumns[col].identifier {
         case Column.url:
-            projects[row].baseURL = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            projects[row].baseURL = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         case Column.prefixes:
-            projects[row].prefixes = parsePrefixes(sender.stringValue)
+            projects[row].prefixes = parsePrefixes(field.stringValue)
         default:
             break
         }
