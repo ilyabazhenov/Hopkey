@@ -62,6 +62,11 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
+        // Без этого панель «принадлежит» Space рабочего стола: при хоткее из чужого
+        // фуллскрина macOS выкинула бы пользователя из полноэкранного режима, чтобы
+        // показать окно. `.canJoinAllSpaces` показывает панель на активном Space (в т.ч.
+        // фуллскрин-Space), `.fullScreenAuxiliary` разрешает рисоваться поверх фуллскрина.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         super.init(window: panel)
         panel.delegate = self
         panel.onCommandReturn = { [weak self] in self?.submit(action: .copyURL) }
@@ -248,7 +253,23 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         content.layoutSubtreeIfNeeded()
         let height = 20 + contentStack.fittingSize.height + 12 + buttonRow.fittingSize.height + 16
         window.setContentSize(NSSize(width: 380, height: height))
-        window.center()
+        centerOnActiveScreen()
+    }
+
+    /// Центрирует окно на экране, где сейчас курсор, — там внимание пользователя.
+    /// `window.center()` всегда брал бы `NSScreen.main` (экран с меню-баром), из-за чего
+    /// при мультимониторе/фуллскрине на втором дисплее окно появлялось не на том экране.
+    private func centerOnActiveScreen() {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let area = screen?.visibleFrame else { window.center(); return }
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(
+            x: area.midX - size.width / 2,
+            y: area.midY - size.height / 2))
     }
 
     /// Выбор шаблона — только запоминаем. Открытие/копирование делается кнопками
