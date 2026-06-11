@@ -128,6 +128,47 @@ final class HotKeyManager {
         }
     }
 
+    /// Снимает текущее выделение синтетическим Cmd+C и ВОЗВРАЩАЕТ прежнее содержимое
+    /// буфера на место — выделение в буфере не оседает. Требует Accessibility; без него
+    /// буфер не меняется и `completion` получает `nil` (вызывающий откатится к буферу/пустому).
+    /// `completion` всегда вызывается на главном потоке.
+    func captureSelection(completion: @escaping (String?) -> Void) {
+        let pasteboard = NSPasteboard.general
+        let beforeCount = pasteboard.changeCount
+        let saved = savedItems(of: pasteboard)
+
+        synthesizeCopy()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            var text: String?
+            let changed = pasteboard.changeCount != beforeCount
+            if changed, let s = pasteboard.string(forType: .string), !s.isEmpty {
+                text = s
+            }
+            // Возвращаем прежнее содержимое, только если сами его перетёрли своим Cmd+C.
+            if changed {
+                pasteboard.clearContents()
+                if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+            }
+            completion(text)
+        }
+    }
+
+    /// Снимок содержимого буфера (копии элементов всех типов) для последующего восстановления.
+    private func savedItems(of pasteboard: NSPasteboard) -> [NSPasteboardItem]? {
+        pasteboard.pasteboardItems?.compactMap { item in
+            let copy = NSPasteboardItem()
+            var hasData = false
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    copy.setData(data, forType: type)
+                    hasData = true
+                }
+            }
+            return hasData ? copy : nil
+        }
+    }
+
     private func synthesizeCopy() {
         let source = CGEventSource(stateID: .combinedSessionState)
         let cKey = CGKeyCode(kVK_ANSI_C)

@@ -1,7 +1,7 @@
 import AppKit
 import HopkeyCore
 
-/// Окно настроек: таблица проектов (URL + префиксы), переключатели и хоткей.
+/// Окно настроек: таблица шаблонов (имя + regex + URL), переключатели и хоткеи.
 /// Изменения сохраняются по кнопке «Сохранить» и сообщаются через `onSave`.
 final class SettingsWindowController: NSWindowController, NSWindowDelegate,
                                       NSTableViewDataSource, NSTableViewDelegate,
@@ -13,12 +13,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Вызывается после сохранения, чтобы AppDelegate применил изменения (хоткей и т.п.).
     var onSave: (() -> Void)?
 
-    /// Рабочая копия проектов, которую редактирует таблица.
-    private var projects: [JiraProject] = []
+    /// Рабочая копия шаблонов, которую редактирует таблица.
+    private var templates: [LinkTemplate] = []
 
     private let tableView = NSTableView()
     private let removeButton = NSButton()
-    private let emptyStateLabel = NSTextField(labelWithString: "Нажмите +, чтобы добавить проект Jira")
+    private let emptyStateLabel = NSTextField(labelWithString: "Нажмите + или «Из пресета», чтобы добавить шаблон")
     private let autoOpenCheck = NSButton(checkboxWithTitle: "Выполнять действие сразу при копировании ключа (иначе — показать уведомление)", target: nil, action: nil)
     private let clipboardActionPopup = NSPopUpButton()
 
@@ -30,7 +30,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Отдельный хоткей: открыть окно ручного ввода тикета (Accessibility не нужен).
     private let showInputHotKeyCheck = NSButton(checkboxWithTitle: "Открыть окно ввода тикета", target: nil, action: nil)
     private let showInputHotKeyRecorder = HotKeyRecorderView()
-    private let showInputHotKeyNote = NSTextField(labelWithString: "Эта комбинация открывает окно ввода и не требует Универсального доступа.")
+    private let showInputHotKeyNote = NSTextField(labelWithString: "Открывает окно ввода. С Универсальным доступом подставит выделенный текст; без него — откроется пустым (или с числом из буфера).")
 
     /// Общая опция приложения: автозапуск при входе (через `SMAppService`, не хранится в конфиге).
     private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
@@ -47,8 +47,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let actions: [TicketAction] = TicketAction.allCases
 
     private enum Column {
+        static let enabled = NSUserInterfaceItemIdentifier("enabled")
+        static let wholeWord = NSUserInterfaceItemIdentifier("wholeWord")
+        static let uppercase = NSUserInterfaceItemIdentifier("uppercase")
+        static let name = NSUserInterfaceItemIdentifier("name")
+        static let pattern = NSUserInterfaceItemIdentifier("pattern")
         static let url = NSUserInterfaceItemIdentifier("url")
-        static let prefixes = NSUserInterfaceItemIdentifier("prefixes")
     }
 
     private func title(for action: TicketAction) -> String {
@@ -62,7 +66,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         self.config = config
         self.updater = updater
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 660),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -86,27 +90,47 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
 
         // Вводная строка о механике приложения — окно открывается первым при первом запуске.
-        let introLabel = label("Hopkey превращает ключи тикетов в ссылки: скопируйте ключ (например, ONECOLLECT-123) — и тикет откроется; либо выделите текст и нажмите хоткей.")
+        let introLabel = label("Hopkey превращает ID в ссылки по шаблонам regex→URL: скопируйте ключ (например, PROJ-123) — и тикет откроется; либо выделите текст и нажмите хоткей. В URL подставляются группы совпадения ($1 — первая, $0 — всё совпадение).")
         introLabel.textColor = .secondaryLabelColor
         introLabel.font = .systemFont(ofSize: 11)
         introLabel.lineBreakMode = .byWordWrapping
         introLabel.maximumNumberOfLines = 0
-        introLabel.preferredMaxLayoutWidth = 500
+        introLabel.preferredMaxLayoutWidth = 640
 
-        let projectsLabel = label("Проекты Jira (префиксы через запятую или пробел):")
+        let projectsLabel = label("Шаблоны распознавания:")
 
-        // Таблица проектов с заголовками колонок.
-        let urlColumn = NSTableColumn(identifier: Column.url)
-        urlColumn.title = "Базовый URL"
-        urlColumn.minWidth = 200
-        urlColumn.width = 300
-
-        let prefixColumn = NSTableColumn(identifier: Column.prefixes)
-        prefixColumn.title = "Префиксы"
-        prefixColumn.minWidth = 120
-
-        tableView.addTableColumn(urlColumn)
-        tableView.addTableColumn(prefixColumn)
+        // Таблица шаблонов: галочки (вкл/границы слова/верхний регистр) + имя, regex, URL.
+        func textColumn(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
+                        minWidth: CGFloat, tooltip: String? = nil) -> NSTableColumn {
+            let c = NSTableColumn(identifier: id)
+            c.title = title
+            c.width = width
+            c.minWidth = minWidth
+            c.headerToolTip = tooltip
+            return c
+        }
+        func checkColumn(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
+                         tooltip: String) -> NSTableColumn {
+            let c = NSTableColumn(identifier: id)
+            c.title = title
+            c.width = width
+            c.minWidth = width
+            c.maxWidth = width
+            c.headerToolTip = tooltip
+            return c
+        }
+        tableView.addTableColumn(checkColumn(Column.enabled, "Вкл", width: 40,
+            tooltip: "Участвует ли шаблон в распознавании."))
+        tableView.addTableColumn(checkColumn(Column.wholeWord, "Слово", width: 54,
+            tooltip: "Границы слова: совпадение не приклеено к другим буквам/цифрам — PROJ-1 поймается, XPROJ-1 нет. Для #(\\d+) обычно выключают."))
+        tableView.addTableColumn(checkColumn(Column.uppercase, "ВЕРХ", width: 54,
+            tooltip: "Нормализовать найденный ключ в ВЕРХНИЙ регистр (нужно Jira-ключам: proj-7 → PROJ-7)."))
+        tableView.addTableColumn(textColumn(Column.name, "Имя", width: 110, minWidth: 80,
+            tooltip: "Произвольное имя — показывается в окне ручного ввода."))
+        tableView.addTableColumn(textColumn(Column.pattern, "Шаблон (regex)", width: 170, minWidth: 120,
+            tooltip: "Регулярное выражение. Группы доступны в URL как $1, $2…"))
+        tableView.addTableColumn(textColumn(Column.url, "URL ($1 — номер)", width: 220, minWidth: 160,
+            tooltip: "$1 — первая группа (номер), $0 — всё совпадение."))
         tableView.dataSource = self
         tableView.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
@@ -142,9 +166,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             b.translatesAutoresizingMaskIntoConstraints = false
             b.widthAnchor.constraint(equalToConstant: 28).isActive = true
         }
-        let buttonBar = NSStackView(views: [addButton, removeButton])
+        // Кнопка «Из пресета ▾» — добавляет готовую заготовку (Jira/GitHub/CVE) для правки.
+        let presetButton = NSButton(title: "Из пресета ▾", target: self, action: #selector(showPresetMenu))
+        presetButton.bezelStyle = .rounded
+        presetButton.translatesAutoresizingMaskIntoConstraints = false
+        let buttonBar = NSStackView(views: [addButton, removeButton, presetButton])
         buttonBar.orientation = .horizontal
         buttonBar.spacing = 0
+        buttonBar.setCustomSpacing(8, after: removeButton)
         buttonBar.translatesAutoresizingMaskIntoConstraints = false
 
         autoOpenCheck.translatesAutoresizingMaskIntoConstraints = false
@@ -283,27 +312,66 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: - Таблица
 
-    func numberOfRows(in tableView: NSTableView) -> Int { projects.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { templates.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn, projects.indices.contains(row) else { return nil }
+        guard let tableColumn, templates.indices.contains(row) else { return nil }
+        let template = templates[row]
+        let id = tableColumn.identifier
 
-        let field = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NSTextField)
-            ?? makeCellField(identifier: tableColumn.identifier)
-
-        let project = projects[row]
-        switch tableColumn.identifier {
-        case Column.url:
-            field.stringValue = project.baseURL
-            field.placeholderString = "https://jira.company.net/browse/"
-            field.toolTip = "Адрес до ключа тикета; Hopkey допишет ключ в конец (слэш можно не ставить)."
-        case Column.prefixes:
-            field.stringValue = project.prefixes.joined(separator: ", ")
-            field.placeholderString = "PROJ, TEAM"
+        // Колонки-галочки: вкл / границы слова / верхний регистр.
+        switch id {
+        case Column.enabled, Column.wholeWord, Column.uppercase:
+            let check = (tableView.makeView(withIdentifier: id, owner: self) as? NSButton)
+                ?? makeCheckbox(identifier: id)
+            check.tag = row
+            switch id {
+            case Column.enabled: check.state = template.enabled ? .on : .off
+            case Column.wholeWord: check.state = template.wholeWord ? .on : .off
+            default: check.state = template.uppercase ? .on : .off
+            }
+            return check
         default:
             break
         }
+
+        // Текстовые колонки: имя / regex / URL.
+        let field = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField)
+            ?? makeCellField(identifier: id)
+        switch id {
+        case Column.name:
+            field.stringValue = template.name
+            field.placeholderString = "Jira"
+        case Column.pattern:
+            field.stringValue = template.pattern
+            field.placeholderString = "PROJ-(\\d+)"
+            field.toolTip = "Регулярное выражение. Группы доступны в URL как $1, $2…"
+        case Column.url:
+            field.stringValue = template.url
+            field.placeholderString = "https://jira.company.net/browse/PROJ-$1"
+            field.toolTip = "$1 — первая группа (номер), $0 — всё совпадение."
+        default:
+            break
+        }
+        // Невалидный шаблон подсвечиваем красным в regex/URL.
+        if id == Column.pattern || id == Column.url {
+            field.textColor = template.isValid ? .labelColor : .systemRed
+        }
         return field
+    }
+
+    /// Чекбокс-ячейка таблицы (вкл/границы/регистр). Без заголовка — он в шапке колонки.
+    private func makeCheckbox(identifier: NSUserInterfaceItemIdentifier) -> NSButton {
+        let action: Selector
+        switch identifier {
+        case Column.enabled: action = #selector(toggleEnabled(_:))
+        case Column.wholeWord: action = #selector(toggleWholeWord(_:))
+        default: action = #selector(toggleUppercase(_:))
+        }
+        let check = NSButton(checkboxWithTitle: "", target: self, action: action)
+        check.identifier = identifier
+        check.imagePosition = .imageOnly
+        return check
     }
 
     private func makeCellField(identifier: NSUserInterfaceItemIdentifier) -> NSTextField {
@@ -334,9 +402,39 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         removeButton.isEnabled = tableView.selectedRow >= 0
     }
 
-    /// Показывает подсказку по центру таблицы, только пока проектов нет.
+    /// Показывает подсказку по центру таблицы, только пока шаблонов нет.
     private func updateEmptyState() {
-        emptyStateLabel.isHidden = !projects.isEmpty
+        emptyStateLabel.isHidden = !templates.isEmpty
+    }
+
+    /// Перекрашивает regex/URL в красный у невалидных строк, не дёргая `reloadData`
+    /// (чтобы не пересоздавать редактируемое поле во время правки).
+    private func refreshValidity() {
+        let cols = [tableView.column(withIdentifier: Column.pattern),
+                    tableView.column(withIdentifier: Column.url)]
+        for row in templates.indices {
+            let valid = templates[row].isValid
+            for col in cols where col >= 0 {
+                if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: false) as? NSTextField {
+                    field.textColor = valid ? .labelColor : .systemRed
+                }
+            }
+        }
+    }
+
+    @objc private func toggleEnabled(_ sender: NSButton) {
+        guard templates.indices.contains(sender.tag) else { return }
+        templates[sender.tag].enabled = sender.state == .on
+    }
+
+    @objc private func toggleWholeWord(_ sender: NSButton) {
+        guard templates.indices.contains(sender.tag) else { return }
+        templates[sender.tag].wholeWord = sender.state == .on
+    }
+
+    @objc private func toggleUppercase(_ sender: NSButton) {
+        guard templates.indices.contains(sender.tag) else { return }
+        templates[sender.tag].uppercase = sender.state == .on
     }
 
     /// Каждый рекордер активен только при включённой своей галочке.
@@ -360,46 +458,68 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         commitCell(field)
     }
 
-    /// Переносит значение ячейки в рабочую копию `projects`.
+    /// Переносит значение ячейки в рабочую копию `templates`.
     private func commitCell(_ field: NSTextField) {
         let row = tableView.row(for: field)
         let col = tableView.column(for: field)
-        guard projects.indices.contains(row), col >= 0 else { return }
+        guard templates.indices.contains(row), col >= 0 else { return }
 
         switch tableView.tableColumns[col].identifier {
+        case Column.name:
+            templates[row].name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        case Column.pattern:
+            templates[row].pattern = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         case Column.url:
-            projects[row].baseURL = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        case Column.prefixes:
-            projects[row].prefixes = parsePrefixes(field.stringValue)
+            templates[row].url = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         default:
             break
         }
+        refreshValidity()
+    }
+
+    /// Добавляет новый шаблон в таблицу, выделяет его и начинает правку имени.
+    private func appendTemplate(_ template: LinkTemplate) {
+        commitEditing()
+        templates.append(template)
+        tableView.reloadData()
+        updateEmptyState()
+        let newRow = templates.count - 1
+        tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
+        tableView.scrollRowToVisible(newRow)
+        // Правку начинаем с колонки «Имя» (индекс 3 — после трёх галочек).
+        tableView.editColumn(tableView.column(withIdentifier: Column.name), row: newRow, with: nil, select: true)
     }
 
     @objc private func addRow() {
-        commitEditing()
-        projects.append(JiraProject(baseURL: "", prefixes: []))
-        tableView.reloadData()
-        updateEmptyState()
-        let newRow = projects.count - 1
-        tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
-        tableView.editColumn(0, row: newRow, with: nil, select: true)
+        appendTemplate(LinkTemplate(name: "", pattern: "", url: ""))
+    }
+
+    /// Показывает меню пресетов под кнопкой; выбор добавляет готовую заготовку.
+    @objc private func showPresetMenu(_ sender: NSButton) {
+        let menu = NSMenu()
+        for (i, preset) in LinkTemplate.presets.enumerated() {
+            let item = NSMenuItem(title: preset.name, action: #selector(addPreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i
+            menu.addItem(item)
+        }
+        let origin = NSPoint(x: 0, y: sender.bounds.height + 4)
+        menu.popUp(positioning: nil, at: origin, in: sender)
+    }
+
+    @objc private func addPreset(_ sender: NSMenuItem) {
+        guard LinkTemplate.presets.indices.contains(sender.tag) else { return }
+        appendTemplate(LinkTemplate.presets[sender.tag])
     }
 
     @objc private func removeSelectedRow() {
         let row = tableView.selectedRow
-        guard projects.indices.contains(row) else { return }
+        guard templates.indices.contains(row) else { return }
         commitEditing()
-        projects.remove(at: row)
+        templates.remove(at: row)
         tableView.reloadData()
         updateEmptyState()
         removeButton.isEnabled = tableView.selectedRow >= 0
-    }
-
-    private func parsePrefixes(_ raw: String) -> [String] {
-        raw.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
     }
 
     /// Завершает активное редактирование ячейки, чтобы значение попало в модель.
@@ -408,9 +528,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func loadValues() {
-        projects = config.projects
+        templates = config.templates
         tableView.reloadData()
         updateEmptyState()
+        refreshValidity()
         removeButton.isEnabled = false
 
         autoOpenCheck.state = config.autoOpen ? .on : .off
@@ -437,7 +558,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func save() {
         commitEditing()
-        config.projects = projects.filter(\.isValid)
+        config.templates = templates.filter(\.isValid)
 
         config.autoOpen = autoOpenCheck.state == .on
         let clipboardIndex = clipboardActionPopup.indexOfSelectedItem
@@ -469,7 +590,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     @objc private func resetToDefaults() {
         let alert = NSAlert()
         alert.messageText = "Сбросить настройки?"
-        alert.informativeText = "Проекты, действие при копировании и хоткеи вернутся к значениям по умолчанию. Действие нельзя отменить."
+        alert.informativeText = "Шаблоны, действие при копировании и хоткеи вернутся к значениям по умолчанию. Действие нельзя отменить."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Сбросить")
         alert.addButton(withTitle: "Отмена")

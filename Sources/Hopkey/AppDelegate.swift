@@ -54,13 +54,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch source {
         case .hotkey:
             // Хоткей — явное намерение: извлекаем ключи из произвольного выделенного текста.
-            matches = TicketParser.matches(in: text, projects: config.projects)
+            matches = TicketParser.matches(in: text, templates: config.templates)
         case .clipboard:
             // Автонаблюдение: срабатываем, только если в буфере ровно ключ тикета.
             // Случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер.
-            matches = TicketParser.exactMatch(in: text, projects: config.projects).map { [$0] } ?? []
+            matches = TicketParser.exactMatch(in: text, templates: config.templates).map { [$0] } ?? []
         }
-        guard !matches.isEmpty else { return }
+        guard !matches.isEmpty else {
+            // Хоткей над голым числом ничего не сматчил (у шаблонов нужен префикс),
+            // но это похоже на номер тикета — открываем окно ввода с подставленным
+            // числом и выбором шаблона. Выделение уже прочитано, новых разрешений не нужно.
+            if source == .hotkey { offerQuickInputForBareNumber(text) }
+            return
+        }
 
         let joined = matches.map(\.id).joined(separator: ",")
         if joined == lastHandledText, Date().timeIntervalSince(lastHandledAt) < 2 {
@@ -172,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func actionFromClipboard(_ action: TicketAction) {
         guard let text = NSPasteboard.general.string(forType: .string),
-              case let matches = TicketParser.matches(in: text, projects: config.projects),
+              case let matches = TicketParser.matches(in: text, templates: config.templates),
               !matches.isEmpty else {
             NSSound.beep()
             return
@@ -181,7 +187,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openQuickTicket() {
-        quickTicket.showWindow()
+        // Из меню: префилл из буфера, если там голое число — без Accessibility (буфер читать можно).
+        quickTicket.showWindow(prefill: clipboardBareNumber())
+    }
+
+    /// Хоткей окна ввода: сам снимает выделение (с сохранением буфера) и открывает окно
+    /// с подставленным текстом. Если Accessibility не выдан или ничего не выделено —
+    /// откатываемся к числу из буфера (или пустому окну).
+    private func openQuickTicketFromSelection() {
+        hotKey.captureSelection { [weak self] selection in
+            guard let self else { return }
+            let prefill = selection.flatMap(self.prefillToken) ?? self.clipboardBareNumber()
+            // Наши манипуляции с буфером (Cmd+C + восстановление) не должны будить наблюдателя.
+            self.clipboard.syncChangeCount()
+            self.quickTicket.showWindow(prefill: prefill)
+        }
+    }
+
+    /// Выделенный текст как кандидат на префилл: один «токен» без внутренних пробелов
+    /// и не длиннее 40 символов (`PROJ-123`, `#42`, `12345`); иначе nil.
+    private func prefillToken(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= 40, !t.contains(where: \.isWhitespace) else { return nil }
+        return t
+    }
+
+    /// Если хоткей над выделением ничего не сматчил, но выделено голое число —
+    /// открываем окно ввода с этим числом (используем уже прочитанное выделение).
+    private func offerQuickInputForBareNumber(_ text: String) {
+        guard let number = bareNumber(text),
+              !QuickTicketInput.fillableTemplates(in: config.templates).isEmpty else { return }
+        clipboard.syncChangeCount()  // наш синтетический Cmd+C не должен будить наблюдателя
+        quickTicket.showWindow(prefill: number)
+    }
+
+    /// Голое число из буфера обмена (для префилла окна ввода), иначе nil.
+    private func clipboardBareNumber() -> String? {
+        NSPasteboard.general.string(forType: .string).flatMap(bareNumber)
+    }
+
+    /// Текст, целиком состоящий из цифр (с обрезкой пробелов), иначе nil. Длину ограничиваем,
+    /// чтобы случайная простыня цифр не считалась номером.
+    private func bareNumber(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= 18, t.allSatisfy(\.isNumber) else { return nil }
+        return t
     }
 
     @objc private func openSettings() {
@@ -239,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotKey.register(id: 3,
                             keyCode: UInt32(config.showInputHotKeyKeyCode),
                             modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
-                self?.openQuickTicket()
+                self?.openQuickTicketFromSelection()
             }
         }
     }

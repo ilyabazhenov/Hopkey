@@ -21,9 +21,15 @@ final class JiraConfigTests: XCTestCase {
         JiraConfig(defaults: defaults)
     }
 
+    private func jira(_ prefix: String = "PROJ",
+                      base: String = "https://jira.example.com/browse/") -> LinkTemplate {
+        LinkTemplate(name: prefix, pattern: "\(prefix)-(\\d+)", url: "\(base)\(prefix)-$1",
+                     wholeWord: true, uppercase: true)
+    }
+
     func testDefaults() {
         let config = makeConfig()
-        XCTAssertEqual(config.projects, [])
+        XCTAssertEqual(config.templates, [])
         XCTAssertFalse(config.autoOpen)
         XCTAssertFalse(config.hotKeyEnabled)
         // По умолчанию ⌃⌥J: keyCode 38, модификаторы controlKey | optionKey = 6144.
@@ -136,11 +142,54 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertFalse(makeConfig().openHotKeyEnabled)
     }
 
+    // MARK: Миграция проектов → шаблоны
+
+    /// Кладёт legacy-`projects` в виде Data (как писала старая версия через JSONEncoder).
+    private func setLegacyProjects(_ projects: [(base: String, prefixes: [String])]) {
+        let payload = projects.map { ["baseURL": $0.base, "prefixes": $0.prefixes] as [String: Any] }
+        let data = try! JSONSerialization.data(withJSONObject: payload)
+        defaults.set(data, forKey: "projects")
+    }
+
+    func testMigrationExpandsProjectsIntoPerPrefixTemplates() {
+        setLegacyProjects([(base: "https://jira.example.com/browse/", prefixes: ["PROJ", "PAY"])])
+
+        let config = makeConfig() // миграция в init
+        XCTAssertEqual(config.templates.map(\.name), ["PROJ", "PAY"])
+        XCTAssertEqual(config.templates.map(\.pattern), ["PROJ-(\\d+)", "PAY-(\\d+)"])
+        XCTAssertEqual(config.templates.map(\.url),
+                       ["https://jira.example.com/browse/PROJ-$1",
+                        "https://jira.example.com/browse/PAY-$1"])
+        XCTAssertTrue(config.templates.allSatisfy { $0.wholeWord && $0.uppercase && $0.enabled })
+        // Мигрированный шаблон распознаёт ключ как раньше.
+        let m = TicketParser.exactMatch(in: "PAY-7", templates: config.templates)
+        XCTAssertEqual(m?.url.absoluteString, "https://jira.example.com/browse/PAY-7")
+    }
+
+    func testMigrationAddsTrailingSlashToBase() {
+        setLegacyProjects([(base: "https://jira.example.com/browse", prefixes: ["PROJ"])])
+        XCTAssertEqual(makeConfig().templates.first?.url, "https://jira.example.com/browse/PROJ-$1")
+    }
+
+    func testMigrationRunsOnceAndDoesNotResurrect() {
+        setLegacyProjects([(base: "https://jira.example.com/browse/", prefixes: ["PROJ"])])
+        _ = makeConfig() // мигрировали
+        // Пользователь очистил шаблоны.
+        let config = makeConfig()
+        config.templates = []
+        // Повторная инициализация не должна заново восстановить шаблоны из legacy-`projects`.
+        XCTAssertEqual(makeConfig().templates, [])
+    }
+
+    func testNoMigrationWhenNoLegacyProjects() {
+        XCTAssertEqual(makeConfig().templates, [])
+    }
+
     // MARK: Сброс настроек
 
     func testResetToDefaultsRestoresEverything() {
         let config = makeConfig()
-        config.projects = [JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: ["PROJ"])]
+        config.templates = [jira()]
         config.autoOpen = true
         // Legacy-ключ defaultAction, который наследует clipboardAction, тоже должен сброситься.
         config.defaultAction = .copyURL
@@ -152,7 +201,7 @@ final class JiraConfigTests: XCTestCase {
 
         config.resetToDefaults()
 
-        XCTAssertEqual(config.projects, [])
+        XCTAssertEqual(config.templates, [])
         XCTAssertFalse(config.autoOpen)
         XCTAssertEqual(config.defaultAction, .openInBrowser)
         XCTAssertEqual(config.clipboardAction, .openInBrowser)
@@ -167,29 +216,30 @@ final class JiraConfigTests: XCTestCase {
 
     func testResetToDefaultsPersistsAndSurvivesReload() {
         let config = makeConfig()
-        config.projects = [JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: ["PROJ"])]
+        config.templates = [jira()]
         config.copyHotKeyKeyCode = 9
 
         config.resetToDefaults()
 
         // Новый объект (в т.ч. его миграция) не должен «воскрешать» прежние значения.
         let reloaded = makeConfig()
-        XCTAssertEqual(reloaded.projects, [])
+        XCTAssertEqual(reloaded.templates, [])
         XCTAssertEqual(reloaded.copyHotKeyKeyCode, 40)
         XCTAssertFalse(reloaded.openHotKeyEnabled)
         XCTAssertFalse(reloaded.copyHotKeyEnabled)
     }
 
-    func testProjectsRoundTrip() {
+    func testTemplatesRoundTrip() {
         let config = makeConfig()
-        let projects = [
-            JiraProject(baseURL: "https://a.example.com/browse/", prefixes: ["PROJ", "PAY"]),
-            JiraProject(baseURL: "https://b.example.com/browse/", prefixes: ["ABC"]),
+        let templates = [
+            jira("PROJ", base: "https://a.example.com/browse/"),
+            LinkTemplate(name: "GitHub", pattern: "#(\\d+)",
+                         url: "https://github.com/o/r/issues/$1", wholeWord: true, uppercase: false),
         ]
-        config.projects = projects
-        XCTAssertEqual(config.projects, projects)
+        config.templates = templates
+        XCTAssertEqual(config.templates, templates)
         // Значение должно переживать пересоздание объекта (читается из defaults).
-        XCTAssertEqual(makeConfig().projects, projects)
+        XCTAssertEqual(makeConfig().templates, templates)
     }
 
     func testAutoOpenRoundTrip() {
@@ -224,29 +274,23 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertFalse(makeConfig().isConfigured)
     }
 
-    func testIsConfiguredFalseWithoutPrefixes() {
+    func testIsConfiguredFalseWithBrokenRegex() {
         let config = makeConfig()
-        config.projects = [JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: [])]
+        config.templates = [LinkTemplate(name: "x", pattern: "PROJ-(\\d+", url: "https://x/$1")]
         XCTAssertFalse(config.isConfigured)
     }
 
-    func testIsConfiguredFalseWithoutBaseURL() {
+    func testIsConfiguredFalseWithoutPlaceholder() {
         let config = makeConfig()
-        config.projects = [JiraProject(baseURL: "", prefixes: ["PROJ"])]
+        config.templates = [LinkTemplate(name: "x", pattern: "PROJ-(\\d+)", url: "https://x/static")]
         XCTAssertFalse(config.isConfigured)
     }
 
-    func testIsConfiguredFalseWhenBaseURLIsWhitespace() {
+    func testIsConfiguredTrueWhenAtLeastOneValidTemplate() {
         let config = makeConfig()
-        config.projects = [JiraProject(baseURL: "   ", prefixes: ["PROJ"])]
-        XCTAssertFalse(config.isConfigured)
-    }
-
-    func testIsConfiguredTrueWhenAtLeastOneValidProject() {
-        let config = makeConfig()
-        config.projects = [
-            JiraProject(baseURL: "", prefixes: []),
-            JiraProject(baseURL: "https://jira.example.com/browse/", prefixes: ["PROJ"]),
+        config.templates = [
+            LinkTemplate(name: "", pattern: "", url: ""),
+            jira(),
         ]
         XCTAssertTrue(config.isConfigured)
     }

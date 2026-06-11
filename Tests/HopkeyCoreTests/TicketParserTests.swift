@@ -3,146 +3,135 @@ import XCTest
 
 final class TicketParserTests: XCTestCase {
 
-    let prefixes = ["PROJ"]
-    let base = "https://jira.example.com/browse/"
+    // Базовый Jira-шаблон: PROJ-<число> → /browse/PROJ-<число>, верхний регистр, границы слова.
+    private func jira(_ prefix: String = "PROJ",
+                      base: String = "https://jira.example.com/browse/") -> LinkTemplate {
+        LinkTemplate(name: prefix, pattern: "\(prefix)-(\\d+)", url: "\(base)\(prefix)-$1",
+                     wholeWord: true, uppercase: true)
+    }
 
-    private func ids(_ text: String, prefixes: [String]? = nil) -> [String] {
-        TicketParser.matches(in: text, prefixes: prefixes ?? self.prefixes, baseURL: base).map(\.id)
+    private func ids(_ text: String, _ templates: [LinkTemplate]) -> [String] {
+        TicketParser.matches(in: text, templates: templates).map(\.id)
     }
 
     func testSimpleMatch() {
-        XCTAssertEqual(ids("ping PROJ-12345 please"), ["PROJ-12345"])
+        XCTAssertEqual(ids("ping PROJ-12345 please", [jira()]), ["PROJ-12345"])
     }
 
     func testCaseInsensitiveAndNormalized() {
-        XCTAssertEqual(ids("proj-7"), ["PROJ-7"])
+        XCTAssertEqual(ids("proj-7", [jira()]), ["PROJ-7"])
     }
 
     func testURLConstruction() {
-        let m = TicketParser.matches(in: "PROJ-36075", prefixes: prefixes, baseURL: base)
-        XCTAssertEqual(m.first?.url.absoluteString,
-                       "https://jira.example.com/browse/PROJ-36075")
+        let m = TicketParser.matches(in: "PROJ-36075", templates: [jira()])
+        XCTAssertEqual(m.first?.url.absoluteString, "https://jira.example.com/browse/PROJ-36075")
     }
 
     func testNoTicket() {
-        XCTAssertTrue(ids("no ticket here, just text 123").isEmpty)
+        XCTAssertTrue(ids("no ticket here, just text 123", [jira()]).isEmpty)
     }
 
     func testMultipleAndDedup() {
-        let text = "see PROJ-1 and PROJ-2 and again PROJ-1"
-        XCTAssertEqual(ids(text), ["PROJ-1", "PROJ-2"])
+        XCTAssertEqual(ids("see PROJ-1 and PROJ-2 and again PROJ-1", [jira()]), ["PROJ-1", "PROJ-2"])
     }
 
-    func testBoundariesRejectGluedPrefix() {
-        // Не должно ловиться внутри другого слова.
-        XCTAssertTrue(ids("XPROJ-1").isEmpty)
-        XCTAssertTrue(ids("PROJ-1X").isEmpty)
+    func testWholeWordRejectsGluedPrefix() {
+        XCTAssertTrue(ids("XPROJ-1", [jira()]).isEmpty)
+        XCTAssertTrue(ids("PROJ-1X", [jira()]).isEmpty)
     }
 
-    func testBaseURLWithoutTrailingSlash() {
-        let m = TicketParser.matches(in: "PROJ-9", prefixes: prefixes,
-                                     baseURL: "https://jira.example/browse")
-        XCTAssertEqual(m.first?.url.absoluteString, "https://jira.example/browse/PROJ-9")
+    func testWholeWordOffMatchesInsideWord() {
+        // Без границ слова шаблон ловит и приклеенные совпадения.
+        let t = LinkTemplate(name: "id", pattern: "id(\\d+)", url: "https://x/$1", wholeWord: false)
+        XCTAssertEqual(ids("xid42", [t]), ["id42"])
     }
 
-    func testMultiplePrefixes() {
-        let text = "PROJ-1 PAY-22 NOPE-3"
-        XCTAssertEqual(ids(text, prefixes: ["PROJ", "PAY"]), ["PROJ-1", "PAY-22"])
-    }
-
-    func testEmptyPrefixesYieldsNothing() {
-        XCTAssertTrue(ids("PROJ-1", prefixes: []).isEmpty)
-    }
-
-    func testEmptyTextYieldsNothing() {
-        XCTAssertTrue(ids("").isEmpty)
-    }
-
-    func testWhitespaceOnlyPrefixesYieldNothing() {
-        XCTAssertTrue(ids("PROJ-1", prefixes: ["  ", ""]).isEmpty)
-    }
-
-    func testPrefixesAreTrimmed() {
-        XCTAssertEqual(ids("PROJ-1", prefixes: ["  PROJ  "]), ["PROJ-1"])
+    func testUppercaseFalseKeepsCase() {
+        // GitHub-подобный шаблон: регистр не трогаем, в URL идёт только номер.
+        let gh = LinkTemplate(name: "gh", pattern: "#(\\d+)", url: "https://github.com/o/r/issues/$1",
+                              wholeWord: true, uppercase: false)
+        let m = TicketParser.matches(in: "see #123", templates: [gh])
+        XCTAssertEqual(m.first?.id, "#123")
+        XCTAssertEqual(m.first?.url.absoluteString, "https://github.com/o/r/issues/123")
     }
 
     func testDedupIsCaseInsensitive() {
-        // proj-1 и PROJ-1 — один и тот же тикет после нормализации.
-        XCTAssertEqual(ids("PROJ-1 then proj-1"), ["PROJ-1"])
+        XCTAssertEqual(ids("PROJ-1 then proj-1", [jira()]), ["PROJ-1"])
     }
 
     func testMatchesAcrossNewlines() {
-        XCTAssertEqual(ids("PROJ-1\nsome text\nPROJ-2"), ["PROJ-1", "PROJ-2"])
+        XCTAssertEqual(ids("PROJ-1\nsome text\nPROJ-2", [jira()]), ["PROJ-1", "PROJ-2"])
     }
 
-    func testInvalidBaseURLDropsMatch() {
-        // Пробел в base делает итоговую строку невалидным URL → совпадение отбрасывается.
-        let m = TicketParser.matches(in: "PROJ-9", prefixes: prefixes,
-                                     baseURL: "https://bad host/browse")
-        XCTAssertTrue(m.isEmpty)
+    func testInvalidURLDropsMatch() {
+        // Пробел в литеральной части URL делает адрес невалидным → совпадение отбрасывается.
+        let t = jira(base: "https://bad host/browse/")
+        XCTAssertTrue(TicketParser.matches(in: "PROJ-9", templates: [t]).isEmpty)
     }
 
-    // MARK: - Несколько проектов
+    func testBrokenRegexIsSkipped() {
+        let broken = LinkTemplate(name: "x", pattern: "PROJ-(\\d+", url: "https://x/$1")
+        XCTAssertTrue(TicketParser.matches(in: "PROJ-1", templates: [broken]).isEmpty)
+    }
 
-    func testMultipleProjectsRouteByPrefix() {
-        let projects = [
-            JiraProject(baseURL: "https://a.example.com/browse/", prefixes: ["PROJ"]),
-            JiraProject(baseURL: "https://b.example.com/browse/", prefixes: ["ABC"]),
-        ]
-        let m = TicketParser.matches(in: "PROJ-1 ABC-2", projects: projects)
+    func testDisabledTemplateIsSkipped() {
+        var t = jira()
+        t.enabled = false
+        XCTAssertTrue(TicketParser.matches(in: "PROJ-1", templates: [t]).isEmpty)
+    }
+
+    // MARK: - Несколько шаблонов
+
+    func testMultipleTemplatesRouteByPattern() {
+        let templates = [jira("PROJ", base: "https://a.example.com/browse/"),
+                         jira("ABC", base: "https://b.example.com/browse/")]
+        let m = TicketParser.matches(in: "PROJ-1 ABC-2", templates: templates)
         XCTAssertEqual(m.map(\.id), ["PROJ-1", "ABC-2"])
         XCTAssertEqual(m.map { $0.url.absoluteString },
                        ["https://a.example.com/browse/PROJ-1",
                         "https://b.example.com/browse/ABC-2"])
     }
 
-    func testMultipleProjectsDedupByID() {
-        // Один и тот же префикс в двух проектах — первый выигрывает, дубликата нет.
-        let projects = [
-            JiraProject(baseURL: "https://a.example.com/browse/", prefixes: ["PROJ"]),
-            JiraProject(baseURL: "https://b.example.com/browse/", prefixes: ["PROJ"]),
-        ]
-        let m = TicketParser.matches(in: "PROJ-1", projects: projects)
+    func testFirstTemplateWinsOnDuplicateID() {
+        let templates = [jira("PROJ", base: "https://a.example.com/browse/"),
+                         jira("PROJ", base: "https://b.example.com/browse/")]
+        let m = TicketParser.matches(in: "PROJ-1", templates: templates)
         XCTAssertEqual(m.map(\.id), ["PROJ-1"])
         XCTAssertEqual(m.first?.url.absoluteString, "https://a.example.com/browse/PROJ-1")
     }
 
-    func testNoProjectsYieldsNothing() {
-        XCTAssertTrue(TicketParser.matches(in: "PROJ-1", projects: []).isEmpty)
+    func testNoTemplatesYieldsNothing() {
+        XCTAssertTrue(TicketParser.matches(in: "PROJ-1", templates: []).isEmpty)
     }
 
     // MARK: - Точное совпадение (автонаблюдение за буфером)
 
-    private var sampleProjects: [JiraProject] {
-        [JiraProject(baseURL: base, prefixes: prefixes)]
-    }
-
     func testExactMatchOnlyKey() {
-        let m = TicketParser.exactMatch(in: "PROJ-12345", projects: sampleProjects)
+        let m = TicketParser.exactMatch(in: "PROJ-12345", templates: [jira()])
         XCTAssertEqual(m?.id, "PROJ-12345")
         XCTAssertEqual(m?.url.absoluteString, "https://jira.example.com/browse/PROJ-12345")
     }
 
     func testExactMatchTrimsWhitespace() {
-        XCTAssertEqual(TicketParser.exactMatch(in: "  PROJ-7\n", projects: sampleProjects)?.id, "PROJ-7")
+        XCTAssertEqual(TicketParser.exactMatch(in: "  PROJ-7\n", templates: [jira()])?.id, "PROJ-7")
     }
 
     func testExactMatchCaseInsensitive() {
-        XCTAssertEqual(TicketParser.exactMatch(in: "proj-7", projects: sampleProjects)?.id, "PROJ-7")
+        XCTAssertEqual(TicketParser.exactMatch(in: "proj-7", templates: [jira()])?.id, "PROJ-7")
     }
 
     func testExactMatchRejectsURL() {
         // Главный кейс: скопированная ссылка не должна срабатывать автоматически.
         let url = "https://jira.example.com/browse/PROJ-36075"
-        XCTAssertNil(TicketParser.exactMatch(in: url, projects: sampleProjects))
+        XCTAssertNil(TicketParser.exactMatch(in: url, templates: [jira()]))
     }
 
     func testExactMatchRejectsSurroundingText() {
-        XCTAssertNil(TicketParser.exactMatch(in: "ping PROJ-1 please", projects: sampleProjects))
-        XCTAssertNil(TicketParser.exactMatch(in: "PROJ-1 PROJ-2", projects: sampleProjects))
+        XCTAssertNil(TicketParser.exactMatch(in: "ping PROJ-1 please", templates: [jira()]))
+        XCTAssertNil(TicketParser.exactMatch(in: "PROJ-1 PROJ-2", templates: [jira()]))
     }
 
     func testExactMatchEmptyYieldsNil() {
-        XCTAssertNil(TicketParser.exactMatch(in: "   ", projects: sampleProjects))
+        XCTAssertNil(TicketParser.exactMatch(in: "   ", templates: [jira()]))
     }
 }

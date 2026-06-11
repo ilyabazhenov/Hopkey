@@ -2,16 +2,29 @@ import AppKit
 import HopkeyCore
 
 /// Панель окна ввода: ловит Esc на уровне окна, чтобы закрытие работало независимо
-/// от того, где сейчас фокус (поле ввода, радио-кнопка или сама панель).
+/// от того, где сейчас фокус (поле ввода, радио-кнопка или сама панель). Также ловит
+/// ⌘↩ для «скопировать» — так кнопка остаётся обычной (серой), а не второй синей.
 private final class QuickTicketPanel: NSPanel {
+    var onCommandReturn: (() -> Void)?
+
     override func cancelOperation(_ sender: Any?) { close() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let onlyCommand = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask) == .command
+        if onlyCommand, event.charactersIgnoringModifiers == "\r" {
+            onCommandReturn?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// Окно быстрого ручного ввода тикета.
 ///
-/// Пользователь вводит ключ целиком (`PROJ-123`) или только номер (`123`):
+/// Пользователь вводит ключ целиком (`PROJ-123`, `#42`) или только номер (`123`):
 /// `↩` открывает тикет, `⌘↩` копирует ссылку, `Esc` закрывает. Если введён один
-/// номер, а проектов/префиксов несколько — появляется выбор проекта.
+/// номер, а заполнимых шаблонов несколько — появляется выбор шаблона.
 ///
 /// Само действие (открыть/скопировать) выполняет AppDelegate через `onSubmit`,
 /// переиспользуя общий путь `perform(_:on:)`.
@@ -22,20 +35,20 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     var onSubmit: (([TicketMatch], TicketAction) -> Void)?
 
     private let input = NSTextField()
-    private let projectLabel = NSTextField(labelWithString: "Проект:")
-    /// Вертикальный список проектов: заголовок + радио-кнопки. Выбор — одним кликом.
+    private let projectLabel = NSTextField(labelWithString: "Шаблон:")
+    /// Вертикальный список шаблонов: заголовок + радио-кнопки. Выбор — одним кликом.
     private let projectGroup = NSStackView()
     private var projectRadios: [NSButton] = []
-    /// Индекс выбранного проекта в `pickerPairs` — ведём явно, не полагаясь на скан состояния радио.
-    private var selectedProjectIndex = 0
+    /// Индекс выбранного шаблона в `fillableTemplates` — ведём явно, не полагаясь на скан состояния радио.
+    private var selectedTemplateIndex = 0
     private let messageLabel = NSTextField(labelWithString: "")
 
     /// Содержимое (поле + список + подсказка) и ряд кнопок — нужны для расчёта высоты окна.
     private let contentStack = NSStackView()
     private let buttonRow = NSStackView()
 
-    /// Пары (проект, префикс) для текущего выбора, в порядке списка.
-    private var pickerPairs: [(project: JiraProject, prefix: String)] = []
+    /// Заполнимые числом шаблоны для текущего выбора, в порядке конфига.
+    private var fillableTemplates: [LinkTemplate] = []
 
     init(config: JiraConfig) {
         self.config = config
@@ -51,6 +64,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         super.init(window: panel)
         panel.delegate = self
+        panel.onCommandReturn = { [weak self] in self?.submit(action: .copyURL) }
         buildUI()
     }
 
@@ -78,15 +92,17 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         messageLabel.maximumNumberOfLines = 0
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Кнопка ⌘↩ «Скопировать» — видимая, но без рамки (рядом с основной «Открыть»).
+        // «Скопировать» — обычная серая кнопка. Шорткат ⌘↩ ловит сама панель
+        // (см. `performKeyEquivalent`), чтобы кнопка не стала второй синей «по умолчанию».
         let copyButton = NSButton(title: "Скопировать", target: self, action: #selector(submitCopy))
-        copyButton.keyEquivalent = "\r"
-        copyButton.keyEquivalentModifierMask = [.command]
-        copyButton.isBordered = false
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        copyButton.imagePosition = .imageLeading
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         // Основная кнопка по умолчанию ловит обычный ↩ даже при фокусе в поле.
         let openButton = NSButton(title: "Открыть", target: self, action: #selector(submitOpen))
+        openButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        openButton.imagePosition = .imageLeading
         openButton.keyEquivalent = "\r"
         openButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -119,16 +135,22 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     /// Приложение работает как `.accessory`, поэтому без `NSApp.activate` панель
     /// не получит клавиатурный фокус (тот же приём, что и в окне настроек).
     /// Если окно уже открыто (повторное нажатие хоткея) — не сбрасываем введённое.
-    func showWindow() {
+    /// - Parameter prefill: текст для подстановки в поле при открытии (например, голое число
+    ///   из выделения/буфера). Подставляется только когда окно открывается заново.
+    func showWindow(prefill: String? = nil) {
         let wasVisible = window?.isVisible ?? false
         if !wasVisible {
-            input.stringValue = ""
+            input.stringValue = prefill ?? ""
             preparePicker()
         }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        if !wasVisible { window?.makeFirstResponder(input) }
+        if !wasVisible {
+            window?.makeFirstResponder(input)
+            // Подставленное выделяем: ↩ откроет сразу, а ввод цифр заменит его.
+            if !(prefill ?? "").isEmpty { input.selectText(nil) }
+        }
     }
 
     // MARK: - Submit
@@ -137,13 +159,13 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     @objc private func submitCopy() { submit(action: .copyURL) }
 
     private func submit(action: TicketAction) {
-        switch QuickTicketInput.resolve(input.stringValue, projects: config.projects) {
+        switch QuickTicketInput.resolve(input.stringValue, templates: config.templates) {
         case .resolved(let match):
             finish(match, action: action)
 
-        case .needsProject(let number):
+        case .needsTemplate(let number):
             // Полный ключ всегда резолвится напрямую (минуя эту ветку), поэтому сюда
-            // попадаем только на чистом номере. Список проектов уже показан (см.
+            // попадаем только на чистом номере. Список шаблонов уже показан (см.
             // `preparePicker`), поэтому одного ↩ хватает — собираем по выбранному.
             resolveWithPicker(number: number, action: action)
 
@@ -151,24 +173,22 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
             NSSound.beep()
 
         case .invalid:
-            let hasProjects = config.projects.contains(where: \.isValid)
-            showMessage(hasProjects ? "Не похоже на ключ тикета"
-                                    : "Сначала добавьте проект в настройках", isError: true)
+            let hasTemplates = config.templates.contains(where: \.isValid)
+            showMessage(hasTemplates ? "Не похоже на ключ тикета"
+                                     : "Сначала добавьте шаблон в настройках", isError: true)
             NSSound.beep()
         }
     }
 
     private func resolveWithPicker(number: String, action: TicketAction) {
-        guard pickerPairs.indices.contains(selectedProjectIndex) else { NSSound.beep(); return }
-        let pair = pickerPairs[selectedProjectIndex]
-        guard case let .resolved(match) = QuickTicketInput.resolve(number: number,
-                                                                   project: pair.project,
-                                                                   prefix: pair.prefix) else {
+        guard fillableTemplates.indices.contains(selectedTemplateIndex) else { NSSound.beep(); return }
+        let template = fillableTemplates[selectedTemplateIndex]
+        guard case let .resolved(match) = QuickTicketInput.resolve(number: number, template: template) else {
             showMessage("Не удалось собрать ключ", isError: true)
             NSSound.beep()
             return
         }
-        config.lastQuickPrefix = pair.prefix  // запомним выбор для следующего раза
+        config.lastQuickTemplate = template.displayName  // запомним выбор для следующего раза
         finish(match, action: action)
     }
 
@@ -177,40 +197,46 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
-    // MARK: - Выбор проекта
+    // MARK: - Выбор шаблона
 
-    /// Готовит выбор проекта при открытии окна. Если валидных пар «проект+префикс»
-    /// больше одной, список показывается сразу — чтобы ввод номера и выбор были рядом
-    /// и хватало одного ↩. При одной паре (или вводе полного ключа) список не нужен.
+    /// Готовит выбор шаблона при открытии окна. Если заполнимых числом шаблонов
+    /// больше одного, список показывается сразу — чтобы ввод номера и выбор были рядом
+    /// и хватало одного ↩. При одном шаблоне (или вводе полного ключа) список не нужен.
     private func preparePicker() {
-        pickerPairs = QuickTicketInput.pickerPairs(in: config.projects)
+        fillableTemplates = QuickTicketInput.fillableTemplates(in: config.templates)
 
-        // Пересобираем радио-кнопки под актуальные проекты (заголовок `projectLabel` оставляем).
+        // Пересобираем радио-кнопки под актуальные шаблоны (заголовок `projectLabel` оставляем).
         for radio in projectRadios {
             projectGroup.removeArrangedSubview(radio)
             radio.removeFromSuperview()
         }
-        // Адрес показываем, только если хосты реально различаются — при едином сервере
-        // (типичный случай: одна Jira, разные префиксы) он лишь повторяется и шумит.
-        let hosts = pickerPairs.map { host(of: $0.project.baseURL) }
-        let showHost = Set(hosts).count > 1
-        projectRadios = pickerPairs.enumerated().map { i, pair in
+        // Паттерн показываем как приглушённую подсказку, только если он отличается от имени
+        // (иначе при name == pattern он лишь повторяется и шумит).
+        projectRadios = fillableTemplates.enumerated().map { i, template in
             let radio = NSButton(radioButtonWithTitle: "", target: self, action: #selector(projectRadioClicked))
             radio.tag = i
-            radio.attributedTitle = projectTitle(prefix: pair.prefix, host: showHost ? hosts[i] : nil)
+            let hint = template.name == template.pattern ? nil : template.pattern
+            radio.attributedTitle = templateTitle(name: template.displayName, hint: hint)
             radio.translatesAutoresizingMaskIntoConstraints = false
             projectGroup.addArrangedSubview(radio)
             return radio
         }
-        // Предвыбираем проект, выбранный в прошлый раз; если такого префикса больше нет — первый.
-        selectedProjectIndex = pickerPairs.firstIndex { $0.prefix == config.lastQuickPrefix } ?? 0
-        if projectRadios.indices.contains(selectedProjectIndex) {
-            projectRadios[selectedProjectIndex].state = .on
+        // Предвыбор: если в поле уже лежит текст, целиком совпадающий с шаблоном (выделили
+        // полный ключ вроде ONECOLLECT-123) — сразу выбираем его, экономя клик. Иначе —
+        // шаблон из прошлого раза, иначе первый.
+        let current = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !current.isEmpty, let i = fillableTemplates.firstIndex(where: { $0.matchesWhole(current) }) {
+            selectedTemplateIndex = i
+        } else {
+            selectedTemplateIndex = fillableTemplates.firstIndex { $0.displayName == config.lastQuickTemplate } ?? 0
+        }
+        if projectRadios.indices.contains(selectedTemplateIndex) {
+            projectRadios[selectedTemplateIndex].state = .on
         }
 
-        let ambiguous = pickerPairs.count > 1
+        let ambiguous = fillableTemplates.count > 1
         projectGroup.isHidden = !ambiguous
-        showMessage(ambiguous ? "Введите номер и выберите проект · ⌘↩ — скопировать"
+        showMessage(ambiguous ? "Введите номер и выберите шаблон · ⌘↩ — скопировать"
                               : "↩ — открыть · ⌘↩ — скопировать ссылку", isError: false)
         sizeWindowToFit()
     }
@@ -225,14 +251,10 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         window.center()
     }
 
-    /// Выбор проекта. Кликом мыши при уже введённом номере — сразу открываем (один клик
-    /// завершает ввод). При выборе с клавиатуры (стрелки) только запоминаем выбор, без
-    /// преждевременного открытия — иначе навигация по списку открывала бы тикет на лету.
+    /// Выбор шаблона — только запоминаем. Открытие/копирование делается кнопками
+    /// (или ↩ / ⌘↩), а не самим кликом по радио.
     @objc private func projectRadioClicked(_ sender: NSButton) {
-        selectedProjectIndex = sender.tag
-        let isMouse = NSApp.currentEvent.map { $0.type == .leftMouseUp || $0.type == .leftMouseDown } ?? false
-        guard isMouse, !input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        submit(action: .openInBrowser)
+        selectedTemplateIndex = sender.tag
     }
 
     private func showMessage(_ text: String, isError: Bool) {
@@ -240,22 +262,17 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         messageLabel.textColor = isError ? .systemRed : .secondaryLabelColor
     }
 
-    /// Хост из базового URL для подписи радио-кнопки (фолбэк — сам URL).
-    private func host(of baseURL: String) -> String {
-        URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host ?? baseURL
-    }
-
-    /// Подпись радио-кнопки: префикс обычным цветом, адрес сервера (если задан) —
-    /// приглушённым, чтобы он не перетягивал внимание с префикса проекта.
+    /// Подпись радио-кнопки: имя шаблона обычным цветом, паттерн (если отличается) —
+    /// приглушённым, чтобы он не перетягивал внимание с имени.
     /// Шрифт задаём явно: `attributedTitle` обходит дефолтный шрифт контрола.
-    private func projectTitle(prefix: String, host: String?) -> NSAttributedString {
+    private func templateTitle(name: String, hint: String?) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let title = NSMutableAttributedString(
-            string: prefix,
+            string: name,
             attributes: [.foregroundColor: NSColor.labelColor, .font: font])
-        if let host {
+        if let hint {
             title.append(NSAttributedString(
-                string: "  \(host)",
+                string: "  \(hint)",
                 attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: font]))
         }
         return title

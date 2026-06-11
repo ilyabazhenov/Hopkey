@@ -13,10 +13,14 @@ public final class JiraConfig {
         self.defaults = defaults
         registerDefaults()
         migrateHotKeysIfNeeded()
+        migrateProjectsIfNeeded()
     }
 
     private enum Key {
+        // Шаблоны распознавания (regex→URL). `projects` — legacy-ключ, читается только миграцией.
+        static let templates = "templates"
         static let projects = "projects"
+        static let templatesV1Migrated = "templatesV1Migrated"
         static let autoOpen = "autoOpen"
         // Legacy: единственный хоткей (до разделения на «открыть» и «скопировать»).
         static let hotKeyEnabled = "hotKeyEnabled"
@@ -36,8 +40,8 @@ public final class JiraConfig {
         static let showInputHotKeyEnabled = "showInputHotKeyEnabled"
         static let showInputHotKeyKeyCode = "showInputHotKeyKeyCode"
         static let showInputHotKeyModifiers = "showInputHotKeyModifiers"
-        // Префикс проекта, выбранный в окне ввода последним — для предвыбора.
-        static let lastQuickPrefix = "lastQuickPrefix"
+        // Имя шаблона, выбранного в окне ввода последним — для предвыбора.
+        static let lastQuickTemplate = "lastQuickTemplate"
         static let hotKeysV2Migrated = "hotKeysV2Migrated"
     }
 
@@ -65,13 +69,13 @@ public final class JiraConfig {
 
     /// Все ключи приложения в `UserDefaults` — для полного сброса.
     private static let allKeys = [
-        Key.projects, Key.autoOpen,
+        Key.templates, Key.projects, Key.templatesV1Migrated, Key.autoOpen,
         Key.hotKeyEnabled, Key.hotKeyKeyCode, Key.hotKeyModifiers,
         Key.defaultAction, Key.hotKeyAction, Key.clipboardAction,
         Key.openHotKeyEnabled, Key.openHotKeyKeyCode, Key.openHotKeyModifiers,
         Key.copyHotKeyEnabled, Key.copyHotKeyKeyCode, Key.copyHotKeyModifiers,
         Key.showInputHotKeyEnabled, Key.showInputHotKeyKeyCode, Key.showInputHotKeyModifiers,
-        Key.lastQuickPrefix,
+        Key.lastQuickTemplate,
         Key.hotKeysV2Migrated,
     ]
 
@@ -84,6 +88,8 @@ public final class JiraConfig {
         // Слоты хоткеев не входят в `registerDefaults` — задаём дефолты явно. Флаг
         // миграции выставляем, чтобы повторная инициализация не перетёрла их легаси-данными.
         defaults.set(true, forKey: Key.hotKeysV2Migrated)
+        // Аналогично для шаблонов: иначе re-init восстановил бы их из остаточных legacy-`projects`.
+        defaults.set(true, forKey: Key.templatesV1Migrated)
         defaults.set(Self.defaultOpenKeyCode, forKey: Key.openHotKeyKeyCode)
         defaults.set(Self.defaultModifiers, forKey: Key.openHotKeyModifiers)
         defaults.set(false, forKey: Key.openHotKeyEnabled)
@@ -117,21 +123,62 @@ public final class JiraConfig {
         defaults.set(copy.2, forKey: Key.copyHotKeyEnabled)
     }
 
-    /// Список проектов Jira (каждый со своим URL и префиксами). Пусто, пока не задан.
-    /// Хранится в `UserDefaults` как JSON.
-    public var projects: [JiraProject] {
+    /// Legacy-форма проекта (только для разбора старого `projects` при миграции).
+    private struct LegacyProject: Codable {
+        var baseURL: String
+        var prefixes: [String]
+    }
+
+    /// Однократно переносит старые `projects` в `templates`: каждый префикс каждого
+    /// проекта разворачивается в отдельный шаблон (`PROJ` → `PROJ-(\d+)` →
+    /// `<base>PROJ-$1`), чтобы в окне ручного ввода набирался только номер.
+    /// Поведение Jira не меняется. Идемпотентно (флаг `templatesV1Migrated`).
+    private func migrateProjectsIfNeeded() {
+        guard !defaults.bool(forKey: Key.templatesV1Migrated) else { return }
+        defaults.set(true, forKey: Key.templatesV1Migrated)
+
+        guard let data = defaults.data(forKey: Key.projects),
+              let legacy = try? JSONDecoder().decode([LegacyProject].self, from: data)
+        else { return }
+
+        var migrated: [LinkTemplate] = []
+        for project in legacy {
+            let base = Self.normalizeBaseURL(project.baseURL)
+            for prefix in project.prefixes {
+                let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !clean.isEmpty else { continue }
+                let escaped = NSRegularExpression.escapedPattern(for: clean)
+                migrated.append(LinkTemplate(
+                    name: clean,
+                    pattern: "\(escaped)-(\\d+)",
+                    url: "\(base)\(clean)-$1",
+                    wholeWord: true, uppercase: true, enabled: true))
+            }
+        }
+        guard !migrated.isEmpty else { return }
+        defaults.set(try? JSONEncoder().encode(migrated), forKey: Key.templates)
+    }
+
+    /// Гарантирует один завершающий слэш у базового URL (для сборки `base + ключ`).
+    private static func normalizeBaseURL(_ base: String) -> String {
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
+    }
+
+    /// Шаблоны распознавания (regex→URL). Пусто, пока не задано. Хранится как JSON.
+    public var templates: [LinkTemplate] {
         get {
-            guard let data = defaults.data(forKey: Key.projects),
-                  let list = try? JSONDecoder().decode([JiraProject].self, from: data)
+            guard let data = defaults.data(forKey: Key.templates),
+                  let list = try? JSONDecoder().decode([LinkTemplate].self, from: data)
             else { return [] }
             return list
         }
-        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.projects) }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.templates) }
     }
 
-    /// Заданы ли обязательные настройки — есть хотя бы один валидный проект.
+    /// Заданы ли обязательные настройки — есть хотя бы один валидный шаблон.
     public var isConfigured: Bool {
-        projects.contains(where: \.isValid)
+        templates.contains(where: \.isValid)
     }
 
     /// Открывать сразу (true) или показывать уведомление с кликом (false, по умолчанию).
@@ -243,10 +290,10 @@ public final class JiraConfig {
         set { defaults.set(newValue, forKey: Key.showInputHotKeyModifiers) }
     }
 
-    /// Префикс проекта, выбранный в окне ручного ввода последним. Пусто, пока не выбирали.
-    /// Используется лишь для предвыбора в списке — если префикс исчез, окно берёт первый.
-    public var lastQuickPrefix: String {
-        get { defaults.string(forKey: Key.lastQuickPrefix) ?? "" }
-        set { defaults.set(newValue, forKey: Key.lastQuickPrefix) }
+    /// Имя шаблона, выбранного в окне ручного ввода последним. Пусто, пока не выбирали.
+    /// Используется лишь для предвыбора в списке — если шаблон исчез, окно берёт первый.
+    public var lastQuickTemplate: String {
+        get { defaults.string(forKey: Key.lastQuickTemplate) ?? "" }
+        set { defaults.set(newValue, forKey: Key.lastQuickTemplate) }
     }
 }

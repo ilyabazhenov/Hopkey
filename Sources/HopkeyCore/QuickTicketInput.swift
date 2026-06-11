@@ -1,10 +1,11 @@
 import Foundation
 
-/// Чистая логика разбора ручного ввода тикета (окно «Открыть тикет…»).
+/// Чистая логика разбора ручного ввода (окно «Открыть тикет…»).
 ///
-/// Пользователь вводит либо ключ целиком (`PROJ-123`), либо только номер (`123`).
-/// В первом случае ключ парсится строго; во втором нужен префикс — если во всём
-/// конфиге он ровно один, ключ собирается сразу, иначе требуется выбор проекта.
+/// Пользователь вводит либо что-то целиком (`PROJ-123`, `#42`), либо только число
+/// (`123`). В первом случае текст парсится строго по всем шаблонам; во втором
+/// число подставляется в выбранный шаблон — если заполнимый шаблон ровно один,
+/// сразу, иначе нужен выбор.
 ///
 /// Без UI и состояния — легко тестируется.
 public enum QuickTicketInput {
@@ -13,54 +14,51 @@ public enum QuickTicketInput {
     public enum Resolution: Equatable {
         /// Готово открывать/копировать.
         case resolved(TicketMatch)
-        /// Введён только номер, а подходящих (проект, префикс) больше одного — нужен выбор.
-        case needsProject(number: String)
+        /// Введено только число, а заполнимых шаблонов больше одного — нужен выбор.
+        case needsTemplate(number: String)
         /// Пустой ввод.
         case empty
-        /// Не похоже на ключ тикета (мусор или нет ни одного валидного проекта).
+        /// Не похоже на ключ (мусор или нет ни одного подходящего шаблона).
         case invalid
     }
 
     /// Разбирает произвольный ввод из поля.
-    public static func resolve(_ raw: String, projects: [JiraProject]) -> Resolution {
+    public static func resolve(_ raw: String, templates: [LinkTemplate]) -> Resolution {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .empty }
 
-        let validProjects = projects.filter(\.isValid)
+        let valid = templates.filter(\.isValid)
 
-        // Чистый номер: нужен префикс. Один (проект, префикс) во всём конфиге — собираем сразу,
+        // Чистое число: нужен шаблон. Один заполнимый — собираем сразу,
         // несколько — просим выбрать, ни одного — невалидно.
         if trimmed.allSatisfy(\.isNumber) {
-            let pairs = pickerPairs(in: validProjects)
-            switch pairs.count {
+            let fillable = fillableTemplates(in: valid)
+            switch fillable.count {
             case 0: return .invalid
-            case 1: return resolve(number: trimmed, project: pairs[0].project, prefix: pairs[0].prefix)
-            default: return .needsProject(number: trimmed)
+            case 1: return resolve(number: trimmed, template: fillable[0])
+            default: return .needsTemplate(number: trimmed)
             }
         }
 
         // Иначе считаем, что введён ключ целиком — парсим строго (весь текст = ровно ключ).
-        if let match = TicketParser.exactMatch(in: trimmed, projects: validProjects) {
+        if let match = TicketParser.exactMatch(in: trimmed, templates: valid) {
             return .resolved(match)
         }
         return .invalid
     }
 
-    /// Собирает тикет по номеру и явно выбранным проекту/префиксу (после выбора в окне).
-    public static func resolve(number: String, project: JiraProject, prefix: String) -> Resolution {
+    /// Собирает совпадение по числу и явно выбранному шаблону (после выбора в окне).
+    public static func resolve(number: String, template: LinkTemplate) -> Resolution {
         let digits = number.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !digits.isEmpty, digits.allSatisfy(\.isNumber), !cleanPrefix.isEmpty,
-              let match = TicketParser.makeMatch(id: "\(cleanPrefix)-\(digits)", baseURL: project.baseURL)
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber),
+              let match = template.fillMatch(number: digits)
         else { return .invalid }
         return .resolved(match)
     }
 
-    /// Все пары (проект, префикс) для выбора при вводе одного номера —
-    /// по одной на каждый префикс каждого валидного проекта, в порядке конфига.
-    public static func pickerPairs(in projects: [JiraProject]) -> [(project: JiraProject, prefix: String)] {
-        projects.filter(\.isValid).flatMap { project in
-            project.prefixes.map { (project: project, prefix: $0) }
-        }
+    /// Заполнимые числом шаблоны (с единственным плейсхолдером `$1`) для выбора в окне,
+    /// в порядке конфига.
+    public static func fillableTemplates(in templates: [LinkTemplate]) -> [LinkTemplate] {
+        templates.filter(\.isFillableByNumber)
     }
 }

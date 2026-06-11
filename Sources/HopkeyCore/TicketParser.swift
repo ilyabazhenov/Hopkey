@@ -1,8 +1,9 @@
 import Foundation
 
-/// Найденный в тексте ID тикета и собранная для него ссылка.
+/// Найденный в тексте ID и собранная для него ссылка.
 public struct TicketMatch: Equatable {
-    /// Нормализованный ID в верхнем регистре, например `PROJ-12345`.
+    /// Отображаемый ID совпадения (всё совпадение `$0`, поднятое в верхний регистр
+    /// при `LinkTemplate.uppercase`), например `PROJ-12345` или `#123`.
     public let id: String
     /// Полный URL для открытия в браузере.
     public let url: URL
@@ -13,101 +14,51 @@ public struct TicketMatch: Equatable {
     }
 }
 
-/// Чистое ядро: из произвольного текста достаёт ID тикетов по заданным префиксам
-/// и строит для каждого ссылку на базе `baseURL`.
+/// Чистое ядро: прогоняет текст через набор `LinkTemplate` и строит ссылки.
 ///
 /// Никакого UI и состояния — всё передаётся параметрами, поэтому легко тестируется.
 public enum TicketParser {
 
-    /// Извлекает все совпадения из текста.
-    /// - Parameters:
-    ///   - text: произвольный текст (выделение, содержимое буфера обмена и т.п.).
-    ///   - prefixes: список префиксов проектов, например `["PROJ", "TEAM"]`.
-    ///   - baseURL: базовый URL Jira, например `https://your-jira/browse/`.
-    /// - Returns: совпадения в порядке появления, без дубликатов (по ID).
-    public static func matches(in text: String, prefixes: [String], baseURL: String) -> [TicketMatch] {
-        let cleanPrefixes = prefixes
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !cleanPrefixes.isEmpty, !text.isEmpty else { return [] }
-
-        // (PREFIX1|PREFIX2)-\d+  с границами, чтобы XPROJ-1 не ловился.
-        let alternation = cleanPrefixes
-            .map { NSRegularExpression.escapedPattern(for: $0) }
-            .joined(separator: "|")
-        let pattern = "(?<![A-Za-z0-9])(?:\(alternation))-\\d+(?![A-Za-z0-9])"
-
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-
-        let nsText = text as NSString
-        let full = NSRange(location: 0, length: nsText.length)
+    /// Извлекает все совпадения из текста по включённым шаблонам.
+    /// Дубликаты по `id` не повторяются — выигрывает первый шаблон (порядок важен).
+    /// Кривой regex молча пропускается (как и шаблон без валидного URL).
+    public static func matches(in text: String, templates: [LinkTemplate]) -> [TicketMatch] {
+        guard !text.isEmpty else { return [] }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
 
         var seen = Set<String>()
         var result: [TicketMatch] = []
-        let normalizedBase = normalizeBaseURL(baseURL)
-
-        for m in regex.matches(in: text, options: [], range: full) {
-            let raw = nsText.substring(with: m.range)
-            let id = raw.uppercased()
-            guard !seen.contains(id) else { continue }
-            guard let url = URL(string: normalizedBase + id) else { continue }
-            seen.insert(id)
-            result.append(TicketMatch(id: id, url: url))
-        }
-        return result
-    }
-
-    /// Извлекает совпадения сразу по нескольким проектам: каждый тикет получает ссылку
-    /// от того проекта, чей префикс совпал. Дубликаты по ID не повторяются (первый выигрывает).
-    /// - Parameters:
-    ///   - text: произвольный текст.
-    ///   - projects: проекты, каждый со своим `baseURL` и `prefixes`.
-    /// - Returns: совпадения, сгруппированные по проектам; внутри проекта — в порядке появления.
-    public static func matches(in text: String, projects: [JiraProject]) -> [TicketMatch] {
-        var seen = Set<String>()
-        var result: [TicketMatch] = []
-        for project in projects {
-            for m in matches(in: text, prefixes: project.prefixes, baseURL: project.baseURL)
-            where !seen.contains(m.id) {
-                seen.insert(m.id)
-                result.append(m)
+        for template in templates where template.enabled {
+            guard let regex = template.compiledRegex() else { continue }
+            for m in regex.matches(in: text, options: [], range: full) {
+                guard let match = template.match(from: m, in: ns), !seen.contains(match.id)
+                else { continue }
+                seen.insert(match.id)
+                result.append(match)
             }
         }
         return result
     }
 
-    /// Точное совпадение: возвращает тикет, только если **весь** текст (без пробелов по краям) —
-    /// это ровно один ключ тикета, например `PROJ-12345`. URL, предложения и любой лишний текст
-    /// не срабатывают. Нужно для автонаблюдения за буфером, чтобы случайно скопированная ссылка
-    /// не открывала браузер сама собой.
-    /// - Parameters:
-    ///   - text: содержимое буфера обмена.
-    ///   - projects: проекты, каждый со своим `baseURL` и `prefixes`.
-    /// - Returns: совпадение, если текст целиком равен ключу тикета; иначе `nil`.
-    public static func exactMatch(in text: String, projects: [JiraProject]) -> TicketMatch? {
+    /// Точное совпадение: текст целиком (без пробелов по краям) — ровно один ключ.
+    /// URL, предложения и любой лишний текст не срабатывают. Нужно для автонаблюдения
+    /// за буфером, чтобы случайно скопированная ссылка не открывала браузер сама собой.
+    /// Выигрывает первый включённый шаблон, чьё совпадение занимает всю строку.
+    public static func exactMatch(in text: String, templates: [LinkTemplate]) -> TicketMatch? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let normalizedID = trimmed.uppercased()
-        // Текст должен быть ровно ключом: единственное совпадение, занимающее всю строку.
-        return matches(in: trimmed, projects: projects).first { $0.id == normalizedID }
-    }
+        let ns = trimmed as NSString
+        let full = NSRange(location: 0, length: ns.length)
 
-    /// Собирает `TicketMatch` из готового ID и базового URL — без парсинга текста.
-    /// Нужен для ручного ввода: ID уже известен (например, собран из префикса и номера).
-    /// Нормализует регистр ID и завершающий слэш базы той же логикой, что и `matches`.
-    /// - Returns: совпадение, либо `nil`, если ID пуст или URL не собирается.
-    public static func makeMatch(id: String, baseURL: String) -> TicketMatch? {
-        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !normalizedID.isEmpty else { return nil }
-        guard let url = URL(string: normalizeBaseURL(baseURL) + normalizedID) else { return nil }
-        return TicketMatch(id: normalizedID, url: url)
-    }
-
-    /// Гарантирует один завершающий слэш, чтобы `base` + `ID` всегда был корректным.
-    private static func normalizeBaseURL(_ base: String) -> String {
-        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
+        for template in templates where template.enabled {
+            guard let regex = template.compiledRegex(),
+                  let m = regex.firstMatch(in: trimmed, options: [], range: full),
+                  m.range == full,
+                  let match = template.match(from: m, in: ns)
+            else { continue }
+            return match
+        }
+        return nil
     }
 }
