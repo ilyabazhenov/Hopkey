@@ -16,7 +16,8 @@ public struct LinkTemplate: Codable, Equatable {
     /// Обернуть `pattern` в границы `(?<![A-Za-z0-9])…(?![A-Za-z0-9])`,
     /// чтобы `XPROJ-1` не ловился. Для большинства ключей — `true`.
     public var wholeWord: Bool
-    /// Нормализовать совпадение (`id`) в ВЕРХНИЙ регистр (нужно Jira-ключам).
+    /// Нормализовать всё совпадение (`$0`) в ВЕРХНИЙ регистр — и в `id`, и в URL
+    /// (нужно Jira-ключам и CVE). Захваченные подгруппы `$1+` остаются как есть.
     public var uppercase: Bool
     /// Участвует ли шаблон в распознавании.
     public var enabled: Bool
@@ -82,8 +83,11 @@ public struct LinkTemplate: Codable, Equatable {
             let range = result.range(at: i)
             groups.append(range.location == NSNotFound ? "" : text.substring(with: range))
         }
-        let whole = groups.first ?? ""
-        let id = uppercase ? whole.uppercased() : whole
+        // uppercase нормализует всё совпадение ($0) — и отображаемый id, и его
+        // подстановку в URL (для $0-шаблонов вроде CVE). Захваченные подгруппы
+        // ($1+) не трогаем: они могут быть регистрозависимы (имена репозиториев и т.п.).
+        if uppercase, !groups.isEmpty { groups[0] = groups[0].uppercased() }
+        let id = groups.first ?? ""
         guard let url = buildURL(groups: groups) else { return nil }
         return TicketMatch(id: id, url: url)
     }

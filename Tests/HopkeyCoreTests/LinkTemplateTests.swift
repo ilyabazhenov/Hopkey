@@ -71,6 +71,15 @@ final class LinkTemplateTests: XCTestCase {
         XCTAssertEqual(match?.url.absoluteString, "https://wiki/search?q=%D0%98%D0%9B%207")
     }
 
+    func testFillMatchUppercasesLastPathComponent() {
+        // id для ручного ввода — последний компонент пути, поднятый в верхний регистр.
+        let t = LinkTemplate(name: "lc", pattern: "proj-(\\d+)", url: "https://x/browse/proj-$1",
+                             wholeWord: true, uppercase: true)
+        let m = t.fillMatch(number: "9")
+        XCTAssertEqual(m?.id, "PROJ-9")
+        XCTAssertEqual(m?.url.absoluteString, "https://x/browse/proj-9")
+    }
+
     func testBuildURLDropsInvalidLiteral() {
         // Пробел в литеральной части адреса делает URL невалидным → nil.
         let t = LinkTemplate(name: "bad", pattern: "(\\d+)", url: "https://bad host/$1")

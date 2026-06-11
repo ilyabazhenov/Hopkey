@@ -104,6 +104,30 @@ final class TicketParserTests: XCTestCase {
         XCTAssertTrue(TicketParser.matches(in: "PROJ-1", templates: []).isEmpty)
     }
 
+    // MARK: - Whole-match ($0) и несколько групп
+
+    func testWholeMatchPlaceholderBuildsURL() {
+        // CVE-пресет: URL на $0 (всё совпадение), без захваченных групп.
+        let cve = LinkTemplate(name: "CVE", pattern: "CVE-\\d{4}-\\d+",
+                               url: "https://nvd.nist.gov/vuln/detail/$0",
+                               wholeWord: true, uppercase: true)
+        let m = TicketParser.matches(in: "see cve-2021-44228 here", templates: [cve])
+        XCTAssertEqual(m.first?.id, "CVE-2021-44228")
+        XCTAssertEqual(m.first?.url.absoluteString,
+                       "https://nvd.nist.gov/vuln/detail/CVE-2021-44228")
+    }
+
+    func testMultipleGroupsSubstitutedIntoURL() {
+        // Два плейсхолдера: $1 — репозиторий, $2 — номер.
+        let t = LinkTemplate(name: "gh", pattern: "(\\w+)#(\\d+)",
+                             url: "https://github.com/org/$1/issues/$2",
+                             wholeWord: true, uppercase: false)
+        let m = TicketParser.matches(in: "repo#42", templates: [t])
+        XCTAssertEqual(m.first?.id, "repo#42")
+        XCTAssertEqual(m.first?.url.absoluteString,
+                       "https://github.com/org/repo/issues/42")
+    }
+
     // MARK: - Точное совпадение (автонаблюдение за буфером)
 
     func testExactMatchOnlyKey() {
