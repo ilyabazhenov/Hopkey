@@ -45,7 +45,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             let count = matches.count
             switch action {
             case .openInBrowser:
-                content.title = count == 1 ? "Нажмите, чтобы открыть тикет" : "Нажмите, чтобы открыть тикеты (\(count))"
+                content.title = count == 1 ? "Нажмите, чтобы открыть ссылку" : "Нажмите, чтобы открыть ссылки (\(count))"
             case .copyURL:
                 content.title = count == 1 ? "Нажмите, чтобы скопировать ссылку" : "Нажмите, чтобы скопировать ссылки (\(count))"
             }

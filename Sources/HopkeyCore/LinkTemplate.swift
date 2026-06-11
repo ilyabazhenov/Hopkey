@@ -31,14 +31,25 @@ public struct LinkTemplate: Codable, Equatable {
         self.enabled = enabled
     }
 
-    /// Пригоден к использованию: `pattern` непустой и компилируется,
-    /// `url` непустой и содержит хотя бы один плейсхолдер `$0…$9`.
-    public var isValid: Bool {
-        !pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && compiledRegex() != nil
-            && !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !urlPlaceholders.isEmpty
+    /// Причина невалидности шаблона (для редактора) — `nil`, если всё в порядке.
+    public enum Invalid: Equatable {
+        case emptyPattern   // пустой regex
+        case invalidRegex   // regex не компилируется
+        case emptyURL       // пустой URL
+        case noPlaceholder  // в URL нет ни одного $0…$9
     }
+
+    /// Что не так с шаблоном; `nil` — валиден.
+    public var validation: Invalid? {
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .emptyPattern }
+        if compiledRegex() == nil { return .invalidRegex }
+        if url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .emptyURL }
+        if urlPlaceholders.isEmpty { return .noPlaceholder }
+        return nil
+    }
+
+    /// Пригоден к использованию: см. `validation`.
+    public var isValid: Bool { validation == nil }
 
     /// Можно ли заполнить шаблон одним числом в окне ручного ввода — то есть
     /// `url` использует ровно один плейсхолдер `$1` (типичная форма `…/PROJ-$1`,

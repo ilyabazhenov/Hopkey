@@ -1,158 +1,291 @@
 import AppKit
 import HopkeyCore
 
-/// Окно настроек: таблица шаблонов (имя + regex + URL), переключатели и хоткеи.
-/// Изменения сохраняются по кнопке «Сохранить» и сообщаются через `onSave`.
+/// Окно настроек с тремя вкладками в тулбаре (Шаблоны · Хоткеи · Общие).
+/// Настройки применяются мгновенно (как в системных «Настройках»): каждое изменение
+/// сразу пишется в конфиг и применяется через `onSave` — кнопки «Сохранить» нет.
+/// Шаблоны по-прежнему создаются/редактируются в отдельном модальном окне
+/// (`TemplateEditorWindowController`), таблица остаётся списком «для опознания».
 final class SettingsWindowController: NSWindowController, NSWindowDelegate,
                                       NSTableViewDataSource, NSTableViewDelegate,
-                                      NSTextFieldDelegate {
+                                      NSToolbarDelegate {
 
     private let config: JiraConfig
     /// Управление автообновлением (Sparkle): флаг живёт не в конфиге, а в апдейтере.
     private let updater: UpdaterController
-    /// Вызывается после сохранения, чтобы AppDelegate применил изменения (хоткей и т.п.).
+    /// Вызывается после любого изменения, чтобы AppDelegate переприменил конфиг (хоткеи и т.п.).
     var onSave: (() -> Void)?
 
-    /// Рабочая копия шаблонов, которую редактирует таблица.
+    /// Рабочая копия шаблонов, которую редактирует список.
     private var templates: [LinkTemplate] = []
+    /// Удерживает редактор шаблона, пока открыт его sheet.
+    private var templateEditor: TemplateEditorWindowController?
+
+    /// Фиксированная ширина контента окна (вкладки сами задают высоту).
+    private let contentWidth: CGFloat = 540
+    /// Ширина переноса для многострочных подписей (контент минус поля 20+20).
+    private var wrapWidth: CGFloat { contentWidth - 40 }
+
+    // MARK: Вкладки
+
+    private enum Tab: String, CaseIterable {
+        case templates, hotkeys, general, about
+
+        var label: String {
+            switch self {
+            case .templates: return "Шаблоны"
+            case .hotkeys: return "Хоткеи"
+            case .general: return "Общие"
+            case .about: return "О приложении"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .templates: return "list.bullet.rectangle"
+            case .hotkeys: return "keyboard"
+            case .general: return "gearshape"
+            case .about: return "info.circle"
+            }
+        }
+        var itemID: NSToolbarItem.Identifier { .init(rawValue) }
+    }
+
+    /// Контейнер, в который кладётся вью активной вкладки.
+    private let container = NSView()
+    private var tabViews: [Tab: NSView] = [:]
+    /// Кастомные кнопки-вкладки в тулбаре (для ручной подсветки выбранной).
+    private var tabButtons: [Tab: TabButton] = [:]
+    private var currentTab: Tab = .templates
+
+    /// Единая ширина всех вкладок: по самой длинной подписи + поля. Так «О приложении»
+    /// и «Общие» получают одинаковую ширину, а не подгоняются каждая под свой текст.
+    private lazy var tabItemWidth: CGFloat = {
+        let font = NSFont.systemFont(ofSize: 11)
+        let widest = Tab.allCases
+            .map { ($0.label as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 60
+        return ceil(widest) + 20
+    }()
+
+    // MARK: Контролы вкладки «Шаблоны»
 
     private let tableView = NSTableView()
     private let removeButton = NSButton()
+    private let editButton = NSButton()
     private let emptyStateLabel = NSTextField(labelWithString: "Нажмите + или «Из пресета», чтобы добавить шаблон")
-    private let autoOpenCheck = NSButton(checkboxWithTitle: "Выполнять действие сразу при копировании ключа (иначе — показать уведомление)", target: nil, action: nil)
-    private let clipboardActionPopup = NSPopUpButton()
 
-    /// Два независимых хоткея с фиксированным действием: открыть / скопировать.
-    private let openHotKeyCheck = NSButton(checkboxWithTitle: "Открывать в браузере", target: nil, action: nil)
+    // MARK: Контролы вкладки «Хоткеи»
+
+    /// Два хоткея над выделением (требуют Accessibility) + хоткей окна ввода (не требует).
+    private let openHotKeyCheck = NSButton(checkboxWithTitle: "Открыть в браузере", target: nil, action: nil)
     private let openHotKeyRecorder = HotKeyRecorderView()
-    private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Копировать ссылку", target: nil, action: nil)
+    private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Скопировать ссылку", target: nil, action: nil)
     private let copyHotKeyRecorder = HotKeyRecorderView()
-    /// Отдельный хоткей: открыть окно ручного ввода тикета (Accessibility не нужен).
-    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: "Открыть окно ввода тикета", target: nil, action: nil)
+    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: "Открыть окно ввода", target: nil, action: nil)
     private let showInputHotKeyRecorder = HotKeyRecorderView()
-    private let showInputHotKeyNote = NSTextField(labelWithString: "Открывает окно ввода. С Универсальным доступом подставит выделенный текст; без него — откроется пустым (или с числом из буфера).")
 
-    /// Общая опция приложения: автозапуск при входе (через `SMAppService`, не хранится в конфиге).
+    // MARK: Контролы вкладки «Общие»
+
+    /// Объединяет прежний чекбокс `autoOpen` и попап действия: один список из 4 состояний.
+    private let clipboardActionPopup = NSPopUpButton()
     private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
-
-    /// Автоматическая проверка обновлений (Sparkle) — флаг проброшен в `SPUUpdater`.
     private let autoUpdateCheck = NSButton(checkboxWithTitle: "Автоматически проверять обновления", target: nil, action: nil)
 
-    /// Подпись поля, выровненного в колонку.
-    private let clipboardActionLabel = NSTextField(labelWithString: "Действие при копировании ключа:")
-    /// Заголовок блока хоткеев (с напоминанием про разрешение Accessibility).
-    private let hotKeysHeader = NSTextField(labelWithString: "Глобальные хоткеи (нужен доступ в «Конфиденциальность и безопасность ▸ Универсальный доступ»):")
-
-    /// Действия в порядке отображения в выпадающем списке.
-    private let actions: [TicketAction] = TicketAction.allCases
+    /// Пункт попапа «при копировании» ↔ пара (авто-открытие, действие).
+    private struct ClipboardOption { let autoOpen: Bool; let action: TicketAction; let title: String }
+    private let clipboardOptions: [ClipboardOption] = [
+        .init(autoOpen: false, action: .openInBrowser, title: "Показать уведомление (клик — открыть в браузере)"),
+        .init(autoOpen: false, action: .copyURL,       title: "Показать уведомление (клик — скопировать ссылку)"),
+        .init(autoOpen: true,  action: .openInBrowser, title: "Сразу открыть в браузере"),
+        .init(autoOpen: true,  action: .copyURL,       title: "Сразу скопировать ссылку"),
+    ]
 
     private enum Column {
         static let enabled = NSUserInterfaceItemIdentifier("enabled")
-        static let wholeWord = NSUserInterfaceItemIdentifier("wholeWord")
-        static let uppercase = NSUserInterfaceItemIdentifier("uppercase")
         static let name = NSUserInterfaceItemIdentifier("name")
         static let pattern = NSUserInterfaceItemIdentifier("pattern")
-        static let url = NSUserInterfaceItemIdentifier("url")
-    }
-
-    private func title(for action: TicketAction) -> String {
-        switch action {
-        case .openInBrowser: return "Открыть в браузере"
-        case .copyURL: return "Скопировать ссылку"
-        }
     }
 
     init(config: JiraConfig, updater: UpdaterController) {
         self.config = config
         self.updater = updater
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 660),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Настройки Hopkey"
+        // Ниже — начинает обрезать контролы; больше — растягивается список шаблонов.
+        window.minSize = NSSize(width: 540, height: 420)
         super.init(window: window)
         window.delegate = self
+        container.translatesAutoresizingMaskIntoConstraints = false
+        window.contentView = container
+        setupToolbar()
+        buildTabs()
+        show(.templates)
         window.center()
-        buildUI()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    private func buildUI() {
-        guard let content = window?.contentView else { return }
+    // MARK: - Тулбар-вкладки
 
-        func label(_ text: String) -> NSTextField {
-            let l = NSTextField(labelWithString: text)
-            l.translatesAutoresizingMaskIntoConstraints = false
-            return l
+    private func setupToolbar() {
+        let toolbar = NSToolbar(identifier: "settings")
+        toolbar.delegate = self
+        // Иконку и подпись рисует сама кнопка-вкладка (`TabButton`), поэтому тулбару
+        // запрещаем дублировать подпись снизу.
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window?.toolbar = toolbar
+        window?.toolbarStyle = .preference
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard let tab = Tab(rawValue: id.rawValue) else { return nil }
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.label = tab.label  // для меню переполнения и Accessibility (визуально не рисуется)
+        let button = TabButton(symbol: tab.symbol, title: tab.label, width: tabItemWidth) { [weak self] in
+            self?.show(tab)
         }
+        item.view = button
+        tabButtons[tab] = button
+        return item
+    }
 
-        // Вводная строка о механике приложения — окно открывается первым при первом запуске.
-        let introLabel = label("Hopkey превращает ID в ссылки по шаблонам regex→URL: скопируйте ключ (например, PROJ-123) — и тикет откроется; либо выделите текст и нажмите хоткей. В URL подставляются группы совпадения ($1 — первая, $0 — всё совпадение).")
-        introLabel.textColor = .secondaryLabelColor
-        introLabel.font = .systemFont(ofSize: 11)
-        introLabel.lineBreakMode = .byWordWrapping
-        introLabel.maximumNumberOfLines = 0
-        introLabel.preferredMaxLayoutWidth = 640
+    private var tabIdentifiers: [NSToolbarItem.Identifier] { Tab.allCases.map(\.itemID) }
+    func toolbarDefaultItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { tabIdentifiers }
+    func toolbarAllowedItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { tabIdentifiers }
+    // Подсветку выбранной вкладки рисуем сами (см. `TabButton`), системная не нужна.
+    func toolbarSelectableItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
 
-        let projectsLabel = label("Шаблоны распознавания:")
+    /// Кладёт вью вкладки в контейнер и подгоняет высоту окна под её содержимое.
+    private func show(_ tab: Tab) {
+        currentTab = tab
+        guard let view = tabViews[tab] else { return }
+        container.subviews.forEach { $0.removeFromSuperview() }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(view)
+        // Вкладка заполняет контейнер целиком; лишнее место по вертикали поглощает
+        // гибкий элемент вкладки (список шаблонов) или невидимый спейсер (см. `tabView`).
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        for (t, button) in tabButtons { button.isSelected = (t == tab) }
+    }
 
-        // Таблица шаблонов: галочки (вкл/границы слова/верхний регистр) + имя, regex, URL.
-        func textColumn(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
-                        minWidth: CGFloat, tooltip: String? = nil) -> NSTableColumn {
+    // MARK: - Сборка вкладок
+
+    private func label(_ text: String, secondary: Bool = false, wraps: Bool = false) -> NSTextField {
+        let l = NSTextField(labelWithString: text)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        if secondary {
+            l.textColor = .secondaryLabelColor
+            l.font = .systemFont(ofSize: 11)
+        }
+        if wraps {
+            l.lineBreakMode = .byWordWrapping
+            l.maximumNumberOfLines = 0
+            l.preferredMaxLayoutWidth = wrapWidth
+        }
+        return l
+    }
+
+    private func separator() -> NSBox {
+        let box = NSBox()
+        box.boxType = .separator
+        box.translatesAutoresizingMaskIntoConstraints = false
+        return box
+    }
+
+    /// Оборачивает вертикальный стек контента в вью вкладки с полями 20pt по краям.
+    /// - Parameter flexibleContent: у вкладки уже есть свой растягивающийся по высоте
+    ///   элемент (список шаблонов). Если `false`, добавляем невидимый спейсер снизу,
+    ///   чтобы при увеличении окна контент держался у верхнего края.
+    private func tabView(_ stack: NSStackView, flexibleContent: Bool = false,
+                         extraSetup: (NSView) -> Void = { _ in }) -> NSView {
+        let v = NSView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.distribution = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        if !flexibleContent {
+            let spacer = NSView()
+            spacer.translatesAutoresizingMaskIntoConstraints = false
+            spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
+            stack.addArrangedSubview(spacer)
+        }
+        v.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: v.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -20),
+        ])
+        extraSetup(v)
+        return v
+    }
+
+    private func buildTabs() {
+        tabViews[.templates] = buildTemplatesTab()
+        tabViews[.hotkeys] = buildHotKeysTab()
+        tabViews[.general] = buildGeneralTab()
+        tabViews[.about] = buildAboutTab()
+    }
+
+    // MARK: Вкладка «Шаблоны»
+
+    private func buildTemplatesTab() -> NSView {
+        let intro = label("Шаблоны превращают ключи в ссылки. Скопируйте ключ (например, PROJ-123) — и Hopkey откроет ссылку; либо выделите текст и нажмите хоткей.",
+                          secondary: true, wraps: true)
+
+        func column(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
+                    minWidth: CGFloat, fixed: Bool = false, tooltip: String? = nil) -> NSTableColumn {
             let c = NSTableColumn(identifier: id)
             c.title = title
             c.width = width
             c.minWidth = minWidth
+            if fixed { c.maxWidth = width }
             c.headerToolTip = tooltip
             return c
         }
-        func checkColumn(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
-                         tooltip: String) -> NSTableColumn {
-            let c = NSTableColumn(identifier: id)
-            c.title = title
-            c.width = width
-            c.minWidth = width
-            c.maxWidth = width
-            c.headerToolTip = tooltip
-            return c
-        }
-        tableView.addTableColumn(checkColumn(Column.enabled, "Вкл", width: 40,
+        tableView.addTableColumn(column(Column.enabled, "Вкл", width: 40, minWidth: 40, fixed: true,
             tooltip: "Участвует ли шаблон в распознавании."))
-        tableView.addTableColumn(checkColumn(Column.wholeWord, "Слово", width: 54,
-            tooltip: "Границы слова: совпадение не приклеено к другим буквам/цифрам — PROJ-1 поймается, XPROJ-1 нет. Для #(\\d+) обычно выключают."))
-        tableView.addTableColumn(checkColumn(Column.uppercase, "ВЕРХ", width: 54,
-            tooltip: "Нормализовать найденный ключ в ВЕРХНИЙ регистр (нужно Jira-ключам: proj-7 → PROJ-7)."))
-        tableView.addTableColumn(textColumn(Column.name, "Имя", width: 110, minWidth: 80,
-            tooltip: "Произвольное имя — показывается в окне ручного ввода."))
-        tableView.addTableColumn(textColumn(Column.pattern, "Шаблон (regex)", width: 170, minWidth: 120,
-            tooltip: "Регулярное выражение. Группы доступны в URL как $1, $2…"))
-        tableView.addTableColumn(textColumn(Column.url, "URL ($1 — номер)", width: 220, minWidth: 160,
-            tooltip: "$1 — первая группа (номер), $0 — всё совпадение."))
+        tableView.addTableColumn(column(Column.name, "Имя", width: 150, minWidth: 100))
+        tableView.addTableColumn(column(Column.pattern, "Шаблон (regex)", width: 290, minWidth: 160))
         tableView.dataSource = self
         tableView.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableView.allowsMultipleSelection = false
         tableView.rowHeight = 24
+        tableView.target = self
+        tableView.doubleAction = #selector(editSelectedRow)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         scroll.documentView = tableView
         scroll.translatesAutoresizingMaskIntoConstraints = false
+        // Список — гибкий по высоте элемент вкладки: при росте окна всё лишнее место
+        // достаётся ему (видно больше шаблонов), внутри — прокрутка для длинных списков.
+        scroll.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
+        scroll.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .vertical)
 
-        // Подсказка по центру таблицы, пока проектов нет. Лейбл оверлеится ПОВЕРХ
-        // скролла (добавляется в `content` ниже), а не внутрь него: `NSScrollView`
-        // сам тайлит свои подвью и прибивает постороннюю вью к верхнему краю —
-        // тогда подсказка наезжает на заголовки колонок.
+        // Подсказка пустого состояния висит ПОВЕРХ скролла по центру (см. прежний коммент:
+        // внутрь скролла её класть нельзя — он прибьёт её к шапке колонок).
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.font = .systemFont(ofSize: 12)
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Панель +/− под таблицей.
+        // Панель под таблицей: +, −, Изменить, Из пресета.
         let addButton = NSButton(title: "+", target: self, action: #selector(addRow))
         addButton.bezelStyle = .smallSquare
         addButton.setButtonType(.momentaryPushIn)
@@ -166,148 +299,182 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             b.translatesAutoresizingMaskIntoConstraints = false
             b.widthAnchor.constraint(equalToConstant: 28).isActive = true
         }
-        // Кнопка «Из пресета ▾» — добавляет готовую заготовку (Jira/GitHub/CVE) для правки.
+        editButton.title = "Изменить"
+        editButton.target = self
+        editButton.action = #selector(editSelectedRow)
+        editButton.bezelStyle = .rounded
+        editButton.isEnabled = false
+        editButton.translatesAutoresizingMaskIntoConstraints = false
         let presetButton = NSButton(title: "Из пресета ▾", target: self, action: #selector(showPresetMenu))
         presetButton.bezelStyle = .rounded
         presetButton.translatesAutoresizingMaskIntoConstraints = false
-        let buttonBar = NSStackView(views: [addButton, removeButton, presetButton])
+        let buttonBar = NSStackView(views: [addButton, removeButton, editButton, presetButton])
         buttonBar.orientation = .horizontal
         buttonBar.spacing = 0
         buttonBar.setCustomSpacing(8, after: removeButton)
+        buttonBar.setCustomSpacing(8, after: editButton)
         buttonBar.translatesAutoresizingMaskIntoConstraints = false
 
-        autoOpenCheck.translatesAutoresizingMaskIntoConstraints = false
+        let stack = NSStackView(views: [intro, label("Шаблоны распознавания:"), scroll, buttonBar])
+        stack.spacing = 8
+        stack.setCustomSpacing(2, after: scroll)
 
-        // Строка «подпись + контрол» для действия буфера.
-        clipboardActionLabel.translatesAutoresizingMaskIntoConstraints = false
-        clipboardActionPopup.removeAllItems()
-        clipboardActionPopup.addItems(withTitles: actions.map(title(for:)))
-        clipboardActionPopup.translatesAutoresizingMaskIntoConstraints = false
-        let clipboardActionRow = NSStackView(views: [clipboardActionLabel, clipboardActionPopup])
-        clipboardActionRow.orientation = .horizontal
-        clipboardActionRow.alignment = .centerY
-        clipboardActionRow.spacing = 8
-        clipboardActionRow.translatesAutoresizingMaskIntoConstraints = false
+        return tabView(stack, flexibleContent: true) { [self] v in
+            v.addSubview(emptyStateLabel)
+            NSLayoutConstraint.activate([
+                scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
+                emptyStateLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+                emptyStateLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            ])
+        }
+    }
 
-        // Блок хоткеев: приглушённый заголовок + две строки «галочка + рекордер».
-        hotKeysHeader.translatesAutoresizingMaskIntoConstraints = false
-        hotKeysHeader.textColor = .secondaryLabelColor
-        hotKeysHeader.font = .systemFont(ofSize: 11)
-        hotKeysHeader.lineBreakMode = .byWordWrapping
-        hotKeysHeader.maximumNumberOfLines = 0
-        hotKeysHeader.preferredMaxLayoutWidth = 500
+    // MARK: Вкладка «Хоткеи»
 
-        func hotKeyRow(_ check: NSButton, _ recorder: HotKeyRecorderView) -> NSStackView {
+    private func buildHotKeysTab() -> NSView {
+        let header = label("Глобальные хоткеи работают в любом приложении.", secondary: true, wraps: true)
+
+        // Галочки одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
+        let checkWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
+                                  copyHotKeyCheck.intrinsicContentSize.width,
+                                  showInputHotKeyCheck.intrinsicContentSize.width))
+
+        func group(_ check: NSButton, _ recorder: HotKeyRecorderView, hint: String) -> NSView {
             check.translatesAutoresizingMaskIntoConstraints = false
             check.target = self
-            check.action = #selector(updateDependentControls)
+            check.action = #selector(hotKeyEnabledChanged)
             recorder.translatesAutoresizingMaskIntoConstraints = false
             let row = NSStackView(views: [check, recorder])
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 8
             row.translatesAutoresizingMaskIntoConstraints = false
-            return row
+            let hintLabel = label(hint, secondary: true, wraps: true)
+            let box = NSStackView(views: [row, hintLabel])
+            box.orientation = .vertical
+            box.alignment = .leading
+            box.spacing = 2
+            box.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                check.widthAnchor.constraint(equalToConstant: checkWidth),
+                recorder.widthAnchor.constraint(equalToConstant: 160),
+            ])
+            return box
         }
-        let openHotKeyRow = hotKeyRow(openHotKeyCheck, openHotKeyRecorder)
-        let copyHotKeyRow = hotKeyRow(copyHotKeyCheck, copyHotKeyRecorder)
-        let showInputHotKeyRow = hotKeyRow(showInputHotKeyCheck, showInputHotKeyRecorder)
 
-        showInputHotKeyNote.translatesAutoresizingMaskIntoConstraints = false
-        showInputHotKeyNote.textColor = .secondaryLabelColor
-        showInputHotKeyNote.font = .systemFont(ofSize: 11)
-        showInputHotKeyNote.lineBreakMode = .byWordWrapping
-        showInputHotKeyNote.maximumNumberOfLines = 0
-        showInputHotKeyNote.preferredMaxLayoutWidth = 500
+        openHotKeyRecorder.onChange = { [weak self] k, m in
+            self?.config.openHotKeyKeyCode = Int(k); self?.config.openHotKeyModifiers = Int(m); self?.onSave?()
+        }
+        copyHotKeyRecorder.onChange = { [weak self] k, m in
+            self?.config.copyHotKeyKeyCode = Int(k); self?.config.copyHotKeyModifiers = Int(m); self?.onSave?()
+        }
+        showInputHotKeyRecorder.onChange = { [weak self] k, m in
+            self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m); self?.onSave?()
+        }
 
-        let saveButton = NSButton(title: "Сохранить", target: self, action: #selector(save))
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-        saveButton.keyEquivalent = "\r"
+        let openGroup = group(openHotKeyCheck, openHotKeyRecorder,
+            hint: "Открывает выделенный ключ в браузере. Нужен Универсальный доступ.")
+        let copyGroup = group(copyHotKeyCheck, copyHotKeyRecorder,
+            hint: "Копирует ссылку на выделенный ключ. Нужен Универсальный доступ.")
+        let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
+            hint: "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.")
 
-        // Сброс всех настроек к значениям по умолчанию — в левом нижнем углу, подальше от «Сохранить».
+        let accessNote = label("Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».",
+                               secondary: true, wraps: true)
+
+        let sep = separator()
+        let stack = NSStackView(views: [header, openGroup, copyGroup, inputGroup, sep, accessNote])
+        stack.spacing = 14
+        stack.setCustomSpacing(16, after: inputGroup)
+        stack.setCustomSpacing(12, after: sep)
+        return tabView(stack) { _ in
+            sep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+    }
+
+    // MARK: Вкладка «Общие»
+
+    private func buildGeneralTab() -> NSView {
+        clipboardActionPopup.removeAllItems()
+        clipboardActionPopup.addItems(withTitles: clipboardOptions.map(\.title))
+        clipboardActionPopup.target = self
+        clipboardActionPopup.action = #selector(clipboardOptionChanged)
+        clipboardActionPopup.translatesAutoresizingMaskIntoConstraints = false
+
+        launchAtLoginCheck.target = self
+        launchAtLoginCheck.action = #selector(launchAtLoginChanged)
+        launchAtLoginCheck.translatesAutoresizingMaskIntoConstraints = false
+        autoUpdateCheck.target = self
+        autoUpdateCheck.action = #selector(autoUpdateChanged)
+        autoUpdateCheck.translatesAutoresizingMaskIntoConstraints = false
+
         let resetButton = NSButton(title: "Сбросить настройки", target: self, action: #selector(resetToDefaults))
         resetButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // Горизонтальные разделители делят окно на три блока:
-        // проекты · реакция на копирование · глобальный хоткей.
-        func separator() -> NSBox {
-            let box = NSBox()
-            box.boxType = .separator
-            box.translatesAutoresizingMaskIntoConstraints = false
-            return box
-        }
-        let clipboardSeparator = separator()
-        let hotKeySeparator = separator()
-        let loginSeparator = separator()
-
-        launchAtLoginCheck.translatesAutoresizingMaskIntoConstraints = false
-
+        let sep1 = separator()
+        let sep2 = separator()
         let stack = NSStackView(views: [
-            introLabel,
-            projectsLabel,
-            scroll,
-            buttonBar,
-            clipboardSeparator,
-            autoOpenCheck, clipboardActionRow,
-            hotKeySeparator,
-            hotKeysHeader,
-            openHotKeyRow,
-            copyHotKeyRow,
-            showInputHotKeyRow,
-            showInputHotKeyNote,
-            loginSeparator,
+            label("При копировании ключа в буфер:"),
+            clipboardActionPopup,
+            sep1,
             launchAtLoginCheck,
             autoUpdateCheck,
+            sep2,
+            resetButton,
         ])
-        stack.orientation = .vertical
-        stack.alignment = .leading
         stack.spacing = 8
-        stack.setCustomSpacing(2, after: scroll)
-        // Воздух вокруг разделителей, чтобы блоки читались как отдельные группы.
-        stack.setCustomSpacing(16, after: buttonBar)
-        stack.setCustomSpacing(16, after: clipboardSeparator)
-        stack.setCustomSpacing(16, after: clipboardActionRow)
-        stack.setCustomSpacing(16, after: hotKeySeparator)
-        // Подсказку прижимаем к своей строке хоткея, а воздух даём уже после неё.
-        stack.setCustomSpacing(4, after: showInputHotKeyRow)
-        stack.setCustomSpacing(16, after: showInputHotKeyNote)
-        stack.setCustomSpacing(16, after: loginSeparator)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
-        // Поверх скролла, чтобы подсказка пустого состояния висела по центру таблицы.
-        content.addSubview(emptyStateLabel)
-        content.addSubview(saveButton)
-        content.addSubview(resetButton)
+        stack.setCustomSpacing(16, after: clipboardActionPopup)
+        stack.setCustomSpacing(16, after: sep1)
+        stack.setCustomSpacing(16, after: autoUpdateCheck)
+        stack.setCustomSpacing(16, after: sep2)
+        return tabView(stack) { _ in
+            sep1.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            sep2.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+    }
 
-        // Галочки хоткеев — одинаковой ширины, чтобы рекордеры справа были на одной вертикали.
-        let hotKeyCheckWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
-                                        copyHotKeyCheck.intrinsicContentSize.width,
-                                        showInputHotKeyCheck.intrinsicContentSize.width))
+    // MARK: Вкладка «О приложении»
 
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 160),
-            clipboardSeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            hotKeySeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            loginSeparator.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            emptyStateLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-            openHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
-            copyHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
-            showInputHotKeyCheck.widthAnchor.constraint(equalToConstant: hotKeyCheckWidth),
-            openHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
-            copyHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
-            showInputHotKeyRecorder.widthAnchor.constraint(equalToConstant: 160),
-            saveButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            saveButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
-            // Нижняя панель кнопок не должна налезать на «Запускать при входе» — держим зазор.
-            saveButton.topAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 20),
-            resetButton.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            resetButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
-        ])
+    /// Ссылка на репозиторий проекта (открывается в браузере).
+    private static let repositoryURL = URL(string: "https://github.com/ilyabazhenov/Hopkey")!
+
+    private func buildAboutTab() -> NSView {
+        let icon = NSImageView()
+        icon.image = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName)
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 88).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 88).isActive = true
+
+        let name = NSTextField(labelWithString: "Hopkey")
+        name.font = .systemFont(ofSize: 22, weight: .semibold)
+        name.translatesAutoresizingMaskIntoConstraints = false
+
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let versionLabel = label(version.isEmpty ? "" : "Версия \(version)", secondary: true)
+
+        let tagline = label("Увидел ключ — прыгнул в задачу.", secondary: true)
+
+        let gitButton = NSButton(title: "Открыть на GitHub", target: self, action: #selector(openRepository))
+        gitButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        gitButton.imagePosition = .imageLeading
+        gitButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let copyright = label("© Ilya Bazhenov · MIT", secondary: true)
+
+        let stack = NSStackView(views: [icon, name, versionLabel, tagline, gitButton, copyright])
+        stack.spacing = 6
+        stack.setCustomSpacing(12, after: icon)
+        stack.setCustomSpacing(16, after: tagline)
+        stack.setCustomSpacing(16, after: gitButton)
+        let view = tabView(stack)
+        stack.alignment = .centerX  // центрируем «визитку» по горизонтали
+        return view
+    }
+
+    @objc private func openRepository() {
+        NSWorkspace.shared.open(Self.repositoryURL)
     }
 
     // MARK: - Таблица
@@ -319,87 +486,60 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let template = templates[row]
         let id = tableColumn.identifier
 
-        // Колонки-галочки: вкл / границы слова / верхний регистр.
-        switch id {
-        case Column.enabled, Column.wholeWord, Column.uppercase:
+        if id == Column.enabled {
             let check = (tableView.makeView(withIdentifier: id, owner: self) as? NSButton)
-                ?? makeCheckbox(identifier: id)
+                ?? makeCheckbox()
             check.tag = row
-            switch id {
-            case Column.enabled: check.state = template.enabled ? .on : .off
-            case Column.wholeWord: check.state = template.wholeWord ? .on : .off
-            default: check.state = template.uppercase ? .on : .off
-            }
+            check.state = template.enabled ? .on : .off
             return check
-        default:
-            break
         }
 
-        // Текстовые колонки: имя / regex / URL.
         let field = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField)
-            ?? makeCellField(identifier: id)
+            ?? makeLabelCell(identifier: id)
         switch id {
         case Column.name:
-            field.stringValue = template.name
-            field.placeholderString = "Jira"
+            field.stringValue = template.displayName
         case Column.pattern:
             field.stringValue = template.pattern
-            field.placeholderString = "PROJ-(\\d+)"
-            field.toolTip = "Регулярное выражение. Группы доступны в URL как $1, $2…"
-        case Column.url:
-            field.stringValue = template.url
-            field.placeholderString = "https://jira.company.net/browse/PROJ-$1"
-            field.toolTip = "$1 — первая группа (номер), $0 — всё совпадение."
+            // Невалидный шаблон подсвечиваем красным (на случай ручной правки конфига).
+            field.textColor = template.isValid ? .secondaryLabelColor : .systemRed
         default:
             break
-        }
-        // Невалидный шаблон подсвечиваем красным в regex/URL.
-        if id == Column.pattern || id == Column.url {
-            field.textColor = template.isValid ? .labelColor : .systemRed
         }
         return field
     }
 
-    /// Чекбокс-ячейка таблицы (вкл/границы/регистр). Без заголовка — он в шапке колонки.
-    private func makeCheckbox(identifier: NSUserInterfaceItemIdentifier) -> NSButton {
-        let action: Selector
-        switch identifier {
-        case Column.enabled: action = #selector(toggleEnabled(_:))
-        case Column.wholeWord: action = #selector(toggleWholeWord(_:))
-        default: action = #selector(toggleUppercase(_:))
-        }
-        let check = NSButton(checkboxWithTitle: "", target: self, action: action)
-        check.identifier = identifier
+    /// Чекбокс-ячейка «вкл». Без заголовка — он в шапке колонки.
+    private func makeCheckbox() -> NSButton {
+        let check = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleEnabled(_:)))
+        check.identifier = Column.enabled
         check.imagePosition = .imageOnly
         return check
     }
 
-    private func makeCellField(identifier: NSUserInterfaceItemIdentifier) -> NSTextField {
+    /// Текстовая ячейка-метка (только для показа; правка — в редакторе).
+    private func makeLabelCell(identifier: NSUserInterfaceItemIdentifier) -> NSTextField {
         let field = NSTextField()
         // Свой cell центрирует текст по вертикали: иначе в строке высотой 24 он
         // прижимается к верхнему краю. Замена cell сбрасывает дефолты — выставляем явно.
         field.cell = VerticallyCenteredTextFieldCell()
         field.identifier = identifier
-        field.isEditable = true
-        field.isSelectable = true
+        field.isEditable = false
+        field.isSelectable = false
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
         field.usesSingleLineMode = true
-        field.font = .systemFont(ofSize: 12)
+        field.font = identifier == Column.pattern ? .monospacedSystemFont(ofSize: 12, weight: .regular)
+                                                  : .systemFont(ofSize: 12)
         field.lineBreakMode = .byTruncatingTail
-        field.target = self
-        field.action = #selector(cellEdited(_:))
-        // Делегат ловит завершение редактирования при ЛЮБОЙ потере фокуса
-        // (клик мимо, Tab, программный `commitEditing`), а не только по Return —
-        // `action` у `NSTextField` срабатывает лишь на Return, поэтому значения
-        // последней правки терялись, и проект «уезжал» в фильтр невалидных при сохранении.
-        field.delegate = self
         return field
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        removeButton.isEnabled = tableView.selectedRow >= 0
+        let hasSelection = tableView.selectedRow >= 0
+        removeButton.isEnabled = hasSelection
+        editButton.isEnabled = hasSelection
     }
 
     /// Показывает подсказку по центру таблицы, только пока шаблонов нет.
@@ -407,94 +547,82 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         emptyStateLabel.isHidden = !templates.isEmpty
     }
 
-    /// Перекрашивает regex/URL в красный у невалидных строк, не дёргая `reloadData`
-    /// (чтобы не пересоздавать редактируемое поле во время правки).
-    private func refreshValidity() {
-        let cols = [tableView.column(withIdentifier: Column.pattern),
-                    tableView.column(withIdentifier: Column.url)]
-        for row in templates.indices {
-            let valid = templates[row].isValid
-            for col in cols where col >= 0 {
-                if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: false) as? NSTextField {
-                    field.textColor = valid ? .labelColor : .systemRed
-                }
-            }
-        }
-    }
-
     @objc private func toggleEnabled(_ sender: NSButton) {
         guard templates.indices.contains(sender.tag) else { return }
         templates[sender.tag].enabled = sender.state == .on
-    }
-
-    @objc private func toggleWholeWord(_ sender: NSButton) {
-        guard templates.indices.contains(sender.tag) else { return }
-        templates[sender.tag].wholeWord = sender.state == .on
-    }
-
-    @objc private func toggleUppercase(_ sender: NSButton) {
-        guard templates.indices.contains(sender.tag) else { return }
-        templates[sender.tag].uppercase = sender.state == .on
+        commitTemplates()
     }
 
     /// Каждый рекордер активен только при включённой своей галочке.
-    /// «Действие при копировании ключа» не трогаем — оно применяется всегда:
-    /// сразу при включённой галочке либо по клику на уведомление при выключенной.
-    @objc private func updateDependentControls() {
+    private func updateDependentControls() {
         openHotKeyRecorder.isEnabled = openHotKeyCheck.state == .on
         copyHotKeyRecorder.isEnabled = copyHotKeyCheck.state == .on
         showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
     }
 
-    @objc private func cellEdited(_ sender: NSTextField) {
-        commitCell(sender)
+    // MARK: - Мгновенное применение
+
+    /// Сохраняет рабочий список шаблонов в конфиг и переприменяет настройки.
+    private func commitTemplates() {
+        config.templates = templates.filter(\.isValid)
+        onSave?()
     }
 
-    /// Завершение редактирования ячейки по любой причине (Return, Tab, потеря
-    /// фокуса при клике по «Сохранить»). На `action` полагаться нельзя — у
-    /// `NSTextField` он шлётся только по Return.
-    func controlTextDidEndEditing(_ obj: Notification) {
-        guard let field = obj.object as? NSTextField else { return }
-        commitCell(field)
+    @objc private func hotKeyEnabledChanged() {
+        config.openHotKeyEnabled = openHotKeyCheck.state == .on
+        config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
+        config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
+        updateDependentControls()
+        onSave?()
     }
 
-    /// Переносит значение ячейки в рабочую копию `templates`.
-    private func commitCell(_ field: NSTextField) {
-        let row = tableView.row(for: field)
-        let col = tableView.column(for: field)
-        guard templates.indices.contains(row), col >= 0 else { return }
+    @objc private func clipboardOptionChanged() {
+        let i = clipboardActionPopup.indexOfSelectedItem
+        guard clipboardOptions.indices.contains(i) else { return }
+        config.autoOpen = clipboardOptions[i].autoOpen
+        config.clipboardAction = clipboardOptions[i].action
+        onSave?()
+    }
 
-        switch tableView.tableColumns[col].identifier {
-        case Column.name:
-            templates[row].name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        case Column.pattern:
-            templates[row].pattern = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        case Column.url:
-            templates[row].url = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        default:
-            break
+    @objc private func launchAtLoginChanged() {
+        LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
+    }
+
+    @objc private func autoUpdateChanged() {
+        updater.automaticallyChecksForUpdates = autoUpdateCheck.state == .on
+    }
+
+    // MARK: - Создание/редактирование шаблонов
+
+    /// Открывает модальный редактор; по «Сохранить» отдаёт готовый шаблон в `onSave`.
+    private func presentEditor(for template: LinkTemplate?, onSave: @escaping (LinkTemplate) -> Void) {
+        guard let window else { return }
+        let editor = TemplateEditorWindowController(template: template)
+        guard let sheet = editor.window else { return }
+        templateEditor = editor
+        window.beginSheet(sheet) { [weak self] response in
+            defer { self?.templateEditor = nil }
+            guard response == .OK, let result = editor.result else { return }
+            onSave(result)
         }
-        refreshValidity()
-    }
-
-    /// Добавляет новый шаблон в таблицу, выделяет его и начинает правку имени.
-    private func appendTemplate(_ template: LinkTemplate) {
-        commitEditing()
-        templates.append(template)
-        tableView.reloadData()
-        updateEmptyState()
-        let newRow = templates.count - 1
-        tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
-        tableView.scrollRowToVisible(newRow)
-        // Правку начинаем с колонки «Имя» (индекс 3 — после трёх галочек).
-        tableView.editColumn(tableView.column(withIdentifier: Column.name), row: newRow, with: nil, select: true)
     }
 
     @objc private func addRow() {
-        appendTemplate(LinkTemplate(name: "", pattern: "", url: ""))
+        presentEditor(for: nil) { [weak self] template in self?.appendTemplate(template) }
     }
 
-    /// Показывает меню пресетов под кнопкой; выбор добавляет готовую заготовку.
+    @objc private func editSelectedRow() {
+        let row = tableView.selectedRow
+        guard templates.indices.contains(row) else { return }
+        presentEditor(for: templates[row]) { [weak self] template in
+            guard let self, self.templates.indices.contains(row) else { return }
+            self.templates[row] = template
+            self.tableView.reloadData()
+            self.commitTemplates()
+        }
+    }
+
+    /// Показывает меню пресетов под кнопкой; выбор открывает редактор с заготовкой.
     @objc private func showPresetMenu(_ sender: NSButton) {
         let menu = NSMenu()
         for (i, preset) in LinkTemplate.presets.enumerated() {
@@ -509,35 +637,46 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func addPreset(_ sender: NSMenuItem) {
         guard LinkTemplate.presets.indices.contains(sender.tag) else { return }
-        appendTemplate(LinkTemplate.presets[sender.tag])
+        presentEditor(for: LinkTemplate.presets[sender.tag]) { [weak self] template in
+            self?.appendTemplate(template)
+        }
+    }
+
+    /// Добавляет шаблон в список, выделяет его и сохраняет.
+    private func appendTemplate(_ template: LinkTemplate) {
+        templates.append(template)
+        tableView.reloadData()
+        updateEmptyState()
+        let row = templates.count - 1
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+        commitTemplates()
     }
 
     @objc private func removeSelectedRow() {
         let row = tableView.selectedRow
         guard templates.indices.contains(row) else { return }
-        commitEditing()
         templates.remove(at: row)
         tableView.reloadData()
         updateEmptyState()
-        removeButton.isEnabled = tableView.selectedRow >= 0
+        let hasSelection = tableView.selectedRow >= 0
+        removeButton.isEnabled = hasSelection
+        editButton.isEnabled = hasSelection
+        commitTemplates()
     }
 
-    /// Завершает активное редактирование ячейки, чтобы значение попало в модель.
-    private func commitEditing() {
-        window?.makeFirstResponder(tableView)
-    }
+    // MARK: - Загрузка / показ
 
     func loadValues() {
         templates = config.templates
         tableView.reloadData()
         updateEmptyState()
-        refreshValidity()
         removeButton.isEnabled = false
+        editButton.isEnabled = false
 
-        autoOpenCheck.state = config.autoOpen ? .on : .off
-        if let index = actions.firstIndex(of: config.clipboardAction) {
-            clipboardActionPopup.selectItem(at: index)
-        }
+        let i = clipboardOptions.firstIndex { $0.autoOpen == config.autoOpen && $0.action == config.clipboardAction } ?? 0
+        clipboardActionPopup.selectItem(at: i)
+
         openHotKeyCheck.state = config.openHotKeyEnabled ? .on : .off
         openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
         copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
@@ -551,38 +690,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     func showWindow() {
         loadValues()
+        // Пока открыто окно настроек, приложение становится обычным (.regular):
+        // появляется иконка в Dock и оно участвует в Cmd+Tab. При закрытии окна
+        // (`windowWillClose`) возвращаемся к .accessory — снова только строка меню.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func save() {
-        commitEditing()
-        config.templates = templates.filter(\.isValid)
-
-        config.autoOpen = autoOpenCheck.state == .on
-        let clipboardIndex = clipboardActionPopup.indexOfSelectedItem
-        if actions.indices.contains(clipboardIndex) {
-            config.clipboardAction = actions[clipboardIndex]
-        }
-
-        config.openHotKeyEnabled = openHotKeyCheck.state == .on
-        config.openHotKeyKeyCode = Int(openHotKeyRecorder.combo.keyCode)
-        config.openHotKeyModifiers = Int(openHotKeyRecorder.combo.modifiers)
-        config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
-        config.copyHotKeyKeyCode = Int(copyHotKeyRecorder.combo.keyCode)
-        config.copyHotKeyModifiers = Int(copyHotKeyRecorder.combo.modifiers)
-        config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
-        config.showInputHotKeyKeyCode = Int(showInputHotKeyRecorder.combo.keyCode)
-        config.showInputHotKeyModifiers = Int(showInputHotKeyRecorder.combo.modifiers)
-
-        // Запуск при входе хранится не в конфиге, а в системе — синхронизируем по факту.
-        LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
-        // Автообновление — пробрасываем флаг в Sparkle (он сам персистит его в UserDefaults).
-        updater.automaticallyChecksForUpdates = autoUpdateCheck.state == .on
-
-        onSave?()
-        window?.close()
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
     }
 
     /// Сбрасывает все настройки к значениям по умолчанию после подтверждения,
@@ -610,9 +728,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 }
 
-/// Текстовая ячейка, центрирующая содержимое по вертикали. Нужна в таблице проектов,
+/// Текстовая ячейка, центрирующая содержимое по вертикали. Нужна в списке шаблонов,
 /// где высота строки (24) больше высоты текста, а `NSTextFieldCell` по умолчанию
-/// прижимает текст к верхнему краю. Сдвиг применяется и при отрисовке, и при редактировании.
+/// прижимает текст к верхнему краю.
 private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     private func centered(_ rect: NSRect) -> NSRect {
         let textHeight = cellSize(forBounds: rect).height
@@ -627,16 +745,82 @@ private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         super.drawInterior(withFrame: centered(cellFrame), in: controlView)
     }
+}
 
-    override func edit(withFrame rect: NSRect, in controlView: NSView,
-                       editor textObj: NSText, delegate: Any?, event: NSEvent?) {
-        super.edit(withFrame: centered(rect), in: controlView,
-                   editor: textObj, delegate: delegate, event: event)
+/// Кнопка-вкладка в тулбаре: иконка над подписью, фиксированная ширина (чтобы все
+/// вкладки были одинаковой ширины независимо от длины текста) и подсветка выбранной.
+/// Стандартный `NSToolbarItem` так не умеет — он подгоняет ширину под свой текст,
+/// поэтому длинная «О приложении» оказывалась заметно шире остальных.
+private final class TabButton: NSView {
+    /// Подложка-подсветка: скруглённый прямоугольник с отступами от краёв кнопки —
+    /// чтобы на крайней вкладке выделение не упиралось углами в «пилюлю» тулбара
+    /// (та скруглена сильнее), а плавало внутри, как в системных «Настройках».
+    private let highlightView = NSView()
+    private let imageView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let onClick: () -> Void
+
+    var isSelected = false { didSet { updateAppearance() } }
+
+    init(symbol: String, title: String, width: CGFloat, onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        highlightView.wantsLayer = true
+        highlightView.layer?.cornerRadius = 6
+        highlightView.translatesAutoresizingMaskIntoConstraints = false
+
+        let config = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        imageView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
+            .withSymbolConfiguration(config)
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.stringValue = title
+        titleLabel.font = .systemFont(ofSize: 11)
+        titleLabel.alignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(highlightView)  // под иконкой и подписью
+        addSubview(imageView)
+        addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: width),
+            // Подсветка с отступами от краёв кнопки.
+            highlightView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            highlightView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            highlightView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            highlightView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            imageView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            imageView.heightAnchor.constraint(equalToConstant: 18),
+            titleLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 2),
+            titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 2),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
+            bottomAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+        ])
+        updateAppearance()
     }
 
-    override func select(withFrame rect: NSRect, in controlView: NSView,
-                         editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
-        super.select(withFrame: centered(rect), in: controlView,
-                     editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    override func mouseDown(with event: NSEvent) { onClick() }
+
+    /// Цвета зависят от системной акцентной/темы — перечитываем при их смене.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let tint: NSColor = isSelected ? .controlAccentColor : .secondaryLabelColor
+        imageView.contentTintColor = tint
+        titleLabel.textColor = tint
+        highlightView.layer?.backgroundColor = isSelected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+            : NSColor.clear.cgColor
     }
 }

@@ -112,6 +112,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
+        // Меню приложения. Первый пункт строки меню macOS всегда рисует как «жирное»
+        // меню с именем приложения — оно нужно, когда приложение временно становится
+        // .regular (открыто окно настроек): иначе первым в баре оказалась бы «Правка»,
+        // и не было бы About/Скрыть/Завершить.
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "О приложении Hopkey",
+                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Скрыть Hopkey",
+                        action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Завершить Hopkey",
+                        action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)
 
@@ -125,6 +142,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Выбрать всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
+
+        // Меню «Окно» — стандартные «Свернуть» / «Закрыть» и список окон, когда
+        // приложение .regular. AppKit сам наполняет его открытыми окнами.
+        let windowItem = NSMenuItem()
+        mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Окно")
+        windowMenu.addItem(withTitle: "Свернуть",
+                           action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Закрыть",
+                           action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = mainMenu
     }
@@ -140,14 +169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             image?.size = NSSize(width: 18, height: 18)
             button.image = image
             button.imagePosition = .imageOnly
-            button.toolTip = "Hopkey — открыть тикет по ключу"
+            button.toolTip = "Hopkey — открыть ссылку по ключу"
         }
         // Меню статично: действия с буфером и служебные пункты. Все переключатели
         // (авто-открытие, хоткеи, запуск при входе) живут в окне «Настройки…».
         let menu = NSMenu()
-        menu.addItem(withTitle: "Открыть тикет из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
+        menu.addItem(withTitle: "Открыть ссылку из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
-        menu.addItem(withTitle: "Открыть тикет…", action: #selector(openQuickTicket), keyEquivalent: "")
+        menu.addItem(withTitle: "Открыть по ключу…", action: #selector(openQuickTicket), keyEquivalent: "")
         menu.addItem(.separator())
         // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
         // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu

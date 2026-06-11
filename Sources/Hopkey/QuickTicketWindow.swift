@@ -58,7 +58,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Открыть тикет"
+        panel.title = "Открыть по ключу"
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -174,7 +174,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
 
         case .invalid:
             let hasTemplates = config.templates.contains(where: \.isValid)
-            showMessage(hasTemplates ? "Не похоже на ключ тикета"
+            showMessage(hasTemplates ? "Не похоже на ключ"
                                      : "Сначала добавьте шаблон в настройках", isError: true)
             NSSound.beep()
         }
