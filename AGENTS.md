@@ -23,7 +23,7 @@ make watch      # авто-пересборка/перезапуск при пр
   Покрыто тестами в `Tests/HopkeyCoreTests/`. **Логику меняем здесь и держим под тестами.**
 - `Sources/Hopkey/` — GUI-таргет (AppKit, меню-бар). Окна, хоткеи, уведомления.
 - `build.sh` собирает бинарник SwiftPM и вручную упаковывает его в `.app` (Info.plist,
-  Sparkle.framework, ресурс-бандл локализации, self-signed подпись).
+  Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, self-signed подпись).
 
 ## Локализация (ru / en)
 
@@ -50,8 +50,21 @@ LaunchServices** — поэтому перезапуск идёт через `op
 **Добавляя/меняя UI-строку:**
 1. добавь ключ **в оба** файла `en.lproj` и `ru.lproj` (плейсхолдеры `%@` держи в синхроне);
 2. вызывай её через `L("ключ")`, а не пиши текст в коде;
-3. собери (`swift build`) — SwiftPM кладёт `.lproj` в `Hopkey_Hopkey.bundle`
-   (`Bundle.module`), а `build.sh` копирует бандл в `.app/Contents/Resources`.
+3. собери (`swift build`) — SwiftPM компилирует `.lproj` в `Hopkey_Hopkey.bundle`, из
+   которого `build.sh` копирует сами `.lproj` в `.app/Contents/Resources`.
+
+> ⚠️ **Не используй `Bundle.module` в таргете `Hopkey`.** Его аксессор ищет ресурс-бандл
+> либо в корне `.app` (нельзя — codesign падает с `unsealed contents present in the bundle
+> root`), либо по абсолютному пути сборки, захардкоженному под текущую машину. В итоге на
+> чужом Mac `.app` молча крашится на старте (`could not load resource bundle`), а т.к.
+> приложение — `LSUIElement`, не видно ни ошибки, ни иконки. Поэтому `L(_:)` грузит строки
+> из `Bundle.main`, а `build.sh` раскладывает `.lproj` в `Contents/Resources` — штатное
+> место локализации macOS, дружит с codesign и работает на любой машине. То же правило для
+> любых ресурсов (иконки, pdf): клади в `Contents/Resources` и читай через `Bundle.main`.
+>
+> Проверка портируемости перед раздачей: `mv .build .build_hidden`, скопируй `.app` в
+> `mktemp -d` и запусти бинарник напрямую — так пропадает захардкоженный fallback-путь и
+> виден старт «как на чужой машине». Не забудь вернуть `.build`.
 
 **Что НЕ локализуем:** технические/лог-строки (`print` в `HotKeyManager`), сообщения
 `fatalError("init(coder:)…")`, имена пресетов (`Jira`, `GitHub issue`, `CVE`) и примеры-

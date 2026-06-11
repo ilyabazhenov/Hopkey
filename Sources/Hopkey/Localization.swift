@@ -9,8 +9,13 @@ import Foundation
 ///
 /// Плейсхолдеры в значениях — `%@`; аргументы подставляются через `String(format:)`.
 /// Передавайте числа как строки: `L("notif.open.many", "\(count)")`.
+///
+/// Строки берём из `Bundle.main`, а не `Bundle.module`: build.sh кладёт `.lproj`
+/// в `Contents/Resources` (штатное место локализации macOS). `.module` тут не
+/// годится — его аксессор ищет ресурс-бандл в корне `.app`, что ломает codesign,
+/// и на чужой машине обращение к `.module` падает с fatalError.
 func L(_ key: String, _ args: CVarArg...) -> String {
-    let format = NSLocalizedString(key, bundle: .module, comment: "")
+    let format = NSLocalizedString(key, bundle: .main, comment: "")
     return args.isEmpty ? format : String(format: format, arguments: args)
 }
 

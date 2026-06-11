@@ -33,14 +33,17 @@ cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
 cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
 cp "${MENU_BAR_ICON}" "${RES_DIR}/MenuBarIcon.pdf"
 
-# Локализация. SwiftPM кладёт строки (en/ru .lproj) в ресурс-бандл таргета
-# Hopkey_Hopkey.bundle рядом с бинарником. Bundle.module ищет его в т.ч. в
-# Contents/Resources — копируем туда, иначе в .app строки не найдутся.
+# Локализация. SwiftPM компилирует строки (en/ru) в ресурс-бандл таргета
+# Hopkey_Hopkey.bundle рядом с бинарником, как плоский набор .lproj. Кладём эти
+# .lproj прямо в Contents/Resources — штатное место локализации macOS, откуда их
+# находит Bundle.main (см. L(_:) в Localization.swift). Сам Hopkey_Hopkey.bundle
+# в .app НЕ копируем: его аксессор Bundle.module ждёт бандл в корне .app, что
+# ломает codesign ("unsealed contents present in the bundle root").
 RES_BUNDLE="${BIN_DIR}/${APP_NAME}_${APP_NAME}.bundle"
-if [ -d "${RES_BUNDLE}" ]; then
-    cp -R "${RES_BUNDLE}" "${RES_DIR}/"
+if [ -d "${RES_BUNDLE}" ] && ls -d "${RES_BUNDLE}"/*.lproj >/dev/null 2>&1; then
+    cp -R "${RES_BUNDLE}"/*.lproj "${RES_DIR}/"
 else
-    echo "(!) ${RES_BUNDLE} не найден — локализация в .app работать не будет"
+    echo "(!) .lproj не найдены в ${RES_BUNDLE} — локализация в .app работать не будет"
 fi
 
 # Встраивание Sparkle. SwiftPM (в отличие от Xcode) не копирует Sparkle.framework
