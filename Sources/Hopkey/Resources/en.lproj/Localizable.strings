@@ -58,12 +58,8 @@
 
 /* Settings — Hotkeys tab */
 "settings.hotkeys.header" = "Global hotkeys work in any application.";
-"settings.hotkey.open" = "Open in browser";
-"settings.hotkey.copy" = "Copy link";
 "settings.hotkey.input" = "Open input window";
 "settings.hotkey.snippets" = "Snippets picker";
-"settings.hotkey.open.hint" = "Opens the selected key in the browser. Requires Accessibility.";
-"settings.hotkey.copy.hint" = "Copies the link for the selected key. Requires Accessibility.";
 "settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
 "settings.hotkey.snippets.hint" = "Opens the snippets list and pastes the chosen one into the active field. Requires Accessibility.";
 "settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";

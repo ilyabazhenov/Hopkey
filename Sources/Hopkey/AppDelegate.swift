@@ -32,8 +32,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastHandledText: String?
     private var lastHandledAt: Date = .distantPast
 
-    private enum Source { case clipboard, hotkey }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Сниппеты НЕ читаем на старте: блоб из Keychain грузится лениво при первом
         // обращении (вкладка «Сниппеты» в настройках или первый показ пикера/вставка),
@@ -42,12 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupStatusItem()
 
-        clipboard.onChange = { [weak self] text in self?.handle(text, source: .clipboard) }
+        clipboard.onChange = { [weak self] text in self?.handle(text) }
         clipboard.start()
 
-        hotKey.onCapture = { [weak self] text, action in
-            self?.handle(text, source: .hotkey, hotKeyAction: action)
-        }
         if anyHotKeyEnabled {
             if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: false) }
             registerHotKeys()
@@ -63,24 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Обработка текста
 
-    private func handle(_ text: String, source: Source, hotKeyAction: TicketAction? = nil) {
-        let matches: [TicketMatch]
-        switch source {
-        case .hotkey:
-            // Хоткей — явное намерение: извлекаем ключи из произвольного выделенного текста.
-            matches = TicketParser.matches(in: text, templates: config.templates)
-        case .clipboard:
-            // Автонаблюдение: срабатываем, только если в буфере ровно ключ тикета.
-            // Случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер.
-            matches = TicketParser.exactMatch(in: text, templates: config.templates).map { [$0] } ?? []
-        }
-        guard !matches.isEmpty else {
-            // Хоткей над голым числом ничего не сматчил (у шаблонов нужен префикс),
-            // но это похоже на номер тикета — открываем окно ввода с подставленным
-            // числом и выбором шаблона. Выделение уже прочитано, новых разрешений не нужно.
-            if source == .hotkey { offerQuickInputForBareNumber(text) }
-            return
-        }
+    /// Автонаблюдение за буфером: срабатываем, только если в буфере ровно ключ тикета
+    /// (случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер).
+    private func handle(_ text: String) {
+        guard let match = TicketParser.exactMatch(in: text, templates: config.templates) else { return }
+        let matches = [match]
 
         let joined = matches.map(\.id).joined(separator: ",")
         if joined == lastHandledText, Date().timeIntervalSince(lastHandledAt) < 2 {
@@ -90,10 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastHandledText = joined
         lastHandledAt = Date()
 
-        // Хоткей — явное намерение пользователя, поэтому выполняем действие сразу.
-        // Для хоткея действие приходит от сработавшей комбинации, для буфера — из настроек.
-        let action = source == .hotkey ? (hotKeyAction ?? .openInBrowser) : config.clipboardAction
-        if source == .hotkey || config.autoOpen {
+        let action = config.clipboardAction
+        if config.autoOpen {
             perform(action, on: matches)
         } else {
             // Авто-открытие выключено: спрашиваем кликом. Уведомление несёт то же
@@ -308,15 +288,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return t
     }
 
-    /// Если хоткей над выделением ничего не сматчил, но выделено голое число —
-    /// открываем окно ввода с этим числом (используем уже прочитанное выделение).
-    private func offerQuickInputForBareNumber(_ text: String) {
-        guard let number = bareNumber(text),
-              !QuickTicketInput.fillableTemplates(in: config.templates).isEmpty else { return }
-        clipboard.syncChangeCount()  // наш синтетический Cmd+C не должен будить наблюдателя
-        quickTicket.showWindow(prefill: number)
-    }
-
     /// Голое число из буфера обмена (для префилла окна ввода), иначе nil.
     private func clipboardBareNumber() -> String? {
         NSPasteboard.general.string(forType: .string).flatMap(bareNumber)
@@ -346,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyConfig() {
         if anyHotKeyEnabled {
-            // Accessibility нужен только хоткеям над выделением (синтез Cmd+C),
+            // Accessibility нужен только пикеру сниппетов (синтез Cmd+V в чужое поле),
             // не хоткею окна ввода — поэтому запрашиваем его лишь при необходимости.
             if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: true) }
             registerHotKeys()
@@ -359,29 +330,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         needsAccessibility || config.showInputHotKeyEnabled
     }
 
-    /// Включён ли хоть один хоткей, которому требуется Accessibility: синтез Cmd+C над
-    /// выделением (открыть/скопировать) или синтез Cmd+V при вставке сниппета. Хоткей
-    /// окна ввода сюда не входит — он лишь показывает окно.
+    /// Нужен ли Accessibility: его требует только пикер сниппетов (синтез Cmd+V при
+    /// вставке в чужое поле). Хоткею окна ввода доступ не нужен — он лишь показывает окно.
     private var needsAccessibility: Bool {
-        config.openHotKeyEnabled || config.copyHotKeyEnabled || config.snippetsHotKeyEnabled
+        config.snippetsHotKeyEnabled
     }
 
-    /// Перерегистрирует все хоткеи с актуальными комбинациями из конфига.
-    /// Каждый регистрируется только если включён; id 1 — открыть, id 2 — скопировать,
-    /// id 3 — окно ручного ввода, id 4 — пикер сниппетов.
+    /// Перерегистрирует обе горячие клавиши с актуальными комбинациями из конфига.
+    /// Каждая регистрируется только если включена; id 3 — окно ручного ввода,
+    /// id 4 — пикер сниппетов.
     private func registerHotKeys() {
         hotKey.unregisterAll()
         // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
-        if config.openHotKeyEnabled, config.openHotKeyModifiers != 0 {
-            hotKey.register(id: 1, action: .openInBrowser,
-                            keyCode: UInt32(config.openHotKeyKeyCode),
-                            modifiers: UInt32(config.openHotKeyModifiers))
-        }
-        if config.copyHotKeyEnabled, config.copyHotKeyModifiers != 0 {
-            hotKey.register(id: 2, action: .copyURL,
-                            keyCode: UInt32(config.copyHotKeyKeyCode),
-                            modifiers: UInt32(config.copyHotKeyModifiers))
-        }
         if config.showInputHotKeyEnabled, config.showInputHotKeyModifiers != 0 {
             hotKey.register(id: 3,
                             keyCode: UInt32(config.showInputHotKeyKeyCode),

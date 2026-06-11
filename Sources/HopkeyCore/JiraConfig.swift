@@ -12,7 +12,6 @@ public final class JiraConfig {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         registerDefaults()
-        migrateHotKeysIfNeeded()
         migrateProjectsIfNeeded()
     }
 
@@ -22,56 +21,34 @@ public final class JiraConfig {
         static let projects = "projects"
         static let templatesV1Migrated = "templatesV1Migrated"
         static let autoOpen = "autoOpen"
-        // Legacy: единственный хоткей (до разделения на «открыть» и «скопировать»).
-        static let hotKeyEnabled = "hotKeyEnabled"
-        static let hotKeyKeyCode = "hotKeyKeyCode"
-        static let hotKeyModifiers = "hotKeyModifiers"
         static let defaultAction = "defaultAction"
-        static let hotKeyAction = "hotKeyAction"
         static let clipboardAction = "clipboardAction"
-        // Два отдельных хоткея с фиксированным действием.
-        static let openHotKeyEnabled = "openHotKeyEnabled"
-        static let openHotKeyKeyCode = "openHotKeyKeyCode"
-        static let openHotKeyModifiers = "openHotKeyModifiers"
-        static let copyHotKeyEnabled = "copyHotKeyEnabled"
-        static let copyHotKeyKeyCode = "copyHotKeyKeyCode"
-        static let copyHotKeyModifiers = "copyHotKeyModifiers"
-        // Хоткей, открывающий окно ручного ввода тикета (не требует Accessibility).
+        // Хоткей окна ручного ввода (Accessibility не требует — лишь показывает окно).
         static let showInputHotKeyEnabled = "showInputHotKeyEnabled"
         static let showInputHotKeyKeyCode = "showInputHotKeyKeyCode"
         static let showInputHotKeyModifiers = "showInputHotKeyModifiers"
-        // Хоткей, открывающий окно-пикер сниппетов (авто-вставка требует Accessibility).
+        // Хоткей окна-пикера сниппетов (авто-вставка требует Accessibility).
         static let snippetsHotKeyEnabled = "snippetsHotKeyEnabled"
         static let snippetsHotKeyKeyCode = "snippetsHotKeyKeyCode"
         static let snippetsHotKeyModifiers = "snippetsHotKeyModifiers"
         // Имя шаблона, выбранного в окне ввода последним — для предвыбора.
         static let lastQuickTemplate = "lastQuickTemplate"
-        static let hotKeysV2Migrated = "hotKeysV2Migrated"
     }
 
     /// Carbon-модификаторы controlKey | optionKey (⌃⌥).
     private static let defaultModifiers = 0x1000 | 0x0800
-    /// Дефолтные комбинации хоткеев: ⌃⌥J — открыть, ⌃⌥K — скопировать, ⌃⌥O — окно ввода.
-    private static let defaultOpenKeyCode = 38  // kVK_ANSI_J
-    private static let defaultCopyKeyCode = 40  // kVK_ANSI_K
-    private static let defaultShowInputKeyCode = 31  // kVK_ANSI_O
-    private static let defaultSnippetsKeyCode = 9  // kVK_ANSI_V (⌃⌥V)
+    /// Дефолтные комбинации: ⌃⌥C — окно ввода, ⌃⌥V — пикер сниппетов.
+    private static let defaultShowInputKeyCode = 8  // kVK_ANSI_C
+    private static let defaultSnippetsKeyCode = 9   // kVK_ANSI_V
 
     private func registerDefaults() {
         defaults.register(defaults: [
             Key.autoOpen: false,
-            Key.hotKeyEnabled: false,
-            Key.hotKeyKeyCode: Self.defaultOpenKeyCode,
-            Key.hotKeyModifiers: Self.defaultModifiers,
-            // Слот «окно ввода» появился позже миграции в два слота, поэтому его дефолты
-            // живут здесь (регистрационный домен) — так и новые, и обновившиеся
-            // пользователи получают ⌃⌥O без отдельной миграции.
-            Key.showInputHotKeyEnabled: false,
+            // Обе горячие клавиши включены по умолчанию.
+            Key.showInputHotKeyEnabled: true,
             Key.showInputHotKeyKeyCode: Self.defaultShowInputKeyCode,
             Key.showInputHotKeyModifiers: Self.defaultModifiers,
-            // Слот «пикер сниппетов» появился ещё позже — его дефолты тоже живут здесь,
-            // чтобы и новые, и обновившиеся пользователи получили ⌃⌥V без отдельной миграции.
-            Key.snippetsHotKeyEnabled: false,
+            Key.snippetsHotKeyEnabled: true,
             Key.snippetsHotKeyKeyCode: Self.defaultSnippetsKeyCode,
             Key.snippetsHotKeyModifiers: Self.defaultModifiers,
         ])
@@ -80,58 +57,20 @@ public final class JiraConfig {
     /// Все ключи приложения в `UserDefaults` — для полного сброса.
     private static let allKeys = [
         Key.templates, Key.projects, Key.templatesV1Migrated, Key.autoOpen,
-        Key.hotKeyEnabled, Key.hotKeyKeyCode, Key.hotKeyModifiers,
-        Key.defaultAction, Key.hotKeyAction, Key.clipboardAction,
-        Key.openHotKeyEnabled, Key.openHotKeyKeyCode, Key.openHotKeyModifiers,
-        Key.copyHotKeyEnabled, Key.copyHotKeyKeyCode, Key.copyHotKeyModifiers,
+        Key.defaultAction, Key.clipboardAction,
         Key.showInputHotKeyEnabled, Key.showInputHotKeyKeyCode, Key.showInputHotKeyModifiers,
         Key.snippetsHotKeyEnabled, Key.snippetsHotKeyKeyCode, Key.snippetsHotKeyModifiers,
         Key.lastQuickTemplate,
-        Key.hotKeysV2Migrated,
     ]
 
-    /// Сбрасывает все настройки к значениям по умолчанию: проекты, действие при
-    /// копировании и оба хоткея (⌃⌥J / ⌃⌥K, выключены). После вызова окно настроек
-    /// следует перечитать через `loadValues()`, а хоткеи — переприменить.
+    /// Сбрасывает все настройки к значениям по умолчанию: шаблоны, действие при копировании
+    /// и обе горячие клавиши (⌃⌥C — окно ввода, ⌃⌥V — пикер сниппетов, включены). После
+    /// вызова окно настроек следует перечитать через `loadValues()`, а хоткеи — переприменить.
     public func resetToDefaults() {
         Self.allKeys.forEach(defaults.removeObject(forKey:))
         registerDefaults()
-        // Слоты хоткеев не входят в `registerDefaults` — задаём дефолты явно. Флаг
-        // миграции выставляем, чтобы повторная инициализация не перетёрла их легаси-данными.
-        defaults.set(true, forKey: Key.hotKeysV2Migrated)
-        // Аналогично для шаблонов: иначе re-init восстановил бы их из остаточных legacy-`projects`.
+        // Чтобы повторная инициализация не восстановила шаблоны из остаточных legacy-`projects`.
         defaults.set(true, forKey: Key.templatesV1Migrated)
-        defaults.set(Self.defaultOpenKeyCode, forKey: Key.openHotKeyKeyCode)
-        defaults.set(Self.defaultModifiers, forKey: Key.openHotKeyModifiers)
-        defaults.set(false, forKey: Key.openHotKeyEnabled)
-        defaults.set(Self.defaultCopyKeyCode, forKey: Key.copyHotKeyKeyCode)
-        defaults.set(Self.defaultModifiers, forKey: Key.copyHotKeyModifiers)
-        defaults.set(false, forKey: Key.copyHotKeyEnabled)
-    }
-
-    /// Однократно переносит единственный legacy-хоткей в нужный из двух новых слотов
-    /// (по его прежнему действию) и задаёт дефолты для второго слота. Идемпотентно.
-    private func migrateHotKeysIfNeeded() {
-        guard !defaults.bool(forKey: Key.hotKeysV2Migrated) else { return }
-        defaults.set(true, forKey: Key.hotKeysV2Migrated)
-
-        let legacyEnabled = defaults.bool(forKey: Key.hotKeyEnabled)
-        let legacyKeyCode = defaults.integer(forKey: Key.hotKeyKeyCode)
-        let legacyModifiers = defaults.integer(forKey: Key.hotKeyModifiers)
-        let defaultOpen = (Self.defaultOpenKeyCode, Self.defaultModifiers, false)
-        let defaultCopy = (Self.defaultCopyKeyCode, Self.defaultModifiers, false)
-
-        // Прежнее действие хоткея определяет, в какой слот лёг настроенный пользователем хоткей.
-        let (open, copy): ((Int, Int, Bool), (Int, Int, Bool)) = hotKeyAction == .copyURL
-            ? (defaultOpen, (legacyKeyCode, legacyModifiers, legacyEnabled))
-            : ((legacyKeyCode, legacyModifiers, legacyEnabled), defaultCopy)
-
-        defaults.set(open.0, forKey: Key.openHotKeyKeyCode)
-        defaults.set(open.1, forKey: Key.openHotKeyModifiers)
-        defaults.set(open.2, forKey: Key.openHotKeyEnabled)
-        defaults.set(copy.0, forKey: Key.copyHotKeyKeyCode)
-        defaults.set(copy.1, forKey: Key.copyHotKeyModifiers)
-        defaults.set(copy.2, forKey: Key.copyHotKeyEnabled)
     }
 
     /// Legacy-форма проекта (только для разбора старого `projects` при миграции).
@@ -198,32 +137,6 @@ public final class JiraConfig {
         set { defaults.set(newValue, forKey: Key.autoOpen) }
     }
 
-    // MARK: Legacy single hotkey (используется только миграцией в два слота)
-
-    /// Legacy: включён ли единственный глобальный хоткей. Источник для миграции.
-    public var hotKeyEnabled: Bool {
-        get { defaults.bool(forKey: Key.hotKeyEnabled) }
-        set { defaults.set(newValue, forKey: Key.hotKeyEnabled) }
-    }
-
-    /// Legacy: код клавиши единственного хоткея. Источник для миграции.
-    public var hotKeyKeyCode: Int {
-        get { defaults.integer(forKey: Key.hotKeyKeyCode) }
-        set { defaults.set(newValue, forKey: Key.hotKeyKeyCode) }
-    }
-
-    /// Legacy: модификаторы единственного хоткея. Источник для миграции.
-    public var hotKeyModifiers: Int {
-        get { defaults.integer(forKey: Key.hotKeyModifiers) }
-        set { defaults.set(newValue, forKey: Key.hotKeyModifiers) }
-    }
-
-    /// Legacy: прежнее действие хоткея. Теперь определяет лишь слот при миграции.
-    public var hotKeyAction: TicketAction {
-        get { TicketAction(rawValue: defaults.string(forKey: Key.hotKeyAction) ?? "") ?? defaultAction }
-        set { defaults.set(newValue.rawValue, forKey: Key.hotKeyAction) }
-    }
-
     // MARK: Actions
 
     /// Legacy-настройка действия: раньше управляла и хоткеем, и авто-открытием из буфера.
@@ -240,56 +153,16 @@ public final class JiraConfig {
         set { defaults.set(newValue.rawValue, forKey: Key.clipboardAction) }
     }
 
-    // MARK: Hotkey «открыть в браузере»
-
-    /// Включён ли хоткей «открыть в браузере» (требует Accessibility).
-    public var openHotKeyEnabled: Bool {
-        get { defaults.bool(forKey: Key.openHotKeyEnabled) }
-        set { defaults.set(newValue, forKey: Key.openHotKeyEnabled) }
-    }
-
-    /// Код клавиши хоткея «открыть в браузере». По умолчанию 38 (J → ⌃⌥J).
-    public var openHotKeyKeyCode: Int {
-        get { defaults.integer(forKey: Key.openHotKeyKeyCode) }
-        set { defaults.set(newValue, forKey: Key.openHotKeyKeyCode) }
-    }
-
-    /// Модификаторы хоткея «открыть в браузере» в Carbon-формате.
-    public var openHotKeyModifiers: Int {
-        get { defaults.integer(forKey: Key.openHotKeyModifiers) }
-        set { defaults.set(newValue, forKey: Key.openHotKeyModifiers) }
-    }
-
-    // MARK: Hotkey «скопировать ссылку»
-
-    /// Включён ли хоткей «скопировать ссылку» (требует Accessibility).
-    public var copyHotKeyEnabled: Bool {
-        get { defaults.bool(forKey: Key.copyHotKeyEnabled) }
-        set { defaults.set(newValue, forKey: Key.copyHotKeyEnabled) }
-    }
-
-    /// Код клавиши хоткея «скопировать ссылку». По умолчанию 40 (K → ⌃⌥K).
-    public var copyHotKeyKeyCode: Int {
-        get { defaults.integer(forKey: Key.copyHotKeyKeyCode) }
-        set { defaults.set(newValue, forKey: Key.copyHotKeyKeyCode) }
-    }
-
-    /// Модификаторы хоткея «скопировать ссылку» в Carbon-формате.
-    public var copyHotKeyModifiers: Int {
-        get { defaults.integer(forKey: Key.copyHotKeyModifiers) }
-        set { defaults.set(newValue, forKey: Key.copyHotKeyModifiers) }
-    }
-
     // MARK: Hotkey «открыть окно ввода»
 
-    /// Включён ли хоткей, открывающий окно ручного ввода тикета.
-    /// В отличие от двух хоткеев выше, Accessibility ему не нужен — он лишь показывает окно.
+    /// Включён ли хоткей, открывающий окно ручного ввода тикета. По умолчанию включён.
+    /// Accessibility ему не нужен — он лишь показывает окно (с доступом подставит выделение).
     public var showInputHotKeyEnabled: Bool {
         get { defaults.bool(forKey: Key.showInputHotKeyEnabled) }
         set { defaults.set(newValue, forKey: Key.showInputHotKeyEnabled) }
     }
 
-    /// Код клавиши хоткея «окно ввода». По умолчанию 31 (O → ⌃⌥O).
+    /// Код клавиши хоткея «окно ввода». По умолчанию 8 (C → ⌃⌥C).
     public var showInputHotKeyKeyCode: Int {
         get { defaults.integer(forKey: Key.showInputHotKeyKeyCode) }
         set { defaults.set(newValue, forKey: Key.showInputHotKeyKeyCode) }
@@ -303,7 +176,7 @@ public final class JiraConfig {
 
     // MARK: Hotkey «пикер сниппетов»
 
-    /// Включён ли хоткей, открывающий окно-пикер сниппетов.
+    /// Включён ли хоткей, открывающий окно-пикер сниппетов. По умолчанию включён.
     /// Авто-вставка выбранного значения (синтез Cmd+V в чужое поле) требует Accessibility.
     public var snippetsHotKeyEnabled: Bool {
         get { defaults.bool(forKey: Key.snippetsHotKeyEnabled) }

@@ -31,12 +31,10 @@ final class JiraConfigTests: XCTestCase {
         let config = makeConfig()
         XCTAssertEqual(config.templates, [])
         XCTAssertFalse(config.autoOpen)
-        XCTAssertFalse(config.hotKeyEnabled)
-        // По умолчанию ⌃⌥J: keyCode 38, модификаторы controlKey | optionKey = 6144.
-        XCTAssertEqual(config.hotKeyKeyCode, 38)
-        XCTAssertEqual(config.hotKeyModifiers, 6144)
         XCTAssertEqual(config.defaultAction, .openInBrowser)
     }
+
+    // MARK: Действие при копировании в буфер
 
     func testDefaultActionRoundTrip() {
         let config = makeConfig()
@@ -45,130 +43,58 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertEqual(makeConfig().defaultAction, .copyURL)
     }
 
-    func testSplitActionsDefault() {
-        let config = makeConfig()
-        XCTAssertEqual(config.hotKeyAction, .openInBrowser)
-        XCTAssertEqual(config.clipboardAction, .openInBrowser)
+    func testClipboardActionDefault() {
+        XCTAssertEqual(makeConfig().clipboardAction, .openInBrowser)
     }
 
-    func testSplitActionsFallBackToLegacyDefaultAction() {
+    func testClipboardActionFallsBackToDefaultAction() {
         let config = makeConfig()
-        // Старая версия хранила единственный defaultAction; новые свойства наследуют его.
         config.defaultAction = .copyURL
-        XCTAssertEqual(config.hotKeyAction, .copyURL)
         XCTAssertEqual(config.clipboardAction, .copyURL)
-        // Пересоздание объекта читает значения из defaults.
-        XCTAssertEqual(makeConfig().hotKeyAction, .copyURL)
         XCTAssertEqual(makeConfig().clipboardAction, .copyURL)
     }
 
-    func testSplitActionsAreIndependent() {
+    func testClipboardActionIndependentOnceSet() {
         let config = makeConfig()
-        config.hotKeyAction = .copyURL
+        config.defaultAction = .copyURL
         config.clipboardAction = .openInBrowser
-        XCTAssertEqual(config.hotKeyAction, .copyURL)
         XCTAssertEqual(config.clipboardAction, .openInBrowser)
-        // И переживают пересоздание объекта, не влияя друг на друга.
-        let reloaded = makeConfig()
-        XCTAssertEqual(reloaded.hotKeyAction, .copyURL)
-        XCTAssertEqual(reloaded.clipboardAction, .openInBrowser)
+        XCTAssertEqual(makeConfig().clipboardAction, .openInBrowser)
     }
 
-    // MARK: Два хоткея
+    // MARK: Горячие клавиши (две, включены по умолчанию)
 
     func testHotKeyDefaults() {
         let config = makeConfig()
-        XCTAssertFalse(config.openHotKeyEnabled)
-        XCTAssertFalse(config.copyHotKeyEnabled)
-        // ⌃⌥J по умолчанию для «открыть», ⌃⌥K для «скопировать» (6144 = control|option).
-        XCTAssertEqual(config.openHotKeyKeyCode, 38)
-        XCTAssertEqual(config.openHotKeyModifiers, 6144)
-        XCTAssertEqual(config.copyHotKeyKeyCode, 40)
-        XCTAssertEqual(config.copyHotKeyModifiers, 6144)
-    }
-
-    func testHotKeyRoundTrip() {
-        let config = makeConfig()
-        config.openHotKeyEnabled = true
-        config.openHotKeyKeyCode = 1
-        config.copyHotKeyEnabled = true
-        config.copyHotKeyKeyCode = 2
-        let reloaded = makeConfig()
-        XCTAssertTrue(reloaded.openHotKeyEnabled)
-        XCTAssertEqual(reloaded.openHotKeyKeyCode, 1)
-        XCTAssertTrue(reloaded.copyHotKeyEnabled)
-        XCTAssertEqual(reloaded.copyHotKeyKeyCode, 2)
-    }
-
-    func testSnippetsHotKeyDefaults() {
-        let config = makeConfig()
-        XCTAssertFalse(config.snippetsHotKeyEnabled)
-        // ⌃⌥V по умолчанию: keyCode 9, модификаторы control|option = 6144.
+        // Обе включены. ⌃⌥C — окно ввода (keyCode 8), ⌃⌥V — пикер (keyCode 9). 6144 = control|option.
+        XCTAssertTrue(config.showInputHotKeyEnabled)
+        XCTAssertEqual(config.showInputHotKeyKeyCode, 8)
+        XCTAssertEqual(config.showInputHotKeyModifiers, 6144)
+        XCTAssertTrue(config.snippetsHotKeyEnabled)
         XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
         XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
+    }
+
+    func testShowInputHotKeyRoundTrip() {
+        let config = makeConfig()
+        config.showInputHotKeyEnabled = false
+        config.showInputHotKeyKeyCode = 1
+        config.showInputHotKeyModifiers = 0x0900
+        let reloaded = makeConfig()
+        XCTAssertFalse(reloaded.showInputHotKeyEnabled)
+        XCTAssertEqual(reloaded.showInputHotKeyKeyCode, 1)
+        XCTAssertEqual(reloaded.showInputHotKeyModifiers, 0x0900)
     }
 
     func testSnippetsHotKeyRoundTrip() {
         let config = makeConfig()
-        config.snippetsHotKeyEnabled = true
+        config.snippetsHotKeyEnabled = false
         config.snippetsHotKeyKeyCode = 11
         config.snippetsHotKeyModifiers = 0x0900
         let reloaded = makeConfig()
-        XCTAssertTrue(reloaded.snippetsHotKeyEnabled)
+        XCTAssertFalse(reloaded.snippetsHotKeyEnabled)
         XCTAssertEqual(reloaded.snippetsHotKeyKeyCode, 11)
         XCTAssertEqual(reloaded.snippetsHotKeyModifiers, 0x0900)
-    }
-
-    func testResetRestoresSnippetsHotKey() {
-        let config = makeConfig()
-        config.snippetsHotKeyEnabled = true
-        config.snippetsHotKeyKeyCode = 11
-        config.resetToDefaults()
-        XCTAssertFalse(config.snippetsHotKeyEnabled)
-        XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
-        XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
-    }
-
-    func testMigrationRoutesLegacyHotkeyToCopySlot() {
-        // Старый единственный хоткей с действием «скопировать» и комбинацией keyCode 3.
-        defaults.set(true, forKey: "hotKeyEnabled")
-        defaults.set("copyURL", forKey: "hotKeyAction")
-        defaults.set(3, forKey: "hotKeyKeyCode")
-        defaults.set(6144, forKey: "hotKeyModifiers")
-
-        let config = makeConfig() // миграция выполняется в init
-        XCTAssertTrue(config.copyHotKeyEnabled)
-        XCTAssertEqual(config.copyHotKeyKeyCode, 3)
-        XCTAssertEqual(config.copyHotKeyModifiers, 6144)
-        // Слот «открыть» остаётся выключенным с дефолтной комбинацией ⌃⌥J.
-        XCTAssertFalse(config.openHotKeyEnabled)
-        XCTAssertEqual(config.openHotKeyKeyCode, 38)
-    }
-
-    func testMigrationRoutesLegacyHotkeyToOpenSlot() {
-        defaults.set(true, forKey: "hotKeyEnabled")
-        defaults.set("openInBrowser", forKey: "hotKeyAction")
-        defaults.set(38, forKey: "hotKeyKeyCode")
-        defaults.set(6144, forKey: "hotKeyModifiers")
-
-        let config = makeConfig()
-        XCTAssertTrue(config.openHotKeyEnabled)
-        XCTAssertEqual(config.openHotKeyKeyCode, 38)
-        // Слот «скопировать» остаётся выключенным с дефолтной комбинацией ⌃⌥K.
-        XCTAssertFalse(config.copyHotKeyEnabled)
-        XCTAssertEqual(config.copyHotKeyKeyCode, 40)
-    }
-
-    func testMigrationRunsOnce() {
-        // Первый конфиг мигрирует и выставляет слот «открыть».
-        defaults.set(true, forKey: "hotKeyEnabled")
-        defaults.set("openInBrowser", forKey: "hotKeyAction")
-        _ = makeConfig()
-        // Пользователь вручную выключил хоткей «открыть».
-        let config = makeConfig()
-        config.openHotKeyEnabled = false
-        // Повторное создание не должно заново «воскрешать» миграцию.
-        XCTAssertFalse(makeConfig().openHotKeyEnabled)
     }
 
     // MARK: Миграция проектов → шаблоны
@@ -190,7 +116,6 @@ final class JiraConfigTests: XCTestCase {
                        ["https://jira.example.com/browse/PROJ-$1",
                         "https://jira.example.com/browse/PAY-$1"])
         XCTAssertTrue(config.templates.allSatisfy { $0.wholeWord && $0.uppercase && $0.enabled })
-        // Мигрированный шаблон распознаёт ключ как раньше.
         let m = TicketParser.exactMatch(in: "PAY-7", templates: config.templates)
         XCTAssertEqual(m?.url.absoluteString, "https://jira.example.com/browse/PAY-7")
     }
@@ -203,10 +128,8 @@ final class JiraConfigTests: XCTestCase {
     func testMigrationRunsOnceAndDoesNotResurrect() {
         setLegacyProjects([(base: "https://jira.example.com/browse/", prefixes: ["PROJ"])])
         _ = makeConfig() // мигрировали
-        // Пользователь очистил шаблоны.
         let config = makeConfig()
         config.templates = []
-        // Повторная инициализация не должна заново восстановить шаблоны из legacy-`projects`.
         XCTAssertEqual(makeConfig().templates, [])
     }
 
@@ -220,13 +143,12 @@ final class JiraConfigTests: XCTestCase {
         let config = makeConfig()
         config.templates = [jira()]
         config.autoOpen = true
-        // Legacy-ключ defaultAction, который наследует clipboardAction, тоже должен сброситься.
         config.defaultAction = .copyURL
         config.clipboardAction = .copyURL
-        config.openHotKeyEnabled = true
-        config.openHotKeyKeyCode = 1
-        config.copyHotKeyEnabled = true
-        config.copyHotKeyKeyCode = 2
+        config.showInputHotKeyEnabled = false
+        config.showInputHotKeyKeyCode = 1
+        config.snippetsHotKeyEnabled = false
+        config.snippetsHotKeyKeyCode = 2
 
         config.resetToDefaults()
 
@@ -234,28 +156,27 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertFalse(config.autoOpen)
         XCTAssertEqual(config.defaultAction, .openInBrowser)
         XCTAssertEqual(config.clipboardAction, .openInBrowser)
-        // Хоткеи возвращаются к дефолтам ⌃⌥J / ⌃⌥K и выключаются.
-        XCTAssertFalse(config.openHotKeyEnabled)
-        XCTAssertEqual(config.openHotKeyKeyCode, 38)
-        XCTAssertEqual(config.openHotKeyModifiers, 6144)
-        XCTAssertFalse(config.copyHotKeyEnabled)
-        XCTAssertEqual(config.copyHotKeyKeyCode, 40)
-        XCTAssertEqual(config.copyHotKeyModifiers, 6144)
+        // Хоткеи возвращаются к дефолтам ⌃⌥C / ⌃⌥V и включаются.
+        XCTAssertTrue(config.showInputHotKeyEnabled)
+        XCTAssertEqual(config.showInputHotKeyKeyCode, 8)
+        XCTAssertEqual(config.showInputHotKeyModifiers, 6144)
+        XCTAssertTrue(config.snippetsHotKeyEnabled)
+        XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
+        XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
     }
 
     func testResetToDefaultsPersistsAndSurvivesReload() {
         let config = makeConfig()
         config.templates = [jira()]
-        config.copyHotKeyKeyCode = 9
+        config.snippetsHotKeyKeyCode = 11
 
         config.resetToDefaults()
 
-        // Новый объект (в т.ч. его миграция) не должен «воскрешать» прежние значения.
         let reloaded = makeConfig()
         XCTAssertEqual(reloaded.templates, [])
-        XCTAssertEqual(reloaded.copyHotKeyKeyCode, 40)
-        XCTAssertFalse(reloaded.openHotKeyEnabled)
-        XCTAssertFalse(reloaded.copyHotKeyEnabled)
+        XCTAssertEqual(reloaded.snippetsHotKeyKeyCode, 9)
+        XCTAssertTrue(reloaded.showInputHotKeyEnabled)
+        XCTAssertTrue(reloaded.snippetsHotKeyEnabled)
     }
 
     func testTemplatesRoundTrip() {
@@ -267,7 +188,6 @@ final class JiraConfigTests: XCTestCase {
         ]
         config.templates = templates
         XCTAssertEqual(config.templates, templates)
-        // Значение должно переживать пересоздание объекта (читается из defaults).
         XCTAssertEqual(makeConfig().templates, templates)
     }
 
@@ -276,27 +196,6 @@ final class JiraConfigTests: XCTestCase {
         config.autoOpen = true
         XCTAssertTrue(config.autoOpen)
         XCTAssertTrue(makeConfig().autoOpen)
-    }
-
-    func testHotKeyEnabledRoundTrip() {
-        let config = makeConfig()
-        config.hotKeyEnabled = true
-        XCTAssertTrue(config.hotKeyEnabled)
-        XCTAssertTrue(makeConfig().hotKeyEnabled)
-    }
-
-    func testHotKeyKeyCodeRoundTrip() {
-        let config = makeConfig()
-        config.hotKeyKeyCode = 40 // K
-        XCTAssertEqual(config.hotKeyKeyCode, 40)
-        XCTAssertEqual(makeConfig().hotKeyKeyCode, 40)
-    }
-
-    func testHotKeyModifiersRoundTrip() {
-        let config = makeConfig()
-        config.hotKeyModifiers = 0x0100 | 0x0200 // cmdKey | shiftKey
-        XCTAssertEqual(config.hotKeyModifiers, 0x0300)
-        XCTAssertEqual(makeConfig().hotKeyModifiers, 0x0300)
     }
 
     func testIsConfiguredFalseWhenEmpty() {

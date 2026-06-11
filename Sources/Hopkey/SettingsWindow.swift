@@ -92,12 +92,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: Контролы вкладки «Хоткеи»
 
-    /// Два хоткея над выделением (требуют Accessibility) + хоткей окна ввода (не требует)
-    /// + хоткей пикера сниппетов (авто-вставка требует Accessibility).
-    private let openHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.open"), target: nil, action: nil)
-    private let openHotKeyRecorder = HotKeyRecorderView()
-    private let copyHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.copy"), target: nil, action: nil)
-    private let copyHotKeyRecorder = HotKeyRecorderView()
+    /// Хоткей окна ввода (Accessibility не требует) + хоткей пикера сниппетов
+    /// (авто-вставка требует Accessibility).
     private let showInputHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.input"), target: nil, action: nil)
     private let showInputHotKeyRecorder = HotKeyRecorderView()
     private let snippetsHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.snippets"), target: nil, action: nil)
@@ -438,9 +434,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let header = label(L("settings.hotkeys.header"), secondary: true, wraps: true)
 
         // Галочки одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
-        let checkWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
-                                  copyHotKeyCheck.intrinsicContentSize.width,
-                                  showInputHotKeyCheck.intrinsicContentSize.width,
+        let checkWidth = ceil(max(showInputHotKeyCheck.intrinsicContentSize.width,
                                   snippetsHotKeyCheck.intrinsicContentSize.width))
 
         func group(_ check: NSButton, _ recorder: HotKeyRecorderView, hint: String) -> NSView {
@@ -466,12 +460,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             return box
         }
 
-        openHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.openHotKeyKeyCode = Int(k); self?.config.openHotKeyModifiers = Int(m); self?.onSave?()
-        }
-        copyHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.copyHotKeyKeyCode = Int(k); self?.config.copyHotKeyModifiers = Int(m); self?.onSave?()
-        }
         showInputHotKeyRecorder.onChange = { [weak self] k, m in
             self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m); self?.onSave?()
         }
@@ -479,10 +467,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             self?.config.snippetsHotKeyKeyCode = Int(k); self?.config.snippetsHotKeyModifiers = Int(m); self?.onSave?()
         }
 
-        let openGroup = group(openHotKeyCheck, openHotKeyRecorder,
-            hint: L("settings.hotkey.open.hint"))
-        let copyGroup = group(copyHotKeyCheck, copyHotKeyRecorder,
-            hint: L("settings.hotkey.copy.hint"))
         let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
             hint: L("settings.hotkey.input.hint"))
         let snippetsGroup = group(snippetsHotKeyCheck, snippetsHotKeyRecorder,
@@ -491,7 +475,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
 
         let sep = separator()
-        let stack = NSStackView(views: [header, openGroup, copyGroup, inputGroup, snippetsGroup, sep, accessNote])
+        let stack = NSStackView(views: [header, inputGroup, snippetsGroup, sep, accessNote])
         stack.spacing = 14
         stack.setCustomSpacing(16, after: snippetsGroup)
         stack.setCustomSpacing(12, after: sep)
@@ -733,8 +717,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     /// Каждый рекордер активен только при включённой своей галочке.
     private func updateDependentControls() {
-        openHotKeyRecorder.isEnabled = openHotKeyCheck.state == .on
-        copyHotKeyRecorder.isEnabled = copyHotKeyCheck.state == .on
         showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
         snippetsHotKeyRecorder.isEnabled = snippetsHotKeyCheck.state == .on
     }
@@ -748,8 +730,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func hotKeyEnabledChanged() {
-        config.openHotKeyEnabled = openHotKeyCheck.state == .on
-        config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
         config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
         config.snippetsHotKeyEnabled = snippetsHotKeyCheck.state == .on
         updateDependentControls()
@@ -953,10 +933,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         languagePopup.selectItem(at: languageOrder.firstIndex(of: AppLanguage.current) ?? 0)
 
-        openHotKeyCheck.state = config.openHotKeyEnabled ? .on : .off
-        openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
-        copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
-        copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
         showInputHotKeyCheck.state = config.showInputHotKeyEnabled ? .on : .off
         showInputHotKeyRecorder.combo = (UInt32(config.showInputHotKeyKeyCode), UInt32(config.showInputHotKeyModifiers))
         snippetsHotKeyCheck.state = config.snippetsHotKeyEnabled ? .on : .off
