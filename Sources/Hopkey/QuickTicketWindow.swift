@@ -35,7 +35,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     var onSubmit: (([TicketMatch], TicketAction) -> Void)?
 
     private let input = NSTextField()
-    private let projectLabel = NSTextField(labelWithString: "Шаблон:")
+    private let projectLabel = NSTextField(labelWithString: L("quick.templateLabel"))
     /// Вертикальный список шаблонов: заголовок + радио-кнопки. Выбор — одним кликом.
     private let projectGroup = NSStackView()
     private var projectRadios: [NSButton] = []
@@ -58,7 +58,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Открыть по ключу"
+        panel.title = L("quick.window.title")
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -73,7 +73,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     private func buildUI() {
         guard let content = window?.contentView else { return }
 
-        input.placeholderString = "PROJ-123 или 123"
+        input.placeholderString = L("quick.placeholder")
         input.font = .systemFont(ofSize: 14)
         input.translatesAutoresizingMaskIntoConstraints = false
 
@@ -94,13 +94,13 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
 
         // «Скопировать» — обычная серая кнопка. Шорткат ⌘↩ ловит сама панель
         // (см. `performKeyEquivalent`), чтобы кнопка не стала второй синей «по умолчанию».
-        let copyButton = NSButton(title: "Скопировать", target: self, action: #selector(submitCopy))
+        let copyButton = NSButton(title: L("quick.copy"), target: self, action: #selector(submitCopy))
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
         copyButton.imagePosition = .imageLeading
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         // Основная кнопка по умолчанию ловит обычный ↩ даже при фокусе в поле.
-        let openButton = NSButton(title: "Открыть", target: self, action: #selector(submitOpen))
+        let openButton = NSButton(title: L("quick.open"), target: self, action: #selector(submitOpen))
         openButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
         openButton.imagePosition = .imageLeading
         openButton.keyEquivalent = "\r"
@@ -174,8 +174,8 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
 
         case .invalid:
             let hasTemplates = config.templates.contains(where: \.isValid)
-            showMessage(hasTemplates ? "Не похоже на ключ"
-                                     : "Сначала добавьте шаблон в настройках", isError: true)
+            showMessage(hasTemplates ? L("quick.notKey")
+                                     : L("quick.noTemplates"), isError: true)
             NSSound.beep()
         }
     }
@@ -184,7 +184,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         guard fillableTemplates.indices.contains(selectedTemplateIndex) else { NSSound.beep(); return }
         let template = fillableTemplates[selectedTemplateIndex]
         guard case let .resolved(match) = QuickTicketInput.resolve(number: number, template: template) else {
-            showMessage("Не удалось собрать ключ", isError: true)
+            showMessage(L("quick.buildFailed"), isError: true)
             NSSound.beep()
             return
         }
@@ -236,8 +236,8 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
 
         let ambiguous = fillableTemplates.count > 1
         projectGroup.isHidden = !ambiguous
-        showMessage(ambiguous ? "Введите номер и выберите шаблон · ⌘↩ — скопировать"
-                              : "↩ — открыть · ⌘↩ — скопировать ссылку", isError: false)
+        showMessage(ambiguous ? L("quick.hint.ambiguous")
+                              : L("quick.hint.simple"), isError: false)
         sizeWindowToFit()
     }
 

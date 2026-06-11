@@ -1,0 +1,135 @@
+/* Hopkey — русская локализация.
+   Ключи сгруппированы по областям UI. Плейсхолдеры %@ держите в синхроне с en.lproj. */
+
+/* Общее */
+"common.cancel" = "Отмена";
+"common.save" = "Сохранить";
+
+/* Меню приложения (строка меню) */
+"menu.app.about" = "О приложении Hopkey";
+"menu.app.hide" = "Скрыть Hopkey";
+"menu.app.quit" = "Завершить Hopkey";
+"menu.edit" = "Правка";
+"menu.edit.undo" = "Отменить";
+"menu.edit.redo" = "Повторить";
+"menu.edit.cut" = "Вырезать";
+"menu.edit.copy" = "Скопировать";
+"menu.edit.paste" = "Вставить";
+"menu.edit.selectAll" = "Выбрать всё";
+"menu.window" = "Окно";
+"menu.window.minimize" = "Свернуть";
+"menu.window.close" = "Закрыть";
+
+/* Меню в строке статуса */
+"status.tooltip" = "Hopkey — открыть ссылку по ключу";
+"status.openFromClipboard" = "Открыть ссылку из буфера";
+"status.copyFromClipboard" = "Скопировать ссылку из буфера";
+"status.openByKey" = "Открыть по ключу…";
+"status.settings" = "Настройки…";
+"status.checkUpdates" = "Проверить обновления…";
+"status.quit" = "Выход";
+
+/* Окно настроек */
+"settings.window.title" = "Настройки Hopkey";
+"settings.tab.templates" = "Шаблоны";
+"settings.tab.hotkeys" = "Хоткеи";
+"settings.tab.general" = "Общие";
+"settings.tab.about" = "О приложении";
+
+/* Настройки — вкладка «Шаблоны» */
+"settings.templates.intro" = "Шаблоны превращают ключи в ссылки. Скопируйте ключ (например, PROJ-123) — и Hopkey откроет ссылку; либо выделите текст и нажмите хоткей.";
+"settings.templates.listLabel" = "Шаблоны распознавания:";
+"settings.templates.empty" = "Нажмите + или «Из пресета», чтобы добавить шаблон";
+"settings.templates.col.enabled" = "Вкл";
+"settings.templates.col.enabled.tooltip" = "Участвует ли шаблон в распознавании.";
+"settings.templates.col.name" = "Имя";
+"settings.templates.col.pattern" = "Шаблон (regex)";
+"settings.templates.edit" = "Изменить";
+"settings.templates.preset" = "Из пресета ▾";
+
+/* Настройки — вкладка «Хоткеи» */
+"settings.hotkeys.header" = "Глобальные хоткеи работают в любом приложении.";
+"settings.hotkey.open" = "Открыть в браузере";
+"settings.hotkey.copy" = "Скопировать ссылку";
+"settings.hotkey.input" = "Открыть окно ввода";
+"settings.hotkey.open.hint" = "Открывает выделенный ключ в браузере. Нужен Универсальный доступ.";
+"settings.hotkey.copy.hint" = "Копирует ссылку на выделенный ключ. Нужен Универсальный доступ.";
+"settings.hotkey.input.hint" = "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.";
+"settings.hotkeys.accessNote" = "Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».";
+
+/* Настройки — вкладка «Общие» */
+"settings.general.description" = "Hopkey распознаёт ключи (PROJ-123, #42) в буфере или выделении и открывает либо копирует ссылку по вашим шаблонам.";
+"settings.general.clipboardLabel" = "При копировании ключа в буфер:";
+"settings.clipboard.notifyOpen" = "Показать уведомление (клик — открыть в браузере)";
+"settings.clipboard.notifyCopy" = "Показать уведомление (клик — скопировать ссылку)";
+"settings.clipboard.autoOpen" = "Сразу открыть в браузере";
+"settings.clipboard.autoCopy" = "Сразу скопировать ссылку";
+"settings.general.launchAtLogin" = "Запускать при входе";
+"settings.general.autoUpdate" = "Автоматически проверять обновления";
+"settings.general.reset" = "Сбросить настройки";
+"settings.general.languageLabel" = "Язык интерфейса:";
+"language.system" = "Системный";
+"settings.language.restartTitle" = "Перезапустить Hopkey?";
+"settings.language.restartMessage" = "Язык интерфейса изменится после перезапуска приложения.";
+"settings.language.restartNow" = "Перезапустить";
+"settings.language.later" = "Позже";
+
+/* Настройки — вкладка «О приложении» */
+"settings.about.version" = "Версия %@";
+"settings.about.tagline" = "Увидел ключ — прыгнул в задачу.";
+"settings.about.github" = "Открыть на GitHub";
+"settings.about.copyright" = "© Ilya Bazhenov · MIT";
+
+/* Настройки — подтверждение сброса */
+"settings.reset.title" = "Сбросить настройки?";
+"settings.reset.message" = "Шаблоны, действие при копировании и хоткеи вернутся к значениям по умолчанию. Действие нельзя отменить.";
+"settings.reset.confirm" = "Сбросить";
+
+/* Редактор шаблона */
+"template.window.new" = "Новый шаблон";
+"template.window.edit" = "Шаблон";
+"template.field.name" = "Имя";
+"template.field.pattern" = "Шаблон (regex) — группы доступны в URL как $1, $2…";
+"template.field.url" = "URL — $1 подставляет первую группу (номер), $0 — всё совпадение";
+"template.wholeWord" = "Границы слова — совпадение не приклеено к буквам/цифрам (PROJ-1, но не XPROJ-1)";
+"template.uppercase" = "Верхний регистр — нормализовать ключ (proj-7 → PROJ-7)";
+"template.enabled" = "Включён";
+"template.hint.name" = "Например: «Jira», «GitHub», «TEST2»";
+"template.hint.pattern" = "Примеры: PROJ-(\\d+) · #(\\d+) · TEST2-(\\d+) · CVE-\\d{4}-\\d+";
+"template.hint.url" = "Примеры: https://jira.example.net/browse/TEST2-$1 · https://github.com/OWNER/REPO/issues/$1";
+"template.help.button.tooltip" = "Как составить шаблон";
+"template.help.title" = "Как составить шаблон";
+"template.help.body" = "«Шаблон» находит ключ в тексте, «URL» — куда его открыть.\n\n• \\d+ — одна или несколько цифр (номер).\n• (…) — группа: её значение подставится в URL.\n• $1 — первая группа (номер), $0 — всё совпадение.\n• Границы слова — чтобы XPROJ-1 не считался ключом PROJ-1.\n• Верхний регистр — привести ключ к ВЕРХНЕМУ (proj-7 → PROJ-7).\n\nПример\nШаблон:  TEST2-(\\d+)\nURL:  https://jira.example.net/browse/TEST2-$1\nТекст «TEST2-123» откроет …/browse/TEST2-123";
+
+"template.error.emptyPattern" = "Укажите регулярное выражение.";
+"template.error.invalidRegex" = "Регулярное выражение не компилируется — проверьте скобки и экранирование.";
+"template.error.emptyURL" = "Укажите URL.";
+"template.error.noPlaceholder" = "В URL нужен плейсхолдер: $1 (номер) или $0 (всё совпадение).";
+
+/* Окно быстрого ввода */
+"quick.window.title" = "Открыть по ключу";
+"quick.templateLabel" = "Шаблон:";
+"quick.placeholder" = "PROJ-123 или 123";
+"quick.copy" = "Скопировать";
+"quick.open" = "Открыть";
+"quick.notKey" = "Не похоже на ключ";
+"quick.noTemplates" = "Сначала добавьте шаблон в настройках";
+"quick.buildFailed" = "Не удалось собрать ключ";
+"quick.hint.ambiguous" = "Введите номер и выберите шаблон · ⌘↩ — скопировать";
+"quick.hint.simple" = "↩ — открыть · ⌘↩ — скопировать ссылку";
+
+/* Рекордер хоткея */
+"hotkey.recording" = "Нажмите комбинацию…";
+"hotkey.unset" = "Не задано";
+
+/* Уведомления */
+"notif.open.one" = "Нажмите, чтобы открыть ссылку";
+"notif.open.many" = "Нажмите, чтобы открыть ссылки (%@)";
+"notif.copy.one" = "Нажмите, чтобы скопировать ссылку";
+"notif.copy.many" = "Нажмите, чтобы скопировать ссылки (%@)";
+"notif.copied.one" = "Ссылка скопирована";
+"notif.copied.many" = "Ссылки скопированы (%@)";
+"notif.denied.title" = "Уведомления выключены";
+"notif.denied.body" = "Hopkey нашёл ключ тикета в буфере, но не может показать баннер для открытия — уведомления для приложения отключены.\n\nВключите их в Системных настройках, либо выберите «Открывать сразу» в меню Hopkey.";
+"notif.denied.openSettings" = "Открыть настройки уведомлений";
+"notif.denied.later" = "Позже";

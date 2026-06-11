@@ -33,6 +33,16 @@ cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
 cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
 cp "${MENU_BAR_ICON}" "${RES_DIR}/MenuBarIcon.pdf"
 
+# Локализация. SwiftPM кладёт строки (en/ru .lproj) в ресурс-бандл таргета
+# Hopkey_Hopkey.bundle рядом с бинарником. Bundle.module ищет его в т.ч. в
+# Contents/Resources — копируем туда, иначе в .app строки не найдутся.
+RES_BUNDLE="${BIN_DIR}/${APP_NAME}_${APP_NAME}.bundle"
+if [ -d "${RES_BUNDLE}" ]; then
+    cp -R "${RES_BUNDLE}" "${RES_DIR}/"
+else
+    echo "(!) ${RES_BUNDLE} не найден — локализация в .app работать не будет"
+fi
+
 # Встраивание Sparkle. SwiftPM (в отличие от Xcode) не копирует Sparkle.framework
 # в бандл — делаем это вручную: копируем фреймворк (ditto сохраняет симлинки
 # Versions/) и добавляем rpath, чтобы бинарник нашёл его внутри .app на любой машине.
@@ -52,6 +62,14 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleName</key>            <string>${DISPLAY_NAME}</string>
     <key>CFBundleDisplayName</key>     <string>${DISPLAY_NAME}</string>
+    <key>CFBundleDevelopmentRegion</key> <string>en</string>
+    <!-- Доступные локализации: macOS выбирает язык приложения по списку
+         предпочитаемых языков пользователя (en — фолбэк). -->
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ru</string>
+    </array>
     <key>CFBundleExecutable</key>      <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>      <string>${BUNDLE_ID}</string>
     <key>CFBundleIconFile</key>        <string>AppIcon</string>

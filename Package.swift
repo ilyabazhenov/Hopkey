@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Hopkey",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -21,6 +22,12 @@ let package = Package(
             dependencies: [
                 "HopkeyCore",
                 .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            // Локализация: en (фолбэк) + ru, строки в Resources/*.lproj/Localizable.strings.
+            // .process кладёт .lproj в ресурс-бандл таргета (Bundle.module), который
+            // build.sh копирует в .app — см. NSLocalizedString в Localization.swift.
+            resources: [
+                .process("Resources")
             ]
         ),
         .testTarget(

@@ -14,13 +14,47 @@ final class TemplateEditorWindowController: NSWindowController {
     private let nameField = NSTextField()
     private let patternField = NSTextField()
     private let urlField = NSTextField()
-    private let wholeWordCheck = NSButton(checkboxWithTitle:
-        "Границы слова — совпадение не приклеено к буквам/цифрам (PROJ-1, но не XPROJ-1)",
-        target: nil, action: nil)
-    private let uppercaseCheck = NSButton(checkboxWithTitle:
-        "Верхний регистр — нормализовать ключ (proj-7 → PROJ-7)", target: nil, action: nil)
-    private let enabledCheck = NSButton(checkboxWithTitle: "Включён", target: nil, action: nil)
+    private let wholeWordCheck = NSButton(checkboxWithTitle: L("template.wholeWord"), target: nil, action: nil)
+    private let uppercaseCheck = NSButton(checkboxWithTitle: L("template.uppercase"), target: nil, action: nil)
+    private let enabledCheck = NSButton(checkboxWithTitle: L("template.enabled"), target: nil, action: nil)
     private let errorLabel = NSTextField(labelWithString: "")
+
+    /// Поповер-шпаргалка по полям (что такое \d+, (…), $1/$0, границы слова, регистр)
+    /// с готовым примером. Создаётся один раз при первом показе.
+    private lazy var helpPopover: NSPopover = {
+        let title = NSTextField(labelWithString: L("template.help.title"))
+        title.font = .boldSystemFont(ofSize: 13)
+        title.translatesAutoresizingMaskIntoConstraints = false
+
+        let body = NSTextField(wrappingLabelWithString: L("template.help.body"))
+        body.font = .systemFont(ofSize: 12)
+        body.preferredMaxLayoutWidth = 360
+        body.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [title, body])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+        ])
+        container.layoutSubtreeIfNeeded()
+
+        let vc = NSViewController()
+        vc.view = container
+        let popover = NSPopover()
+        popover.behavior = .transient  // закрывается кликом вне поповера
+        popover.contentViewController = vc
+        popover.contentSize = container.fittingSize
+        return popover
+    }()
 
     init(template: LinkTemplate?) {
         let window = NSWindow(
@@ -29,7 +63,7 @@ final class TemplateEditorWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = template == nil ? "Новый шаблон" : "Шаблон"
+        window.title = template == nil ? L("template.window.new") : L("template.window.edit")
         super.init(window: window)
         buildUI(template: template ?? LinkTemplate(name: "", pattern: "", url: ""))
     }
@@ -43,6 +77,17 @@ final class TemplateEditorWindowController: NSWindowController {
             let l = NSTextField(labelWithString: text)
             l.font = .systemFont(ofSize: 11)
             l.textColor = .secondaryLabelColor
+            l.translatesAutoresizingMaskIntoConstraints = false
+            return l
+        }
+        // Серый пример под полем: подсказывает формат, не мешая значению. `mono` —
+        // для строк-кодов (regex/URL), чтобы примеры читались как то, что нужно ввести.
+        func example(_ text: String, mono: Bool = false) -> NSTextField {
+            let l = NSTextField(wrappingLabelWithString: text)
+            l.font = mono ? .monospacedSystemFont(ofSize: 10, weight: .regular) : .systemFont(ofSize: 10)
+            l.textColor = .tertiaryLabelColor
+            l.isSelectable = false
+            l.preferredMaxLayoutWidth = 440
             l.translatesAutoresizingMaskIntoConstraints = false
             return l
         }
@@ -69,25 +114,33 @@ final class TemplateEditorWindowController: NSWindowController {
         errorLabel.preferredMaxLayoutWidth = 440
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        let nameHint = example(L("template.hint.name"))
+        let patternHint = example(L("template.hint.pattern"), mono: true)
+        let urlHint = example(L("template.hint.url"), mono: true)
+
         let stack = NSStackView(views: [
-            caption("Имя"), nameField,
-            caption("Шаблон (regex) — группы доступны в URL как $1, $2…"), patternField,
-            caption("URL — $1 подставляет первую группу (номер), $0 — всё совпадение"), urlField,
+            caption(L("template.field.name")), nameField, nameHint,
+            caption(L("template.field.pattern")), patternField, patternHint,
+            caption(L("template.field.url")), urlField, urlHint,
             wholeWordCheck, uppercaseCheck, enabledCheck,
             errorLabel,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
-        stack.setCustomSpacing(12, after: nameField)
-        stack.setCustomSpacing(12, after: patternField)
-        stack.setCustomSpacing(16, after: urlField)
+        // Поле и его пример держим тесной парой (3pt), а перед следующей подписью — воздух.
+        stack.setCustomSpacing(3, after: nameField)
+        stack.setCustomSpacing(12, after: nameHint)
+        stack.setCustomSpacing(3, after: patternField)
+        stack.setCustomSpacing(12, after: patternHint)
+        stack.setCustomSpacing(3, after: urlField)
+        stack.setCustomSpacing(16, after: urlHint)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let cancelButton = NSButton(title: "Отмена", target: self, action: #selector(cancel))
+        let cancelButton = NSButton(title: L("common.cancel"), target: self, action: #selector(cancel))
         cancelButton.keyEquivalent = "\u{1b}"  // Esc
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
-        let saveButton = NSButton(title: "Сохранить", target: self, action: #selector(save))
+        let saveButton = NSButton(title: L("common.save"), target: self, action: #selector(save))
         saveButton.keyEquivalent = "\r"
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         let buttonRow = NSStackView(views: [cancelButton, saveButton])
@@ -95,8 +148,15 @@ final class TemplateEditorWindowController: NSWindowController {
         buttonRow.spacing = 8
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // Круглая «?» у нижнего ряда кнопок: по клику — поповер-шпаргалка по полям.
+        let helpButton = NSButton(title: "", target: self, action: #selector(showHelp(_:)))
+        helpButton.bezelStyle = .helpButton
+        helpButton.toolTip = L("template.help.button.tooltip")
+        helpButton.translatesAutoresizingMaskIntoConstraints = false
+
         content.addSubview(stack)
         content.addSubview(buttonRow)
+        content.addSubview(helpButton)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
@@ -107,6 +167,8 @@ final class TemplateEditorWindowController: NSWindowController {
             buttonRow.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             buttonRow.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
             buttonRow.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 16),
+            helpButton.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            helpButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
         ])
 
         content.layoutSubtreeIfNeeded()
@@ -139,6 +201,10 @@ final class TemplateEditorWindowController: NSWindowController {
         endSheet(.cancel)
     }
 
+    @objc private func showHelp(_ sender: NSButton) {
+        helpPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+    }
+
     private func endSheet(_ code: NSApplication.ModalResponse) {
         guard let window else { return }
         window.sheetParent?.endSheet(window, returnCode: code)
@@ -146,10 +212,10 @@ final class TemplateEditorWindowController: NSWindowController {
 
     private static func message(for problem: LinkTemplate.Invalid) -> String {
         switch problem {
-        case .emptyPattern: return "Укажите регулярное выражение."
-        case .invalidRegex: return "Регулярное выражение не компилируется — проверьте скобки и экранирование."
-        case .emptyURL: return "Укажите URL."
-        case .noPlaceholder: return "В URL нужен плейсхолдер: $1 (номер) или $0 (всё совпадение)."
+        case .emptyPattern: return L("template.error.emptyPattern")
+        case .invalidRegex: return L("template.error.invalidRegex")
+        case .emptyURL: return L("template.error.emptyURL")
+        case .noPlaceholder: return L("template.error.noPlaceholder")
         }
     }
 }

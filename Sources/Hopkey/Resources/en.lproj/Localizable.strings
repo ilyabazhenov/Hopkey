@@ -1,0 +1,135 @@
+/* Hopkey — English localization.
+   Keys are grouped by UI area. Keep %@ placeholders in sync with ru.lproj. */
+
+/* Common */
+"common.cancel" = "Cancel";
+"common.save" = "Save";
+
+/* Application menu (menu bar app) */
+"menu.app.about" = "About Hopkey";
+"menu.app.hide" = "Hide Hopkey";
+"menu.app.quit" = "Quit Hopkey";
+"menu.edit" = "Edit";
+"menu.edit.undo" = "Undo";
+"menu.edit.redo" = "Redo";
+"menu.edit.cut" = "Cut";
+"menu.edit.copy" = "Copy";
+"menu.edit.paste" = "Paste";
+"menu.edit.selectAll" = "Select All";
+"menu.window" = "Window";
+"menu.window.minimize" = "Minimize";
+"menu.window.close" = "Close";
+
+/* Status bar menu */
+"status.tooltip" = "Hopkey — open a link by its key";
+"status.openFromClipboard" = "Open link from clipboard";
+"status.copyFromClipboard" = "Copy link from clipboard";
+"status.openByKey" = "Open by key…";
+"status.settings" = "Settings…";
+"status.checkUpdates" = "Check for Updates…";
+"status.quit" = "Quit";
+
+/* Settings window */
+"settings.window.title" = "Hopkey Settings";
+"settings.tab.templates" = "Templates";
+"settings.tab.hotkeys" = "Hotkeys";
+"settings.tab.general" = "General";
+"settings.tab.about" = "About";
+
+/* Settings — Templates tab */
+"settings.templates.intro" = "Templates turn keys into links. Copy a key (e.g. PROJ-123) and Hopkey opens the link; or select text and press the hotkey.";
+"settings.templates.listLabel" = "Recognition templates:";
+"settings.templates.empty" = "Press + or “From preset” to add a template";
+"settings.templates.col.enabled" = "On";
+"settings.templates.col.enabled.tooltip" = "Whether the template takes part in recognition.";
+"settings.templates.col.name" = "Name";
+"settings.templates.col.pattern" = "Pattern (regex)";
+"settings.templates.edit" = "Edit";
+"settings.templates.preset" = "From preset ▾";
+
+/* Settings — Hotkeys tab */
+"settings.hotkeys.header" = "Global hotkeys work in any application.";
+"settings.hotkey.open" = "Open in browser";
+"settings.hotkey.copy" = "Copy link";
+"settings.hotkey.input" = "Open input window";
+"settings.hotkey.open.hint" = "Opens the selected key in the browser. Requires Accessibility.";
+"settings.hotkey.copy.hint" = "Copies the link for the selected key. Requires Accessibility.";
+"settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
+"settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";
+
+/* Settings — General tab */
+"settings.general.description" = "Hopkey spots keys (PROJ-123, #42) in your clipboard or selection and opens or copies the matching link from your templates.";
+"settings.general.clipboardLabel" = "When a key is copied to the clipboard:";
+"settings.clipboard.notifyOpen" = "Show a notification (click — open in browser)";
+"settings.clipboard.notifyCopy" = "Show a notification (click — copy link)";
+"settings.clipboard.autoOpen" = "Open in browser right away";
+"settings.clipboard.autoCopy" = "Copy link right away";
+"settings.general.launchAtLogin" = "Launch at login";
+"settings.general.autoUpdate" = "Automatically check for updates";
+"settings.general.reset" = "Reset settings";
+"settings.general.languageLabel" = "Interface language:";
+"language.system" = "System default";
+"settings.language.restartTitle" = "Restart Hopkey?";
+"settings.language.restartMessage" = "The interface language changes after the app restarts.";
+"settings.language.restartNow" = "Restart now";
+"settings.language.later" = "Later";
+
+/* Settings — About tab */
+"settings.about.version" = "Version %@";
+"settings.about.tagline" = "Spot the key — hop to the task.";
+"settings.about.github" = "Open on GitHub";
+"settings.about.copyright" = "© Ilya Bazhenov · MIT";
+
+/* Settings — Reset confirmation */
+"settings.reset.title" = "Reset settings?";
+"settings.reset.message" = "Templates, the on-copy action and hotkeys will return to their defaults. This cannot be undone.";
+"settings.reset.confirm" = "Reset";
+
+/* Template editor */
+"template.window.new" = "New template";
+"template.window.edit" = "Template";
+"template.field.name" = "Name";
+"template.field.pattern" = "Pattern (regex) — groups are available in the URL as $1, $2…";
+"template.field.url" = "URL — $1 inserts the first group (number), $0 — the whole match";
+"template.wholeWord" = "Word boundaries — the match is not glued to letters/digits (PROJ-1, but not XPROJ-1)";
+"template.uppercase" = "Uppercase — normalize the key (proj-7 → PROJ-7)";
+"template.enabled" = "Enabled";
+"template.hint.name" = "E.g. “Jira”, “GitHub”, “TEST2”";
+"template.hint.pattern" = "Examples: PROJ-(\\d+) · #(\\d+) · TEST2-(\\d+) · CVE-\\d{4}-\\d+";
+"template.hint.url" = "Examples: https://jira.example.net/browse/TEST2-$1 · https://github.com/OWNER/REPO/issues/$1";
+"template.help.button.tooltip" = "How to build a template";
+"template.help.title" = "How to build a template";
+"template.help.body" = "“Pattern” finds the key in text, “URL” is where to open it.\n\n• \\d+ — one or more digits (the number).\n• (…) — a group: its value is inserted into the URL.\n• $1 — the first group (number), $0 — the whole match.\n• Word boundaries — so XPROJ-1 isn’t treated as PROJ-1.\n• Uppercase — normalize the key (proj-7 → PROJ-7).\n\nExample\nPattern:  TEST2-(\\d+)\nURL:  https://jira.example.net/browse/TEST2-$1\nText “TEST2-123” opens …/browse/TEST2-123";
+
+"template.error.emptyPattern" = "Enter a regular expression.";
+"template.error.invalidRegex" = "The regular expression does not compile — check brackets and escaping.";
+"template.error.emptyURL" = "Enter a URL.";
+"template.error.noPlaceholder" = "The URL needs a placeholder: $1 (number) or $0 (whole match).";
+
+/* Quick input window */
+"quick.window.title" = "Open by key";
+"quick.templateLabel" = "Template:";
+"quick.placeholder" = "PROJ-123 or 123";
+"quick.copy" = "Copy";
+"quick.open" = "Open";
+"quick.notKey" = "Doesn’t look like a key";
+"quick.noTemplates" = "Add a template in settings first";
+"quick.buildFailed" = "Couldn’t build the key";
+"quick.hint.ambiguous" = "Enter a number and pick a template · ⌘↩ — copy";
+"quick.hint.simple" = "↩ — open · ⌘↩ — copy link";
+
+/* Hotkey recorder */
+"hotkey.recording" = "Press a shortcut…";
+"hotkey.unset" = "Not set";
+
+/* Notifications */
+"notif.open.one" = "Click to open the link";
+"notif.open.many" = "Click to open the links (%@)";
+"notif.copy.one" = "Click to copy the link";
+"notif.copy.many" = "Click to copy the links (%@)";
+"notif.copied.one" = "Link copied";
+"notif.copied.many" = "Links copied (%@)";
+"notif.denied.title" = "Notifications are off";
+"notif.denied.body" = "Hopkey found a ticket key in the clipboard but can’t show a banner to open it — notifications for the app are disabled.\n\nEnable them in System Settings, or choose “Open right away” in the Hopkey menu.";
+"notif.denied.openSettings" = "Open notification settings";
+"notif.denied.later" = "Later";

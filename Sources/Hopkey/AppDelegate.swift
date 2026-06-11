@@ -119,38 +119,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "О приложении Hopkey",
+        appMenu.addItem(withTitle: L("menu.app.about"),
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Скрыть Hopkey",
+        appMenu.addItem(withTitle: L("menu.app.hide"),
                         action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Завершить Hopkey",
+        appMenu.addItem(withTitle: L("menu.app.quit"),
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)
 
-        let editMenu = NSMenu(title: "Правка")
-        editMenu.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = editMenu.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "Z")
+        let editMenu = NSMenu(title: L("menu.edit"))
+        editMenu.addItem(withTitle: L("menu.edit.undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: L("menu.edit.redo"), action: Selector(("redo:")), keyEquivalent: "Z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Скопировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Выбрать всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: L("menu.edit.cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: L("menu.edit.copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: L("menu.edit.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: L("menu.edit.selectAll"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
 
         // Меню «Окно» — стандартные «Свернуть» / «Закрыть» и список окон, когда
         // приложение .regular. AppKit сам наполняет его открытыми окнами.
         let windowItem = NSMenuItem()
         mainMenu.addItem(windowItem)
-        let windowMenu = NSMenu(title: "Окно")
-        windowMenu.addItem(withTitle: "Свернуть",
+        let windowMenu = NSMenu(title: L("menu.window"))
+        windowMenu.addItem(withTitle: L("menu.window.minimize"),
                            action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Закрыть",
+        windowMenu.addItem(withTitle: L("menu.window.close"),
                            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
@@ -169,24 +169,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             image?.size = NSSize(width: 18, height: 18)
             button.image = image
             button.imagePosition = .imageOnly
-            button.toolTip = "Hopkey — открыть ссылку по ключу"
+            button.toolTip = L("status.tooltip")
         }
         // Меню статично: действия с буфером и служебные пункты. Все переключатели
         // (авто-открытие, хоткеи, запуск при входе) живут в окне «Настройки…».
         let menu = NSMenu()
-        menu.addItem(withTitle: "Открыть ссылку из буфера", action: #selector(openFromClipboard), keyEquivalent: "")
-        menu.addItem(withTitle: "Скопировать ссылку из буфера", action: #selector(copyFromClipboard), keyEquivalent: "")
-        menu.addItem(withTitle: "Открыть по ключу…", action: #selector(openQuickTicket), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.openFromClipboard"), action: #selector(openFromClipboard), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.copyFromClipboard"), action: #selector(copyFromClipboard), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.openByKey"), action: #selector(openQuickTicket), keyEquivalent: "")
         menu.addItem(.separator())
         // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
         // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu
         // зарезервировать колонку под картинки и сдвинуть текст всех пунктов вправо.
         // image = nil здесь не держится: система перерисовывает иконку при показе,
         // поэтому окончательно гасим её в menuNeedsUpdate (см. NSMenuDelegate ниже).
-        menu.addItem(withTitle: "Настройки…", action: #selector(openSettings), keyEquivalent: "")
-        menu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.settings"), action: #selector(openSettings), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.checkUpdates"), action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Выход", action: #selector(quit), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.quit"), action: #selector(quit), keyEquivalent: "")
 
         for item in menu.items where item.action != nil {
             item.target = self

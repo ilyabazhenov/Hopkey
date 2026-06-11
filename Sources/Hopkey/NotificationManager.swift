@@ -45,9 +45,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             let count = matches.count
             switch action {
             case .openInBrowser:
-                content.title = count == 1 ? "Нажмите, чтобы открыть ссылку" : "Нажмите, чтобы открыть ссылки (\(count))"
+                content.title = count == 1 ? L("notif.open.one") : L("notif.open.many", "\(count)")
             case .copyURL:
-                content.title = count == 1 ? "Нажмите, чтобы скопировать ссылку" : "Нажмите, чтобы скопировать ссылки (\(count))"
+                content.title = count == 1 ? L("notif.copy.one") : L("notif.copy.many", "\(count)")
             }
             content.body = matches.map(\.id).joined(separator: ", ")
             content.userInfo = [
@@ -82,15 +82,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         defaults.set(true, forKey: key)
 
         let alert = NSAlert()
-        alert.messageText = "Уведомления выключены"
-        alert.informativeText = """
-        Hopkey нашёл ключ тикета в буфере, но не может показать баннер для открытия — \
-        уведомления для приложения отключены.
-
-        Включите их в Системных настройках, либо выберите «Открывать сразу» в меню Hopkey.
-        """
-        alert.addButton(withTitle: "Открыть настройки уведомлений")
-        alert.addButton(withTitle: "Позже")
+        alert.messageText = L("notif.denied.title")
+        alert.informativeText = L("notif.denied.body")
+        alert.addButton(withTitle: L("notif.denied.openSettings"))
+        alert.addButton(withTitle: L("notif.denied.later"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
@@ -119,7 +114,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                   settings.authorizationStatus == .provisional else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = matches.count == 1 ? "Ссылка скопирована" : "Ссылки скопированы (\(matches.count))"
+            content.title = matches.count == 1 ? L("notif.copied.one") : L("notif.copied.many", "\(matches.count)")
             content.body = matches.map(\.id).joined(separator: ", ")
             content.sound = nil
             let request = UNNotificationRequest(

@@ -33,10 +33,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         var label: String {
             switch self {
-            case .templates: return "Шаблоны"
-            case .hotkeys: return "Хоткеи"
-            case .general: return "Общие"
-            case .about: return "О приложении"
+            case .templates: return L("settings.tab.templates")
+            case .hotkeys: return L("settings.tab.hotkeys")
+            case .general: return L("settings.tab.general")
+            case .about: return L("settings.tab.about")
             }
         }
         var symbol: String {
@@ -72,32 +72,35 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let tableView = NSTableView()
     private let removeButton = NSButton()
     private let editButton = NSButton()
-    private let emptyStateLabel = NSTextField(labelWithString: "Нажмите + или «Из пресета», чтобы добавить шаблон")
+    private let emptyStateLabel = NSTextField(labelWithString: L("settings.templates.empty"))
 
     // MARK: Контролы вкладки «Хоткеи»
 
     /// Два хоткея над выделением (требуют Accessibility) + хоткей окна ввода (не требует).
-    private let openHotKeyCheck = NSButton(checkboxWithTitle: "Открыть в браузере", target: nil, action: nil)
+    private let openHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.open"), target: nil, action: nil)
     private let openHotKeyRecorder = HotKeyRecorderView()
-    private let copyHotKeyCheck = NSButton(checkboxWithTitle: "Скопировать ссылку", target: nil, action: nil)
+    private let copyHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.copy"), target: nil, action: nil)
     private let copyHotKeyRecorder = HotKeyRecorderView()
-    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: "Открыть окно ввода", target: nil, action: nil)
+    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.input"), target: nil, action: nil)
     private let showInputHotKeyRecorder = HotKeyRecorderView()
 
     // MARK: Контролы вкладки «Общие»
 
     /// Объединяет прежний чекбокс `autoOpen` и попап действия: один список из 4 состояний.
     private let clipboardActionPopup = NSPopUpButton()
-    private let launchAtLoginCheck = NSButton(checkboxWithTitle: "Запускать при входе", target: nil, action: nil)
-    private let autoUpdateCheck = NSButton(checkboxWithTitle: "Автоматически проверять обновления", target: nil, action: nil)
+    /// Выбор языка интерфейса (поверх системного); порядок пунктов = `languageOrder`.
+    private let languagePopup = NSPopUpButton()
+    private let languageOrder = AppLanguage.allCases
+    private let launchAtLoginCheck = NSButton(checkboxWithTitle: L("settings.general.launchAtLogin"), target: nil, action: nil)
+    private let autoUpdateCheck = NSButton(checkboxWithTitle: L("settings.general.autoUpdate"), target: nil, action: nil)
 
     /// Пункт попапа «при копировании» ↔ пара (авто-открытие, действие).
     private struct ClipboardOption { let autoOpen: Bool; let action: TicketAction; let title: String }
     private let clipboardOptions: [ClipboardOption] = [
-        .init(autoOpen: false, action: .openInBrowser, title: "Показать уведомление (клик — открыть в браузере)"),
-        .init(autoOpen: false, action: .copyURL,       title: "Показать уведомление (клик — скопировать ссылку)"),
-        .init(autoOpen: true,  action: .openInBrowser, title: "Сразу открыть в браузере"),
-        .init(autoOpen: true,  action: .copyURL,       title: "Сразу скопировать ссылку"),
+        .init(autoOpen: false, action: .openInBrowser, title: L("settings.clipboard.notifyOpen")),
+        .init(autoOpen: false, action: .copyURL,       title: L("settings.clipboard.notifyCopy")),
+        .init(autoOpen: true,  action: .openInBrowser, title: L("settings.clipboard.autoOpen")),
+        .init(autoOpen: true,  action: .copyURL,       title: L("settings.clipboard.autoCopy")),
     ]
 
     private enum Column {
@@ -115,7 +118,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             backing: .buffered,
             defer: false
         )
-        window.title = "Настройки Hopkey"
+        window.title = L("settings.window.title")
         // Ниже — начинает обрезать контролы; больше — растягивается список шаблонов.
         window.minSize = NSSize(width: 540, height: 420)
         super.init(window: window)
@@ -243,8 +246,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Вкладка «Шаблоны»
 
     private func buildTemplatesTab() -> NSView {
-        let intro = label("Шаблоны превращают ключи в ссылки. Скопируйте ключ (например, PROJ-123) — и Hopkey откроет ссылку; либо выделите текст и нажмите хоткей.",
-                          secondary: true, wraps: true)
+        let intro = label(L("settings.templates.intro"), secondary: true, wraps: true)
 
         func column(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat,
                     minWidth: CGFloat, fixed: Bool = false, tooltip: String? = nil) -> NSTableColumn {
@@ -256,10 +258,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             c.headerToolTip = tooltip
             return c
         }
-        tableView.addTableColumn(column(Column.enabled, "Вкл", width: 40, minWidth: 40, fixed: true,
-            tooltip: "Участвует ли шаблон в распознавании."))
-        tableView.addTableColumn(column(Column.name, "Имя", width: 150, minWidth: 100))
-        tableView.addTableColumn(column(Column.pattern, "Шаблон (regex)", width: 290, minWidth: 160))
+        tableView.addTableColumn(column(Column.enabled, L("settings.templates.col.enabled"), width: 40, minWidth: 40, fixed: true,
+            tooltip: L("settings.templates.col.enabled.tooltip")))
+        tableView.addTableColumn(column(Column.name, L("settings.templates.col.name"), width: 150, minWidth: 100))
+        tableView.addTableColumn(column(Column.pattern, L("settings.templates.col.pattern"), width: 290, minWidth: 160))
         tableView.dataSource = self
         tableView.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
@@ -285,39 +287,38 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         emptyStateLabel.font = .systemFont(ofSize: 12)
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Панель под таблицей: +, −, Изменить, Из пресета.
+        // Панель под таблицей: +, −, Изменить, Из пресета. Все кнопки в едином
+        // скруглённом стиле (.rounded); +/− держим тесной парой как add/remove.
         let addButton = NSButton(title: "+", target: self, action: #selector(addRow))
-        addButton.bezelStyle = .smallSquare
-        addButton.setButtonType(.momentaryPushIn)
+        addButton.bezelStyle = .rounded
         removeButton.title = "−"
         removeButton.target = self
         removeButton.action = #selector(removeSelectedRow)
-        removeButton.bezelStyle = .smallSquare
-        removeButton.setButtonType(.momentaryPushIn)
+        removeButton.bezelStyle = .rounded
         removeButton.isEnabled = false
         for b in [addButton, removeButton] {
             b.translatesAutoresizingMaskIntoConstraints = false
-            b.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            b.widthAnchor.constraint(equalToConstant: 32).isActive = true
         }
-        editButton.title = "Изменить"
+        editButton.title = L("settings.templates.edit")
         editButton.target = self
         editButton.action = #selector(editSelectedRow)
         editButton.bezelStyle = .rounded
         editButton.isEnabled = false
         editButton.translatesAutoresizingMaskIntoConstraints = false
-        let presetButton = NSButton(title: "Из пресета ▾", target: self, action: #selector(showPresetMenu))
+        let presetButton = NSButton(title: L("settings.templates.preset"), target: self, action: #selector(showPresetMenu))
         presetButton.bezelStyle = .rounded
         presetButton.translatesAutoresizingMaskIntoConstraints = false
         let buttonBar = NSStackView(views: [addButton, removeButton, editButton, presetButton])
         buttonBar.orientation = .horizontal
-        buttonBar.spacing = 0
-        buttonBar.setCustomSpacing(8, after: removeButton)
+        buttonBar.spacing = 4  // тесный зазор внутри пары +/−
+        buttonBar.setCustomSpacing(10, after: removeButton)
         buttonBar.setCustomSpacing(8, after: editButton)
         buttonBar.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [intro, label("Шаблоны распознавания:"), scroll, buttonBar])
+        let stack = NSStackView(views: [intro, label(L("settings.templates.listLabel")), scroll, buttonBar])
         stack.spacing = 8
-        stack.setCustomSpacing(2, after: scroll)
+        stack.setCustomSpacing(10, after: scroll)
 
         return tabView(stack, flexibleContent: true) { [self] v in
             v.addSubview(emptyStateLabel)
@@ -333,7 +334,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Вкладка «Хоткеи»
 
     private func buildHotKeysTab() -> NSView {
-        let header = label("Глобальные хоткеи работают в любом приложении.", secondary: true, wraps: true)
+        let header = label(L("settings.hotkeys.header"), secondary: true, wraps: true)
 
         // Галочки одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
         let checkWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
@@ -374,14 +375,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
 
         let openGroup = group(openHotKeyCheck, openHotKeyRecorder,
-            hint: "Открывает выделенный ключ в браузере. Нужен Универсальный доступ.")
+            hint: L("settings.hotkey.open.hint"))
         let copyGroup = group(copyHotKeyCheck, copyHotKeyRecorder,
-            hint: "Копирует ссылку на выделенный ключ. Нужен Универсальный доступ.")
+            hint: L("settings.hotkey.copy.hint"))
         let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
-            hint: "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.")
+            hint: L("settings.hotkey.input.hint"))
 
-        let accessNote = label("Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».",
-                               secondary: true, wraps: true)
+        let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
 
         let sep = separator()
         let stack = NSStackView(views: [header, openGroup, copyGroup, inputGroup, sep, accessNote])
@@ -402,6 +402,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         clipboardActionPopup.action = #selector(clipboardOptionChanged)
         clipboardActionPopup.translatesAutoresizingMaskIntoConstraints = false
 
+        languagePopup.removeAllItems()
+        languagePopup.addItems(withTitles: languageOrder.map(\.title))
+        languagePopup.target = self
+        languagePopup.action = #selector(languageChanged)
+        languagePopup.translatesAutoresizingMaskIntoConstraints = false
+
         launchAtLoginCheck.target = self
         launchAtLoginCheck.action = #selector(launchAtLoginChanged)
         launchAtLoginCheck.translatesAutoresizingMaskIntoConstraints = false
@@ -409,14 +415,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         autoUpdateCheck.action = #selector(autoUpdateChanged)
         autoUpdateCheck.translatesAutoresizingMaskIntoConstraints = false
 
-        let resetButton = NSButton(title: "Сбросить настройки", target: self, action: #selector(resetToDefaults))
+        let resetButton = NSButton(title: L("settings.general.reset"), target: self, action: #selector(resetToDefaults))
         resetButton.translatesAutoresizingMaskIntoConstraints = false
 
+        let intro = label(L("settings.general.description"), secondary: true, wraps: true)
+
+        let sep0 = separator()
         let sep1 = separator()
         let sep2 = separator()
         let stack = NSStackView(views: [
-            label("При копировании ключа в буфер:"),
+            intro,
+            sep0,
+            label(L("settings.general.clipboardLabel")),
             clipboardActionPopup,
+            label(L("settings.general.languageLabel")),
+            languagePopup,
             sep1,
             launchAtLoginCheck,
             autoUpdateCheck,
@@ -424,11 +437,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             resetButton,
         ])
         stack.spacing = 8
+        stack.setCustomSpacing(16, after: intro)
+        stack.setCustomSpacing(16, after: sep0)
         stack.setCustomSpacing(16, after: clipboardActionPopup)
+        stack.setCustomSpacing(16, after: languagePopup)
         stack.setCustomSpacing(16, after: sep1)
         stack.setCustomSpacing(16, after: autoUpdateCheck)
         stack.setCustomSpacing(16, after: sep2)
         return tabView(stack) { _ in
+            sep0.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             sep1.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             sep2.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
@@ -452,16 +469,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         name.translatesAutoresizingMaskIntoConstraints = false
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        let versionLabel = label(version.isEmpty ? "" : "Версия \(version)", secondary: true)
+        let versionLabel = label(version.isEmpty ? "" : L("settings.about.version", version), secondary: true)
 
-        let tagline = label("Увидел ключ — прыгнул в задачу.", secondary: true)
+        let tagline = label(L("settings.about.tagline"), secondary: true)
 
-        let gitButton = NSButton(title: "Открыть на GitHub", target: self, action: #selector(openRepository))
+        let gitButton = NSButton(title: L("settings.about.github"), target: self, action: #selector(openRepository))
         gitButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
         gitButton.imagePosition = .imageLeading
         gitButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let copyright = label("© Ilya Bazhenov · MIT", secondary: true)
+        let copyright = label(L("settings.about.copyright"), secondary: true)
 
         let stack = NSStackView(views: [icon, name, versionLabel, tagline, gitButton, copyright])
         stack.spacing = 6
@@ -588,6 +605,48 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
     }
 
+    /// Применяет выбранный язык к домену приложения и предлагает перезапуск
+    /// (AppKit читает язык только при старте). Выбор того же языка — ничего не делаем.
+    @objc private func languageChanged() {
+        let index = languagePopup.indexOfSelectedItem
+        guard languageOrder.indices.contains(index) else { return }
+        let language = languageOrder[index]
+        guard language != AppLanguage.current else { return }
+        language.apply()
+        promptLanguageRestart()
+    }
+
+    /// Спрашивает, перезапустить ли сейчас, чтобы новый язык вступил в силу.
+    private func promptLanguageRestart() {
+        let alert = NSAlert()
+        alert.messageText = L("settings.language.restartTitle")
+        alert.informativeText = L("settings.language.restartMessage")
+        alert.addButton(withTitle: L("settings.language.restartNow"))
+        alert.addButton(withTitle: L("settings.language.later"))
+
+        let apply: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            Self.relaunch()
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: apply)
+        } else {
+            apply(alert.runModal())
+        }
+    }
+
+    /// Перезапускает приложение: запускает новый экземпляр `.app` и завершает текущий.
+    /// В dev-сборке без бандла (.app нет) просто завершаемся — перезапуск вручную/через watch.
+    private static func relaunch() {
+        if Bundle.main.bundleIdentifier != nil {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = ["-n", Bundle.main.bundleURL.path]
+            try? task.run()
+        }
+        NSApp.terminate(nil)
+    }
+
     @objc private func autoUpdateChanged() {
         updater.automaticallyChecksForUpdates = autoUpdateCheck.state == .on
     }
@@ -677,6 +736,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let i = clipboardOptions.firstIndex { $0.autoOpen == config.autoOpen && $0.action == config.clipboardAction } ?? 0
         clipboardActionPopup.selectItem(at: i)
 
+        languagePopup.selectItem(at: languageOrder.firstIndex(of: AppLanguage.current) ?? 0)
+
         openHotKeyCheck.state = config.openHotKeyEnabled ? .on : .off
         openHotKeyRecorder.combo = (UInt32(config.openHotKeyKeyCode), UInt32(config.openHotKeyModifiers))
         copyHotKeyCheck.state = config.copyHotKeyEnabled ? .on : .off
@@ -707,11 +768,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// перечитывает поля окна и применяет изменения (через `onSave`), не закрывая окно.
     @objc private func resetToDefaults() {
         let alert = NSAlert()
-        alert.messageText = "Сбросить настройки?"
-        alert.informativeText = "Шаблоны, действие при копировании и хоткеи вернутся к значениям по умолчанию. Действие нельзя отменить."
+        alert.messageText = L("settings.reset.title")
+        alert.informativeText = L("settings.reset.message")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Сбросить")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L("settings.reset.confirm"))
+        alert.addButton(withTitle: L("common.cancel"))
 
         let apply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }

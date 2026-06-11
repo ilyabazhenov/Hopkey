@@ -106,10 +106,10 @@ final class HotKeyRecorderView: NSView {
 
     private func updateTitle() {
         if isRecording {
-            label.stringValue = "Нажмите комбинацию…"
+            label.stringValue = L("hotkey.recording")
             label.textColor = .secondaryLabelColor
         } else if combo.keyCode == 0 && combo.modifiers == 0 {
-            label.stringValue = "Не задано"
+            label.stringValue = L("hotkey.unset")
             label.textColor = .secondaryLabelColor
         } else {
             label.stringValue = hotKeyDisplayString(keyCode: combo.keyCode, modifiers: combo.modifiers)
