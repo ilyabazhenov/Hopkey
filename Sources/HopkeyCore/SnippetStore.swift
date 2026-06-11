@@ -50,8 +50,10 @@ public final class SnippetStore {
     private let defaults: UserDefaults
     private let keychain: SnippetSecretStore
 
-    /// Снимок всех сниппетов в памяти (источник правды после `prepare()`).
+    /// Снимок всех сниппетов в памяти (источник правды после первой загрузки).
     private var cache: [StoredSnippet] = []
+    /// Загружали ли уже блоб из Keychain в этом запуске.
+    private var loaded = false
 
     /// Единственная запись в Keychain со всем JSON-блобом.
     private static let blobAccount = "all"
@@ -68,26 +70,36 @@ public final class SnippetStore {
         self.keychain = keychain
     }
 
-    /// Готовит хранилище к работе: при необходимости мигрирует со старого формата и
-    /// загружает блоб из Keychain в память. ЕДИНСТВЕННОЕ место, которое читает Keychain
-    /// (и где возможен запрос доступа). Вызывать один раз при старте приложения.
-    public func prepare() {
+    /// Загружает блоб из Keychain в память (идемпотентно). Можно вызвать заранее, но это
+    /// не обязательно: загрузка происходит ЛЕНИВО при первом обращении к данным — чтобы
+    /// запрос доступа к связке появлялся не на старте, а когда сниппеты реально нужны
+    /// (открыли их в настройках или впервые вызвали пикер/вставку).
+    public func prepare() { ensureLoaded() }
+
+    /// Единственное место, читающее Keychain (и где возможен запрос доступа). Срабатывает
+    /// один раз за запуск — при первом доступе к сниппетам.
+    private func ensureLoaded() {
+        guard !loaded else { return }
+        loaded = true
         migrateToBlobIfNeeded()
         load()
     }
 
-    /// Список сниппетов (id + имя) из кэша. Keychain не читает.
+    /// Список сниппетов (id + имя). При первом обращении загружает блоб из Keychain.
     public var snippets: [Snippet] {
-        cache.map { Snippet(id: $0.id, name: $0.name) }
+        ensureLoaded()
+        return cache.map { Snippet(id: $0.id, name: $0.name) }
     }
 
-    /// Значение сниппета из кэша (nil, если не найден). Keychain не читает.
+    /// Значение сниппета (nil, если не найден). При первом обращении загружает блоб.
     public func value(for id: String) -> String? {
-        cache.first { $0.id == id }?.value
+        ensureLoaded()
+        return cache.first { $0.id == id }?.value
     }
 
     /// Добавляет новый или обновляет существующий сниппет (по `id`) и переписывает блоб.
     public func upsert(_ snippet: Snippet, value: String) {
+        ensureLoaded()
         let record = StoredSnippet(id: snippet.id, name: snippet.name, value: value)
         if let i = cache.firstIndex(where: { $0.id == snippet.id }) {
             cache[i] = record
@@ -99,6 +111,7 @@ public final class SnippetStore {
 
     /// Удаляет сниппет и переписывает блоб.
     public func delete(id: String) {
+        ensureLoaded()
         cache.removeAll { $0.id == id }
         persist()
     }

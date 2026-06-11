@@ -205,6 +205,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         for (t, button) in tabButtons { button.isSelected = (t == tab) }
+        // Список сниппетов читаем из Keychain лениво — только когда открыли их вкладку.
+        if tab == .snippets { refreshSnippetsTab() }
     }
 
     // MARK: - Сборка вкладок
@@ -712,6 +714,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         snippetsEmptyLabel.isHidden = !snippets.isEmpty
     }
 
+    /// Подгружает список сниппетов в таблицу. Первый вызов лениво читает блоб из Keychain
+    /// (возможен запрос доступа к связке) — поэтому зовём его при показе вкладки «Сниппеты»,
+    /// а не при открытии окна настроек.
+    private func refreshSnippetsTab() {
+        snippets = snippetStore.snippets
+        snippetsTableView.reloadData()
+        updateSnippetsEmptyState()
+        snippetRemoveButton.isEnabled = false
+        snippetEditButton.isEnabled = false
+    }
+
     @objc private func toggleEnabled(_ sender: NSButton) {
         guard templates.indices.contains(sender.tag) else { return }
         templates[sender.tag].enabled = sender.state == .on
@@ -931,11 +944,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         removeButton.isEnabled = false
         editButton.isEnabled = false
 
-        snippets = snippetStore.snippets
-        snippetsTableView.reloadData()
-        updateSnippetsEmptyState()
-        snippetRemoveButton.isEnabled = false
-        snippetEditButton.isEnabled = false
+        // Список сниппетов НЕ читаем здесь: он подгружается лениво при показе вкладки
+        // «Сниппеты» (см. `refreshSnippetsTab`), чтобы открытие других вкладок не дёргало
+        // запрос доступа к связке ключей.
 
         let i = clipboardOptions.firstIndex { $0.autoOpen == config.autoOpen && $0.action == config.clipboardAction } ?? 0
         clipboardActionPopup.selectItem(at: i)
@@ -957,6 +968,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     func showWindow() {
         loadValues()
+        // Если повторно открываемся уже на вкладке «Сниппеты» (show(_:) при этом не
+        // вызывается) — подгрузим её данные сами.
+        if currentTab == .snippets { refreshSnippetsTab() }
         // Пока открыто окно настроек, приложение становится обычным (.regular):
         // появляется иконка в Dock и оно участвует в Cmd+Tab. При закрытии окна
         // (`windowWillClose`) возвращаемся к .accessory — снова только строка меню.

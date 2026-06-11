@@ -35,10 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum Source { case clipboard, hotkey }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Читаем единый блоб сниппетов из Keychain один раз при старте (и при необходимости
-        // мигрируем со старого формата). Здесь возможен запрос доступа к связке — максимум
-        // один раз за запуск; дальше всё берётся из памяти.
-        snippetStore.prepare()
+        // Сниппеты НЕ читаем на старте: блоб из Keychain грузится лениво при первом
+        // обращении (вкладка «Сниппеты» в настройках или первый показ пикера/вставка),
+        // чтобы запрос доступа к связке не всплывал на запуске.
         notifications.requestAuthorization()
         setupMainMenu()
         setupStatusItem()

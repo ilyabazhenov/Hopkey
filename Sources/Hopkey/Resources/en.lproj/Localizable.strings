@@ -133,7 +133,7 @@
 /* Snippets picker */
 "snippet.picker.title" = "Paste snippet";
 "snippet.picker.empty" = "No snippets yet. Add them in settings.";
-"snippet.picker.hint" = "Click or ↩ — paste · button — copy · Esc — close";
+"snippet.picker.hint" = "↩ / click / 1–9 — paste · button — copy · Esc — close";
 "snippet.picker.copy" = "Copy to clipboard";
 
 /* Snippet editor */

@@ -57,7 +57,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         self.config = config
         let panel = QuickTicketPanel(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 132),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -65,6 +65,12 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
+        // «Жидкое стекло» — единый стиль с пикером сниппетов: матовый фон на всю площадь
+        // окна, прозрачный бесшовный заголовок. Тему не фиксируем — стекло адаптивное.
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .visible
+        panel.isMovableByWindowBackground = true
+        panel.alphaValue = 1.0
         // Без этого панель «принадлежит» Space рабочего стола: при хоткее из чужого
         // фуллскрина macOS выкинула бы пользователя из полноэкранного режима, чтобы
         // показать окно. `.canJoinAllSpaces` показывает панель на активном Space (в т.ч.
@@ -79,7 +85,17 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
     private func buildUI() {
-        guard let content = window?.contentView else { return }
+        guard let window else { return }
+        // Матовый фон-стекло на всю площадь окна — тот же приём, что в пикере сниппетов.
+        // `.menu` — адаптивный материал (следует светлой/тёмной теме).
+        let backdrop = NSVisualEffectView()
+        backdrop.material = .windowBackground
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        window.contentView = backdrop
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        let content = backdrop
 
         input.placeholderString = L("quick.placeholder")
         input.font = .systemFont(ofSize: 14)
@@ -141,7 +157,8 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         NSLayoutConstraint.activate([
             contentStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             contentStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            // Отступ сверху освобождает прозрачную полосу заголовка (с кнопками окна).
+            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
             input.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             previewLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             messageLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
@@ -306,7 +323,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
     private func sizeWindowToFit() {
         guard let window, let content = window.contentView else { return }
         content.layoutSubtreeIfNeeded()
-        let height = 20 + contentStack.fittingSize.height + 12 + buttonRow.fittingSize.height + 16
+        let height = 36 + contentStack.fittingSize.height + 12 + buttonRow.fittingSize.height + 16
         window.setContentSize(NSSize(width: 380, height: height))
         centerOnActiveScreen()
     }

@@ -132,4 +132,23 @@ final class SnippetStoreTests: XCTestCase {
         XCTAssertEqual(store.snippets, [])
         XCTAssertNil(secrets.storage["all"])
     }
+
+    // MARK: Ленивая загрузка (без явного prepare())
+
+    func testSnippetsAccessLazilyLoadsAndMigrates() {
+        seedLegacy([(id: "a", name: "A", value: "va")])
+        let store = makeStore()
+        // prepare() НЕ вызываем — само обращение к списку должно загрузить и мигрировать.
+        XCTAssertEqual(store.snippets.map(\.name), ["A"])
+        XCTAssertEqual(store.value(for: "a"), "va")
+        XCTAssertNotNil(secrets.storage["all"])  // переехало в блоб
+    }
+
+    func testValueAccessLazilyLoads() {
+        let writer = makeStore()
+        writer.upsert(Snippet(id: "a", name: "A"), value: "va")
+        // Свежий объект: первое обращение — value(for:), без prepare() — должно подхватить блоб.
+        let reader = makeStore()
+        XCTAssertEqual(reader.value(for: "a"), "va")
+    }
 }
