@@ -4,6 +4,7 @@ import HopkeyCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let config = JiraConfig.shared
+    private let snippetStore = SnippetStore.shared
     private var statusItem: NSStatusItem!
     private let clipboard = ClipboardWatcher()
     private let hotKey = HotKeyManager()
@@ -15,6 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
         return controller
     }()
+    private lazy var snippetPicker: SnippetPickerWindowController = {
+        let controller = SnippetPickerWindowController(store: snippetStore)
+        controller.onPick = { [weak self] snippet in self?.pasteSnippet(snippet) }
+        controller.onCopy = { [weak self] snippet in self?.copySnippet(snippet) }
+        return controller
+    }()
+
+    /// Приложение, которое было активным до показа пикера сниппетов — ему возвращаем
+    /// фокус перед синтетическим Cmd+V (наш `NSApp.activate` крадёт фокус у него).
+    private weak var snippetTargetApp: NSRunningApplication?
 
     // Защита от двойной обработки одного и того же текста
     // (наш синтетический Cmd+C виден и наблюдателю буфера тоже).
@@ -24,6 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum Source { case clipboard, hotkey }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Читаем единый блоб сниппетов из Keychain один раз при старте (и при необходимости
+        // мигрируем со старого формата). Здесь возможен запрос доступа к связке — максимум
+        // один раз за запуск; дальше всё берётся из памяти.
+        snippetStore.prepare()
         notifications.requestAuthorization()
         setupMainMenu()
         setupStatusItem()
@@ -177,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: L("status.openFromClipboard"), action: #selector(openFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: L("status.copyFromClipboard"), action: #selector(copyFromClipboard), keyEquivalent: "")
         menu.addItem(withTitle: L("status.openByKey"), action: #selector(openQuickTicket), keyEquivalent: "")
+        menu.addItem(withTitle: L("status.pasteSnippet"), action: #selector(openSnippetPicker), keyEquivalent: "")
         menu.addItem(.separator())
         // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
         // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu
@@ -218,6 +234,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openQuickTicket() {
         // Из меню: префилл из буфера, если там голое число — без Accessibility (буфер читать можно).
         quickTicket.showWindow(prefill: clipboardBareNumber())
+    }
+
+    @objc private func openSnippetPicker() {
+        showSnippetPicker()
+    }
+
+    /// Показывает окно-пикер сниппетов, запомнив активное приложение — чтобы после
+    /// выбора вернуть ему фокус и вставить значение туда, где стоял курсор.
+    private func showSnippetPicker() {
+        snippetTargetApp = NSWorkspace.shared.frontmostApplication
+        snippetPicker.show()
+    }
+
+    /// Вставляет выбранный сниппет в активное приложение: читает значение из Keychain
+    /// и синтезирует Cmd+V. Пикер — неактивирующая панель, поэтому прежнее приложение
+    /// фокус не теряло; целевое приложение поднимаем явно лишь для подстраховки. Короткая
+    /// пауза — чтобы панель успела закрыться и вернуть ключевое окно цели. Запись в буфер
+    /// «глушим» для наблюдателя.
+    private func pasteSnippet(_ snippet: Snippet) {
+        guard let value = snippetStore.value(for: snippet.id), !value.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let target = snippetTargetApp
+        snippetTargetApp = nil
+
+        // Без Универсального доступа синтетический Cmd+V молча не дойдёт до чужого поля.
+        // Кладём значение в буфер (ручной ⌘V сработает) и показываем системный запрос
+        // доступа — чтобы пользователь понимал, почему авто-вставка не случилась.
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            URLOpener.copy(value)
+            clipboard.syncChangeCount()
+            HotKeyManager.ensureAccessibility(prompt: true)
+            return
+        }
+
+        target?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self else { return }
+            self.hotKey.paste(value) { self.clipboard.syncChangeCount() }
+        }
+    }
+
+    /// Копирует значение сниппета в буфер (без вставки). Наблюдателя буфера глушим,
+    /// чтобы наша запись не считалась пользовательской.
+    private func copySnippet(_ snippet: Snippet) {
+        guard let value = snippetStore.value(for: snippet.id), !value.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        URLOpener.copy(value)
+        clipboard.syncChangeCount()
     }
 
     /// Хоткей окна ввода: сам снимает выделение (с сохранением буфера) и открывает окно
@@ -292,15 +360,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         needsAccessibility || config.showInputHotKeyEnabled
     }
 
-    /// Включён ли хоть один хоткей, которому требуется Accessibility (синтез Cmd+C
-    /// над выделением). Хоткей окна ввода сюда не входит — он лишь показывает окно.
+    /// Включён ли хоть один хоткей, которому требуется Accessibility: синтез Cmd+C над
+    /// выделением (открыть/скопировать) или синтез Cmd+V при вставке сниппета. Хоткей
+    /// окна ввода сюда не входит — он лишь показывает окно.
     private var needsAccessibility: Bool {
-        config.openHotKeyEnabled || config.copyHotKeyEnabled
+        config.openHotKeyEnabled || config.copyHotKeyEnabled || config.snippetsHotKeyEnabled
     }
 
     /// Перерегистрирует все хоткеи с актуальными комбинациями из конфига.
     /// Каждый регистрируется только если включён; id 1 — открыть, id 2 — скопировать,
-    /// id 3 — окно ручного ввода.
+    /// id 3 — окно ручного ввода, id 4 — пикер сниппетов.
     private func registerHotKeys() {
         hotKey.unregisterAll()
         // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
@@ -319,6 +388,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             keyCode: UInt32(config.showInputHotKeyKeyCode),
                             modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
                 self?.openQuickTicketFromSelection()
+            }
+        }
+        if config.snippetsHotKeyEnabled, config.snippetsHotKeyModifiers != 0 {
+            hotKey.register(id: 4,
+                            keyCode: UInt32(config.snippetsHotKeyKeyCode),
+                            modifiers: UInt32(config.snippetsHotKeyModifiers)) { [weak self] in
+                self?.showSnippetPicker()
             }
         }
     }

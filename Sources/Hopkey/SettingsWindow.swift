@@ -21,6 +21,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Удерживает редактор шаблона, пока открыт его sheet.
     private var templateEditor: TemplateEditorWindowController?
 
+    /// Хранилище сниппетов (метаданные в UserDefaults, значения в Keychain).
+    private let snippetStore = SnippetStore.shared
+    /// Рабочая копия списка сниппетов.
+    private var snippets: [Snippet] = []
+    /// Удерживает редактор сниппета, пока открыт его sheet.
+    private var snippetEditor: SnippetEditorWindowController?
+
     /// Фиксированная ширина контента окна (вкладки сами задают высоту).
     private let contentWidth: CGFloat = 540
     /// Ширина переноса для многострочных подписей (контент минус поля 20+20).
@@ -29,11 +36,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Вкладки
 
     private enum Tab: String, CaseIterable {
-        case templates, hotkeys, general, about
+        case templates, snippets, hotkeys, general, about
 
         var label: String {
             switch self {
             case .templates: return L("settings.tab.templates")
+            case .snippets: return L("settings.tab.snippets")
             case .hotkeys: return L("settings.tab.hotkeys")
             case .general: return L("settings.tab.general")
             case .about: return L("settings.tab.about")
@@ -42,6 +50,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         var symbol: String {
             switch self {
             case .templates: return "list.bullet.rectangle"
+            case .snippets: return "text.badge.plus"
             case .hotkeys: return "keyboard"
             case .general: return "gearshape"
             case .about: return "info.circle"
@@ -74,15 +83,25 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let editButton = NSButton()
     private let emptyStateLabel = NSTextField(labelWithString: L("settings.templates.empty"))
 
+    // MARK: Контролы вкладки «Сниппеты»
+
+    private let snippetsTableView = NSTableView()
+    private let snippetRemoveButton = NSButton()
+    private let snippetEditButton = NSButton()
+    private let snippetsEmptyLabel = NSTextField(labelWithString: L("settings.snippets.empty"))
+
     // MARK: Контролы вкладки «Хоткеи»
 
-    /// Два хоткея над выделением (требуют Accessibility) + хоткей окна ввода (не требует).
+    /// Два хоткея над выделением (требуют Accessibility) + хоткей окна ввода (не требует)
+    /// + хоткей пикера сниппетов (авто-вставка требует Accessibility).
     private let openHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.open"), target: nil, action: nil)
     private let openHotKeyRecorder = HotKeyRecorderView()
     private let copyHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.copy"), target: nil, action: nil)
     private let copyHotKeyRecorder = HotKeyRecorderView()
     private let showInputHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.input"), target: nil, action: nil)
     private let showInputHotKeyRecorder = HotKeyRecorderView()
+    private let snippetsHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.snippets"), target: nil, action: nil)
+    private let snippetsHotKeyRecorder = HotKeyRecorderView()
 
     // MARK: Контролы вкладки «Общие»
 
@@ -107,6 +126,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         static let enabled = NSUserInterfaceItemIdentifier("enabled")
         static let name = NSUserInterfaceItemIdentifier("name")
         static let pattern = NSUserInterfaceItemIdentifier("pattern")
+    }
+
+    private enum SnippetColumn {
+        static let name = NSUserInterfaceItemIdentifier("snippetName")
+        static let value = NSUserInterfaceItemIdentifier("snippetValue")
     }
 
     init(config: JiraConfig, updater: UpdaterController) {
@@ -238,6 +262,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     private func buildTabs() {
         tabViews[.templates] = buildTemplatesTab()
+        tabViews[.snippets] = buildSnippetsTab()
         tabViews[.hotkeys] = buildHotKeysTab()
         tabViews[.general] = buildGeneralTab()
         tabViews[.about] = buildAboutTab()
@@ -331,6 +356,80 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
     }
 
+    // MARK: Вкладка «Сниппеты»
+
+    private func buildSnippetsTab() -> NSView {
+        let intro = label(L("settings.snippets.intro"), secondary: true, wraps: true)
+
+        let nameCol = NSTableColumn(identifier: SnippetColumn.name)
+        nameCol.title = L("settings.snippets.col.name")
+        nameCol.width = 200
+        nameCol.minWidth = 120
+        let valueCol = NSTableColumn(identifier: SnippetColumn.value)
+        valueCol.title = L("settings.snippets.col.value")
+        valueCol.width = 280
+        valueCol.minWidth = 120
+        snippetsTableView.addTableColumn(nameCol)
+        snippetsTableView.addTableColumn(valueCol)
+        snippetsTableView.dataSource = self
+        snippetsTableView.delegate = self
+        snippetsTableView.usesAlternatingRowBackgroundColors = true
+        snippetsTableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        snippetsTableView.allowsMultipleSelection = false
+        snippetsTableView.rowHeight = 24
+        snippetsTableView.target = self
+        snippetsTableView.doubleAction = #selector(editSelectedSnippet)
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.documentView = snippetsTableView
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
+        scroll.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .vertical)
+
+        snippetsEmptyLabel.textColor = .secondaryLabelColor
+        snippetsEmptyLabel.font = .systemFont(ofSize: 12)
+        snippetsEmptyLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let addButton = NSButton(title: "+", target: self, action: #selector(addSnippet))
+        addButton.bezelStyle = .rounded
+        snippetRemoveButton.title = "−"
+        snippetRemoveButton.target = self
+        snippetRemoveButton.action = #selector(removeSelectedSnippet)
+        snippetRemoveButton.bezelStyle = .rounded
+        snippetRemoveButton.isEnabled = false
+        for b in [addButton, snippetRemoveButton] {
+            b.translatesAutoresizingMaskIntoConstraints = false
+            b.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        }
+        snippetEditButton.title = L("settings.templates.edit")
+        snippetEditButton.target = self
+        snippetEditButton.action = #selector(editSelectedSnippet)
+        snippetEditButton.bezelStyle = .rounded
+        snippetEditButton.isEnabled = false
+        snippetEditButton.translatesAutoresizingMaskIntoConstraints = false
+        let buttonBar = NSStackView(views: [addButton, snippetRemoveButton, snippetEditButton])
+        buttonBar.orientation = .horizontal
+        buttonBar.spacing = 4
+        buttonBar.setCustomSpacing(10, after: snippetRemoveButton)
+        buttonBar.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [intro, label(L("settings.snippets.listLabel")), scroll, buttonBar])
+        stack.spacing = 8
+        stack.setCustomSpacing(10, after: scroll)
+
+        return tabView(stack, flexibleContent: true) { [self] v in
+            v.addSubview(snippetsEmptyLabel)
+            NSLayoutConstraint.activate([
+                scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
+                snippetsEmptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+                snippetsEmptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            ])
+        }
+    }
+
     // MARK: Вкладка «Хоткеи»
 
     private func buildHotKeysTab() -> NSView {
@@ -339,7 +438,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         // Галочки одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
         let checkWidth = ceil(max(openHotKeyCheck.intrinsicContentSize.width,
                                   copyHotKeyCheck.intrinsicContentSize.width,
-                                  showInputHotKeyCheck.intrinsicContentSize.width))
+                                  showInputHotKeyCheck.intrinsicContentSize.width,
+                                  snippetsHotKeyCheck.intrinsicContentSize.width))
 
         func group(_ check: NSButton, _ recorder: HotKeyRecorderView, hint: String) -> NSView {
             check.translatesAutoresizingMaskIntoConstraints = false
@@ -373,6 +473,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         showInputHotKeyRecorder.onChange = { [weak self] k, m in
             self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m); self?.onSave?()
         }
+        snippetsHotKeyRecorder.onChange = { [weak self] k, m in
+            self?.config.snippetsHotKeyKeyCode = Int(k); self?.config.snippetsHotKeyModifiers = Int(m); self?.onSave?()
+        }
 
         let openGroup = group(openHotKeyCheck, openHotKeyRecorder,
             hint: L("settings.hotkey.open.hint"))
@@ -380,13 +483,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             hint: L("settings.hotkey.copy.hint"))
         let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
             hint: L("settings.hotkey.input.hint"))
+        let snippetsGroup = group(snippetsHotKeyCheck, snippetsHotKeyRecorder,
+            hint: L("settings.hotkey.snippets.hint"))
 
         let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
 
         let sep = separator()
-        let stack = NSStackView(views: [header, openGroup, copyGroup, inputGroup, sep, accessNote])
+        let stack = NSStackView(views: [header, openGroup, copyGroup, inputGroup, snippetsGroup, sep, accessNote])
         stack.spacing = 14
-        stack.setCustomSpacing(16, after: inputGroup)
+        stack.setCustomSpacing(16, after: snippetsGroup)
         stack.setCustomSpacing(12, after: sep)
         return tabView(stack) { _ in
             sep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -506,9 +611,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: - Таблица
 
-    func numberOfRows(in tableView: NSTableView) -> Int { templates.count }
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        tableView === snippetsTableView ? snippets.count : templates.count
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        if tableView === snippetsTableView {
+            return snippetCell(tableColumn: tableColumn, row: row)
+        }
         guard let tableColumn, templates.indices.contains(row) else { return nil }
         let template = templates[row]
         let id = tableColumn.identifier
@@ -544,6 +654,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         return check
     }
 
+    /// Ячейка строки сниппета: имя обычным цветом, значение — приглушёнными точками
+    /// (значение в Keychain не показываем; увидеть/изменить — в редакторе).
+    private func snippetCell(tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let tableColumn, snippets.indices.contains(row) else { return nil }
+        let id = tableColumn.identifier
+        let field = (snippetsTableView.makeView(withIdentifier: id, owner: self) as? NSTextField)
+            ?? makeLabelCell(identifier: id)
+        if id == SnippetColumn.name {
+            field.stringValue = snippets[row].displayName
+            field.textColor = .labelColor
+        } else {
+            field.stringValue = "••••••"
+            field.textColor = .secondaryLabelColor
+        }
+        return field
+    }
+
     /// Текстовая ячейка-метка (только для показа; правка — в редакторе).
     private func makeLabelCell(identifier: NSUserInterfaceItemIdentifier) -> NSTextField {
         let field = NSTextField()
@@ -564,6 +691,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        if notification.object as AnyObject? === snippetsTableView {
+            let hasSelection = snippetsTableView.selectedRow >= 0
+            snippetRemoveButton.isEnabled = hasSelection
+            snippetEditButton.isEnabled = hasSelection
+            return
+        }
         let hasSelection = tableView.selectedRow >= 0
         removeButton.isEnabled = hasSelection
         editButton.isEnabled = hasSelection
@@ -572,6 +705,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Показывает подсказку по центру таблицы, только пока шаблонов нет.
     private func updateEmptyState() {
         emptyStateLabel.isHidden = !templates.isEmpty
+    }
+
+    /// Показывает подсказку по центру списка сниппетов, пока он пуст.
+    private func updateSnippetsEmptyState() {
+        snippetsEmptyLabel.isHidden = !snippets.isEmpty
     }
 
     @objc private func toggleEnabled(_ sender: NSButton) {
@@ -585,6 +723,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         openHotKeyRecorder.isEnabled = openHotKeyCheck.state == .on
         copyHotKeyRecorder.isEnabled = copyHotKeyCheck.state == .on
         showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
+        snippetsHotKeyRecorder.isEnabled = snippetsHotKeyCheck.state == .on
     }
 
     // MARK: - Мгновенное применение
@@ -599,6 +738,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         config.openHotKeyEnabled = openHotKeyCheck.state == .on
         config.copyHotKeyEnabled = copyHotKeyCheck.state == .on
         config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
+        config.snippetsHotKeyEnabled = snippetsHotKeyCheck.state == .on
         updateDependentControls()
         onSave?()
     }
@@ -734,6 +874,54 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         commitTemplates()
     }
 
+    // MARK: - Создание/редактирование сниппетов
+
+    /// Открывает модальный редактор сниппета; по «Сохранить» сразу пишет результат
+    /// (метаданные + значение) в `SnippetStore` и обновляет список.
+    private func presentSnippetEditor(for snippet: Snippet?) {
+        guard let window else { return }
+        let currentValue = snippet.flatMap { snippetStore.value(for: $0.id) } ?? ""
+        let editor = SnippetEditorWindowController(snippet: snippet, value: currentValue)
+        guard let sheet = editor.window else { return }
+        snippetEditor = editor
+        window.beginSheet(sheet) { [weak self] response in
+            defer { self?.snippetEditor = nil }
+            guard let self, response == .OK, let result = editor.result else { return }
+            self.snippetStore.upsert(result.snippet, value: result.value)
+            self.snippets = self.snippetStore.snippets
+            self.snippetsTableView.reloadData()
+            self.updateSnippetsEmptyState()
+            if let row = self.snippets.firstIndex(where: { $0.id == result.snippet.id }) {
+                self.snippetsTableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                self.snippetsTableView.scrollRowToVisible(row)
+            }
+            self.onSave?()
+        }
+    }
+
+    @objc private func addSnippet() {
+        presentSnippetEditor(for: nil)
+    }
+
+    @objc private func editSelectedSnippet() {
+        let row = snippetsTableView.selectedRow
+        guard snippets.indices.contains(row) else { return }
+        presentSnippetEditor(for: snippets[row])
+    }
+
+    @objc private func removeSelectedSnippet() {
+        let row = snippetsTableView.selectedRow
+        guard snippets.indices.contains(row) else { return }
+        snippetStore.delete(id: snippets[row].id)
+        snippets = snippetStore.snippets
+        snippetsTableView.reloadData()
+        updateSnippetsEmptyState()
+        let hasSelection = snippetsTableView.selectedRow >= 0
+        snippetRemoveButton.isEnabled = hasSelection
+        snippetEditButton.isEnabled = hasSelection
+        onSave?()
+    }
+
     // MARK: - Загрузка / показ
 
     func loadValues() {
@@ -742,6 +930,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         updateEmptyState()
         removeButton.isEnabled = false
         editButton.isEnabled = false
+
+        snippets = snippetStore.snippets
+        snippetsTableView.reloadData()
+        updateSnippetsEmptyState()
+        snippetRemoveButton.isEnabled = false
+        snippetEditButton.isEnabled = false
 
         let i = clipboardOptions.firstIndex { $0.autoOpen == config.autoOpen && $0.action == config.clipboardAction } ?? 0
         clipboardActionPopup.selectItem(at: i)
@@ -754,6 +948,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         copyHotKeyRecorder.combo = (UInt32(config.copyHotKeyKeyCode), UInt32(config.copyHotKeyModifiers))
         showInputHotKeyCheck.state = config.showInputHotKeyEnabled ? .on : .off
         showInputHotKeyRecorder.combo = (UInt32(config.showInputHotKeyKeyCode), UInt32(config.showInputHotKeyModifiers))
+        snippetsHotKeyCheck.state = config.snippetsHotKeyEnabled ? .on : .off
+        snippetsHotKeyRecorder.combo = (UInt32(config.snippetsHotKeyKeyCode), UInt32(config.snippetsHotKeyModifiers))
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()

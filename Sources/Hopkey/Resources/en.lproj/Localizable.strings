@@ -25,6 +25,7 @@
 "status.openFromClipboard" = "Open link from clipboard";
 "status.copyFromClipboard" = "Copy link from clipboard";
 "status.openByKey" = "Open by key…";
+"status.pasteSnippet" = "Paste snippet…";
 "status.settings" = "Settings…";
 "status.checkUpdates" = "Check for Updates…";
 "status.quit" = "Quit";
@@ -32,6 +33,7 @@
 /* Settings window */
 "settings.window.title" = "Hopkey Settings";
 "settings.tab.templates" = "Templates";
+"settings.tab.snippets" = "Snippets";
 "settings.tab.hotkeys" = "Hotkeys";
 "settings.tab.general" = "General";
 "settings.tab.about" = "About";
@@ -47,14 +49,23 @@
 "settings.templates.edit" = "Edit";
 "settings.templates.preset" = "From preset ▾";
 
+/* Settings — Snippets tab */
+"settings.snippets.intro" = "Snippets are preset values (passwords, links) for quick pasting. Press the hotkey, pick a snippet — and it’s pasted into the active field. Values are stored in the Keychain.";
+"settings.snippets.listLabel" = "Snippets to paste:";
+"settings.snippets.empty" = "Press + to add a snippet";
+"settings.snippets.col.name" = "Name";
+"settings.snippets.col.value" = "Value";
+
 /* Settings — Hotkeys tab */
 "settings.hotkeys.header" = "Global hotkeys work in any application.";
 "settings.hotkey.open" = "Open in browser";
 "settings.hotkey.copy" = "Copy link";
 "settings.hotkey.input" = "Open input window";
+"settings.hotkey.snippets" = "Snippets picker";
 "settings.hotkey.open.hint" = "Opens the selected key in the browser. Requires Accessibility.";
 "settings.hotkey.copy.hint" = "Copies the link for the selected key. Requires Accessibility.";
 "settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
+"settings.hotkey.snippets.hint" = "Opens the snippets list and pastes the chosen one into the active field. Requires Accessibility.";
 "settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";
 
 /* Settings — General tab */
@@ -118,6 +129,23 @@
 "quick.buildFailed" = "Couldn’t build the key";
 "quick.hint.ambiguous" = "Enter a number and pick a template · ⌘↩ — copy";
 "quick.hint.simple" = "↩ — open · ⌘↩ — copy link";
+
+/* Snippets picker */
+"snippet.picker.title" = "Paste snippet";
+"snippet.picker.empty" = "No snippets yet. Add them in settings.";
+"snippet.picker.hint" = "Click or ↩ — paste · button — copy · Esc — close";
+"snippet.picker.copy" = "Copy to clipboard";
+
+/* Snippet editor */
+"snippet.editor.new" = "New snippet";
+"snippet.editor.edit" = "Snippet";
+"snippet.editor.name" = "Name — shown in the picker list";
+"snippet.editor.name.placeholder" = "Talk room";
+"snippet.editor.value" = "Value — pasted into the active field";
+"snippet.editor.value.placeholder" = "Value to paste";
+"snippet.editor.reveal" = "Show value";
+"snippet.error.emptyName" = "Enter a name.";
+"snippet.error.emptyValue" = "Enter a value.";
 
 /* Hotkey recorder */
 "hotkey.recording" = "Press a shortcut…";

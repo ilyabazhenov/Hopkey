@@ -25,6 +25,7 @@
 "status.openFromClipboard" = "Открыть ссылку из буфера";
 "status.copyFromClipboard" = "Скопировать ссылку из буфера";
 "status.openByKey" = "Открыть по ключу…";
+"status.pasteSnippet" = "Вставить сниппет…";
 "status.settings" = "Настройки…";
 "status.checkUpdates" = "Проверить обновления…";
 "status.quit" = "Выход";
@@ -32,6 +33,7 @@
 /* Окно настроек */
 "settings.window.title" = "Настройки Hopkey";
 "settings.tab.templates" = "Шаблоны";
+"settings.tab.snippets" = "Сниппеты";
 "settings.tab.hotkeys" = "Хоткеи";
 "settings.tab.general" = "Общие";
 "settings.tab.about" = "О приложении";
@@ -47,14 +49,23 @@
 "settings.templates.edit" = "Изменить";
 "settings.templates.preset" = "Из пресета ▾";
 
+/* Настройки — вкладка «Сниппеты» */
+"settings.snippets.intro" = "Сниппеты — это заранее заданные значения (пароли, ссылки) для быстрой вставки. Нажмите хоткей, выберите сниппет — и он вставится в активное поле. Значения хранятся в Keychain.";
+"settings.snippets.listLabel" = "Сниппеты для вставки:";
+"settings.snippets.empty" = "Нажмите +, чтобы добавить сниппет";
+"settings.snippets.col.name" = "Имя";
+"settings.snippets.col.value" = "Значение";
+
 /* Настройки — вкладка «Хоткеи» */
 "settings.hotkeys.header" = "Глобальные хоткеи работают в любом приложении.";
 "settings.hotkey.open" = "Открыть в браузере";
 "settings.hotkey.copy" = "Скопировать ссылку";
 "settings.hotkey.input" = "Открыть окно ввода";
+"settings.hotkey.snippets" = "Пикер сниппетов";
 "settings.hotkey.open.hint" = "Открывает выделенный ключ в браузере. Нужен Универсальный доступ.";
 "settings.hotkey.copy.hint" = "Копирует ссылку на выделенный ключ. Нужен Универсальный доступ.";
 "settings.hotkey.input.hint" = "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.";
+"settings.hotkey.snippets.hint" = "Открывает список сниппетов и вставляет выбранный в активное поле. Нужен Универсальный доступ.";
 "settings.hotkeys.accessNote" = "Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».";
 
 /* Настройки — вкладка «Общие» */
@@ -118,6 +129,23 @@
 "quick.buildFailed" = "Не удалось собрать ключ";
 "quick.hint.ambiguous" = "Введите номер и выберите шаблон · ⌘↩ — скопировать";
 "quick.hint.simple" = "↩ — открыть · ⌘↩ — скопировать ссылку";
+
+/* Пикер сниппетов */
+"snippet.picker.title" = "Вставить сниппет";
+"snippet.picker.empty" = "Сниппетов нет. Добавьте их в настройках.";
+"snippet.picker.hint" = "Клик или ↩ — вставить · кнопка — скопировать · Esc — закрыть";
+"snippet.picker.copy" = "Скопировать в буфер";
+
+/* Редактор сниппета */
+"snippet.editor.new" = "Новый сниппет";
+"snippet.editor.edit" = "Сниппет";
+"snippet.editor.name" = "Имя — видно в списке выбора";
+"snippet.editor.name.placeholder" = "Комната в Толке";
+"snippet.editor.value" = "Значение — вставляется в активное поле";
+"snippet.editor.value.placeholder" = "Значение для вставки";
+"snippet.editor.reveal" = "Показать значение";
+"snippet.error.emptyName" = "Укажите имя.";
+"snippet.error.emptyValue" = "Укажите значение.";
 
 /* Рекордер хоткея */
 "hotkey.recording" = "Нажмите комбинацию…";

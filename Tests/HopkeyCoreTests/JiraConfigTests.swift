@@ -100,6 +100,35 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertEqual(reloaded.copyHotKeyKeyCode, 2)
     }
 
+    func testSnippetsHotKeyDefaults() {
+        let config = makeConfig()
+        XCTAssertFalse(config.snippetsHotKeyEnabled)
+        // ⌃⌥V по умолчанию: keyCode 9, модификаторы control|option = 6144.
+        XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
+        XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
+    }
+
+    func testSnippetsHotKeyRoundTrip() {
+        let config = makeConfig()
+        config.snippetsHotKeyEnabled = true
+        config.snippetsHotKeyKeyCode = 11
+        config.snippetsHotKeyModifiers = 0x0900
+        let reloaded = makeConfig()
+        XCTAssertTrue(reloaded.snippetsHotKeyEnabled)
+        XCTAssertEqual(reloaded.snippetsHotKeyKeyCode, 11)
+        XCTAssertEqual(reloaded.snippetsHotKeyModifiers, 0x0900)
+    }
+
+    func testResetRestoresSnippetsHotKey() {
+        let config = makeConfig()
+        config.snippetsHotKeyEnabled = true
+        config.snippetsHotKeyKeyCode = 11
+        config.resetToDefaults()
+        XCTAssertFalse(config.snippetsHotKeyEnabled)
+        XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
+        XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
+    }
+
     func testMigrationRoutesLegacyHotkeyToCopySlot() {
         // Старый единственный хоткей с действием «скопировать» и комбинацией keyCode 3.
         defaults.set(true, forKey: "hotKeyEnabled")

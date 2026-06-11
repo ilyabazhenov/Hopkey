@@ -40,6 +40,10 @@ public final class JiraConfig {
         static let showInputHotKeyEnabled = "showInputHotKeyEnabled"
         static let showInputHotKeyKeyCode = "showInputHotKeyKeyCode"
         static let showInputHotKeyModifiers = "showInputHotKeyModifiers"
+        // Хоткей, открывающий окно-пикер сниппетов (авто-вставка требует Accessibility).
+        static let snippetsHotKeyEnabled = "snippetsHotKeyEnabled"
+        static let snippetsHotKeyKeyCode = "snippetsHotKeyKeyCode"
+        static let snippetsHotKeyModifiers = "snippetsHotKeyModifiers"
         // Имя шаблона, выбранного в окне ввода последним — для предвыбора.
         static let lastQuickTemplate = "lastQuickTemplate"
         static let hotKeysV2Migrated = "hotKeysV2Migrated"
@@ -51,6 +55,7 @@ public final class JiraConfig {
     private static let defaultOpenKeyCode = 38  // kVK_ANSI_J
     private static let defaultCopyKeyCode = 40  // kVK_ANSI_K
     private static let defaultShowInputKeyCode = 31  // kVK_ANSI_O
+    private static let defaultSnippetsKeyCode = 9  // kVK_ANSI_V (⌃⌥V)
 
     private func registerDefaults() {
         defaults.register(defaults: [
@@ -64,6 +69,11 @@ public final class JiraConfig {
             Key.showInputHotKeyEnabled: false,
             Key.showInputHotKeyKeyCode: Self.defaultShowInputKeyCode,
             Key.showInputHotKeyModifiers: Self.defaultModifiers,
+            // Слот «пикер сниппетов» появился ещё позже — его дефолты тоже живут здесь,
+            // чтобы и новые, и обновившиеся пользователи получили ⌃⌥V без отдельной миграции.
+            Key.snippetsHotKeyEnabled: false,
+            Key.snippetsHotKeyKeyCode: Self.defaultSnippetsKeyCode,
+            Key.snippetsHotKeyModifiers: Self.defaultModifiers,
         ])
     }
 
@@ -75,6 +85,7 @@ public final class JiraConfig {
         Key.openHotKeyEnabled, Key.openHotKeyKeyCode, Key.openHotKeyModifiers,
         Key.copyHotKeyEnabled, Key.copyHotKeyKeyCode, Key.copyHotKeyModifiers,
         Key.showInputHotKeyEnabled, Key.showInputHotKeyKeyCode, Key.showInputHotKeyModifiers,
+        Key.snippetsHotKeyEnabled, Key.snippetsHotKeyKeyCode, Key.snippetsHotKeyModifiers,
         Key.lastQuickTemplate,
         Key.hotKeysV2Migrated,
     ]
@@ -288,6 +299,27 @@ public final class JiraConfig {
     public var showInputHotKeyModifiers: Int {
         get { defaults.integer(forKey: Key.showInputHotKeyModifiers) }
         set { defaults.set(newValue, forKey: Key.showInputHotKeyModifiers) }
+    }
+
+    // MARK: Hotkey «пикер сниппетов»
+
+    /// Включён ли хоткей, открывающий окно-пикер сниппетов.
+    /// Авто-вставка выбранного значения (синтез Cmd+V в чужое поле) требует Accessibility.
+    public var snippetsHotKeyEnabled: Bool {
+        get { defaults.bool(forKey: Key.snippetsHotKeyEnabled) }
+        set { defaults.set(newValue, forKey: Key.snippetsHotKeyEnabled) }
+    }
+
+    /// Код клавиши хоткея «пикер сниппетов». По умолчанию 9 (V → ⌃⌥V).
+    public var snippetsHotKeyKeyCode: Int {
+        get { defaults.integer(forKey: Key.snippetsHotKeyKeyCode) }
+        set { defaults.set(newValue, forKey: Key.snippetsHotKeyKeyCode) }
+    }
+
+    /// Модификаторы хоткея «пикер сниппетов» в Carbon-формате.
+    public var snippetsHotKeyModifiers: Int {
+        get { defaults.integer(forKey: Key.snippetsHotKeyModifiers) }
+        set { defaults.set(newValue, forKey: Key.snippetsHotKeyModifiers) }
     }
 
     /// Имя шаблона, выбранного в окне ручного ввода последним. Пусто, пока не выбирали.
