@@ -28,7 +28,7 @@ private final class QuickTicketPanel: NSPanel {
 ///
 /// Само действие (открыть/скопировать) выполняет AppDelegate через `onSubmit`,
 /// переиспользуя общий путь `perform(_:on:)`.
-final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
+final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
 
     private let config: JiraConfig
     /// Найденные тикеты и выбранное действие — отдаём наружу.
@@ -41,6 +41,9 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     private var projectRadios: [NSButton] = []
     /// Индекс выбранного шаблона в `fillableTemplates` — ведём явно, не полагаясь на скан состояния радио.
     private var selectedTemplateIndex = 0
+    /// Живое превью итоговой ссылки/строки под полем ввода: показывает, что именно
+    /// откроется/скопируется по ↩. Скрыто, пока ввод не резолвится в ссылку.
+    private let previewLabel = NSTextField(labelWithString: "")
     private let messageLabel = NSTextField(labelWithString: "")
 
     /// Содержимое (поле + список + подсказка) и ряд кнопок — нужны для расчёта высоты окна.
@@ -80,7 +83,18 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
 
         input.placeholderString = L("quick.placeholder")
         input.font = .systemFont(ofSize: 14)
+        input.delegate = self  // ловим правки, чтобы обновлять превью на лету
         input.translatesAutoresizingMaskIntoConstraints = false
+
+        // Превью итоговой ссылки: одна строка, длинный URL сокращаем посередине
+        // (домен и хвост важнее середины), полный текст — во всплывающей подсказке.
+        previewLabel.font = .systemFont(ofSize: 12)
+        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.lineBreakMode = .byTruncatingMiddle
+        previewLabel.maximumNumberOfLines = 1
+        previewLabel.isSelectable = true  // можно выделить и скопировать ссылку вручную
+        previewLabel.isHidden = true
+        previewLabel.translatesAutoresizingMaskIntoConstraints = false
 
         projectLabel.translatesAutoresizingMaskIntoConstraints = false
         // Заголовок + радио-кнопки в столбик. Сами кнопки добавляются в `preparePicker`.
@@ -116,7 +130,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         buttonRow.spacing = 8
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
 
-        contentStack.setViews([input, projectGroup, messageLabel], in: .leading)
+        contentStack.setViews([input, previewLabel, projectGroup, messageLabel], in: .leading)
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
         contentStack.spacing = 8
@@ -129,6 +143,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
             contentStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
             input.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            previewLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             messageLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             buttonRow.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             buttonRow.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
@@ -202,6 +217,45 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
+    // MARK: - Превью ссылки
+
+    /// Обновляет строку превью под полем. Показывает ровно то, что соберётся по ↩
+    /// для текущего ввода и выбранного шаблона; если ввод не резолвится — прячет строку.
+    func controlTextDidChange(_ obj: Notification) { updatePreview() }
+
+    private func updatePreview() {
+        let wasHidden = previewLabel.isHidden
+        if let link = previewLink() {
+            previewLabel.stringValue = link
+            previewLabel.toolTip = link  // полный URL по наведению, когда строка обрезана
+            previewLabel.isHidden = false
+        } else {
+            previewLabel.stringValue = ""
+            previewLabel.toolTip = nil
+            previewLabel.isHidden = true
+        }
+        // Появление/исчезновение строки меняет высоту окна. Когда строка уже видна
+        // и меняется лишь её текст, высота прежняя — не дёргаем размер на каждом нажатии.
+        if previewLabel.isHidden != wasHidden { sizeWindowToFit() }
+    }
+
+    /// Итоговая ссылка для текущего состояния поля и выбора шаблона, или `nil`,
+    /// если ввод пока не складывается в ссылку. Та же логика, что и при submit.
+    private func previewLink() -> String? {
+        switch QuickTicketInput.resolve(input.stringValue, templates: config.templates) {
+        case .resolved(let match):
+            return match.url.absoluteString
+        case .needsTemplate(let number):
+            guard fillableTemplates.indices.contains(selectedTemplateIndex),
+                  case let .resolved(match) = QuickTicketInput.resolve(
+                    number: number, template: fillableTemplates[selectedTemplateIndex])
+            else { return nil }
+            return match.url.absoluteString
+        case .empty, .invalid:
+            return nil
+        }
+    }
+
     // MARK: - Выбор шаблона
 
     /// Готовит выбор шаблона при открытии окна. Если заполнимых числом шаблонов
@@ -243,6 +297,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
         projectGroup.isHidden = !ambiguous
         showMessage(ambiguous ? L("quick.hint.ambiguous")
                               : L("quick.hint.simple"), isError: false)
+        updatePreview()
         sizeWindowToFit()
     }
 
@@ -276,6 +331,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate {
     /// (или ↩ / ⌘↩), а не самим кликом по радио.
     @objc private func projectRadioClicked(_ sender: NSButton) {
         selectedTemplateIndex = sender.tag
+        updatePreview()  // превью зависит от выбранного шаблона
     }
 
     private func showMessage(_ text: String, isError: Bool) {
