@@ -77,6 +77,7 @@
 /* Settings — About tab */
 "settings.about.version" = "Version %@";
 "settings.about.tagline" = "Spot the key — hop to the task.";
+"settings.about.checkUpdates" = "Check for Updates…";
 "settings.about.github" = "Open on GitHub";
 "settings.about.copyright" = "© Ilya Bazhenov · MIT";
 

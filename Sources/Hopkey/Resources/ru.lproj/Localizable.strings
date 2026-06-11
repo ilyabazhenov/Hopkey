@@ -77,6 +77,7 @@
 /* Настройки — вкладка «О приложении» */
 "settings.about.version" = "Версия %@";
 "settings.about.tagline" = "Увидел ключ — прыгнул в задачу.";
+"settings.about.checkUpdates" = "Проверить обновление…";
 "settings.about.github" = "Открыть на GitHub";
 "settings.about.copyright" = "© Ilya Bazhenov · MIT";
 

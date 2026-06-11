@@ -473,6 +473,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         let tagline = label(L("settings.about.tagline"), secondary: true)
 
+        let updateButton = NSButton(title: L("settings.about.checkUpdates"), target: self, action: #selector(checkForUpdates))
+        updateButton.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        updateButton.imagePosition = .imageLeading
+        updateButton.translatesAutoresizingMaskIntoConstraints = false
+
         let gitButton = NSButton(title: L("settings.about.github"), target: self, action: #selector(openRepository))
         gitButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
         gitButton.imagePosition = .imageLeading
@@ -480,10 +485,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         let copyright = label(L("settings.about.copyright"), secondary: true)
 
-        let stack = NSStackView(views: [icon, name, versionLabel, tagline, gitButton, copyright])
+        let stack = NSStackView(views: [icon, name, versionLabel, tagline, updateButton, gitButton, copyright])
         stack.spacing = 6
         stack.setCustomSpacing(12, after: icon)
         stack.setCustomSpacing(16, after: tagline)
+        stack.setCustomSpacing(8, after: updateButton)
         stack.setCustomSpacing(16, after: gitButton)
         let view = tabView(stack)
         stack.alignment = .centerX  // центрируем «визитку» по горизонтали
@@ -492,6 +498,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func openRepository() {
         NSWorkspace.shared.open(Self.repositoryURL)
+    }
+
+    @objc private func checkForUpdates() {
+        updater.checkForUpdates()
     }
 
     // MARK: - Таблица
