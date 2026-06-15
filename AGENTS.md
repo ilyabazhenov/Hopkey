@@ -9,6 +9,7 @@ Swift Package Manager, без Xcode-проекта.
 ```bash
 make build      # debug-сборка (быстрая проверка компиляции)  = swift build
 make test       # юнит-тесты ядра                              = swift test
+make coverage   # отчёт покрытия HopkeyCore (llvm-cov)         = swift test --enable-code-coverage + llvm-cov
 make app        # release .app в build/                        = ./build.sh
 make run        # собрать .app и запустить
 make watch      # авто-пересборка/перезапуск при правках Sources/
@@ -26,6 +27,25 @@ make watch      # авто-пересборка/перезапуск при пр
   `SnippetPickerWindow` / `SnippetEditorWindow`.
 - `build.sh` собирает бинарник SwiftPM и вручную упаковывает его в `.app` (Info.plist,
   Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, self-signed подпись).
+
+## Тесты
+
+Юнит-тесты — только `HopkeyCore` в `Tests/HopkeyCoreTests/`. Таргет `Hopkey` (AppKit,
+Carbon-хоткеи, `NSSound`, реальный Keychain) **не покрываем** автотестами: GUI лишь
+оркестрирует ядро.
+
+**Правила:**
+- новая бизнес-логика → `Sources/HopkeyCore/` + тест в том же изменении;
+- настройки и персистентность — через изолированный `UserDefaults(suiteName:)` (см.
+  `JiraConfigTests`);
+- сниппеты — через injectable `SnippetSecretStore`, не настоящий Keychain (см.
+  `SnippetStoreTests`);
+- перед завершением задачи с правками ядра — `make test`; при сомнениях — `make coverage`.
+
+**Не гонимся за:**
+- покрытием всего репозитория (GUI заведомо 0%);
+- UI-тестами AppKit «на всякий случай»;
+- юнит-тестами `KeychainStore`, Carbon, Accessibility, звуков.
 
 ## Сниппеты
 
