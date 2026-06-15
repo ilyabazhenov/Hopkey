@@ -64,12 +64,21 @@
 /* Настройки — вкладка «Хоткеи» */
 "settings.hotkeys.header" = "Глобальные хоткеи работают в любом приложении.";
 "settings.hotkey.input" = "Открыть окно ввода";
-"settings.hotkey.snippets" = "Пикер сниппетов";
+"settings.hotkey.snippets" = "Вставить сниппет";
 "settings.hotkey.input.hint" = "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.";
 "settings.hotkey.snippets.hint" = "Открывает список сниппетов и вставляет выбранный в активное поле. Нужен Универсальный доступ.";
 "settings.hotkeys.accessNote" = "Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».";
 "settings.hotkey.conflict" = "⚠︎ Эта комбинация уже занята — выберите другую.";
 "settings.hotkey.risky" = "⚠︎ Комбинация может конфликтовать с сочетаниями приложений — добавьте ⌃ или ⌥.";
+"settings.hotkey.sounds" = "Звук при нажатии хоткея";
+"settings.hotkey.sound.pop" = "Pop";
+"settings.hotkey.sound.tink" = "Tink";
+"settings.hotkey.sound.purr" = "Purr";
+"settings.hotkey.sound.glass" = "Glass";
+"settings.hotkey.sound.ping" = "Ping";
+"settings.hotkey.sound.bottle" = "Bottle";
+"settings.hotkey.sound.blow" = "Blow";
+"settings.hotkey.sound.submarine" = "Submarine";
 
 /* Настройки — вкладка «Общие» */
 "settings.general.description" = "Hopkey распознаёт ключи (PROJ-123, #42) в буфере или выделении и открывает либо копирует ссылку по вашим шаблонам.";

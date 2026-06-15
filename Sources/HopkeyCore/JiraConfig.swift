@@ -31,6 +31,9 @@ public final class JiraConfig {
         static let snippetsHotKeyEnabled = "snippetsHotKeyEnabled"
         static let snippetsHotKeyKeyCode = "snippetsHotKeyKeyCode"
         static let snippetsHotKeyModifiers = "snippetsHotKeyModifiers"
+        // Звук при срабатывании глобальных хоткеев.
+        static let hotKeySoundsEnabled = "hotKeySoundsEnabled"
+        static let hotKeySound = "hotKeySound"
         // Имя шаблона, выбранного в окне ввода последним — для предвыбора.
         static let lastQuickTemplate = "lastQuickTemplate"
     }
@@ -51,6 +54,8 @@ public final class JiraConfig {
             Key.snippetsHotKeyEnabled: true,
             Key.snippetsHotKeyKeyCode: Self.defaultSnippetsKeyCode,
             Key.snippetsHotKeyModifiers: Self.defaultModifiers,
+            Key.hotKeySoundsEnabled: true,
+            Key.hotKeySound: HotKeySound.default.rawValue,
         ])
     }
 
@@ -60,6 +65,8 @@ public final class JiraConfig {
         Key.defaultAction, Key.clipboardAction,
         Key.showInputHotKeyEnabled, Key.showInputHotKeyKeyCode, Key.showInputHotKeyModifiers,
         Key.snippetsHotKeyEnabled, Key.snippetsHotKeyKeyCode, Key.snippetsHotKeyModifiers,
+        Key.hotKeySoundsEnabled,
+        Key.hotKeySound,
         Key.lastQuickTemplate,
     ]
 
@@ -193,6 +200,18 @@ public final class JiraConfig {
     public var snippetsHotKeyModifiers: Int {
         get { defaults.integer(forKey: Key.snippetsHotKeyModifiers) }
         set { defaults.set(newValue, forKey: Key.snippetsHotKeyModifiers) }
+    }
+
+    /// Воспроизводить ли короткий звук при срабатывании глобальных хоткеев. По умолчанию включено.
+    public var hotKeySoundsEnabled: Bool {
+        get { defaults.bool(forKey: Key.hotKeySoundsEnabled) }
+        set { defaults.set(newValue, forKey: Key.hotKeySoundsEnabled) }
+    }
+
+    /// Какой системный звук воспроизводить при срабатывании хоткеев. По умолчанию `Bottle`.
+    public var hotKeySound: HotKeySound {
+        get { HotKeySound(rawValue: defaults.string(forKey: Key.hotKeySound) ?? "") ?? .default }
+        set { defaults.set(newValue.rawValue, forKey: Key.hotKeySound) }
     }
 
     /// Имя шаблона, выбранного в окне ручного ввода последним. Пусто, пока не выбирали.

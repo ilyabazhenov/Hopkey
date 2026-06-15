@@ -407,6 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let ok = hotKey.register(id: 3,
                             keyCode: UInt32(config.showInputHotKeyKeyCode),
                             modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
+                HotKeySoundFeedback.playIfEnabled()
                 self?.openQuickTicketFromSelection()
             }
             inputHotKeyFailed = !ok
@@ -415,6 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let ok = hotKey.register(id: 4,
                             keyCode: UInt32(config.snippetsHotKeyKeyCode),
                             modifiers: UInt32(config.snippetsHotKeyModifiers)) { [weak self] in
+                HotKeySoundFeedback.playIfEnabled()
                 self?.showSnippetPicker()
             }
             snippetsHotKeyFailed = !ok

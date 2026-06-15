@@ -73,6 +73,8 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertTrue(config.snippetsHotKeyEnabled)
         XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
         XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
+        XCTAssertTrue(config.hotKeySoundsEnabled)
+        XCTAssertEqual(config.hotKeySound, .bottle)
     }
 
     func testShowInputHotKeyRoundTrip() {
@@ -221,5 +223,28 @@ final class JiraConfigTests: XCTestCase {
             jira(),
         ]
         XCTAssertTrue(config.isConfigured)
+    }
+
+    func testHotKeySoundsEnabledRoundTrip() {
+        let config = makeConfig()
+        XCTAssertTrue(config.hotKeySoundsEnabled)
+        config.hotKeySoundsEnabled = false
+        XCTAssertFalse(makeConfig().hotKeySoundsEnabled)
+        config.hotKeySoundsEnabled = true
+        XCTAssertTrue(makeConfig().hotKeySoundsEnabled)
+    }
+
+    func testHotKeySoundRoundTrip() {
+        let config = makeConfig()
+        XCTAssertEqual(config.hotKeySound, .bottle)
+        config.hotKeySound = .glass
+        XCTAssertEqual(makeConfig().hotKeySound, .glass)
+        config.hotKeySound = .tink
+        XCTAssertEqual(makeConfig().hotKeySound, .tink)
+    }
+
+    func testHotKeySoundFallsBackToDefaultForUnknownValue() {
+        defaults.set("unknown", forKey: "hotKeySound")
+        XCTAssertEqual(makeConfig().hotKeySound, .bottle)
     }
 }

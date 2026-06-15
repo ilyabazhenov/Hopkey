@@ -105,6 +105,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Предупреждения «комбинация занята» под каждым рекордером (скрыты, пока всё ок).
     private let showInputHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
     private let snippetsHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
+    private let hotKeySoundsCheck = NSButton(checkboxWithTitle: L("settings.hotkey.sounds"), target: nil, action: nil)
+    private let hotKeySoundPopup = NSPopUpButton()
+
+    /// Пункты попапа выбора звука хоткея.
+    private struct HotKeySoundOption { let sound: HotKeySound; let title: String }
+    private let hotKeySoundOptions: [HotKeySoundOption] = HotKeySound.allCases.map {
+        .init(sound: $0, title: L($0.localizationKey))
+    }
 
     // MARK: Контролы вкладки «Общие»
 
@@ -491,13 +499,33 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
 
+        hotKeySoundsCheck.target = self
+        hotKeySoundsCheck.action = #selector(hotKeySoundsChanged)
+        hotKeySoundsCheck.translatesAutoresizingMaskIntoConstraints = false
+
+        hotKeySoundPopup.removeAllItems()
+        hotKeySoundPopup.addItems(withTitles: hotKeySoundOptions.map(\.title))
+        hotKeySoundPopup.target = self
+        hotKeySoundPopup.action = #selector(hotKeySoundChanged)
+        hotKeySoundPopup.translatesAutoresizingMaskIntoConstraints = false
+
+        let soundsRow = NSStackView(views: [hotKeySoundsCheck, hotKeySoundPopup])
+        soundsRow.orientation = .horizontal
+        soundsRow.alignment = .centerY
+        soundsRow.spacing = 8
+        soundsRow.translatesAutoresizingMaskIntoConstraints = false
+
         let sep = separator()
-        let stack = NSStackView(views: [header, inputGroup, snippetsGroup, sep, accessNote])
+        let soundsSep = separator()
+        let stack = NSStackView(views: [header, inputGroup, snippetsGroup, sep, soundsRow, soundsSep, accessNote])
         stack.spacing = 14
         stack.setCustomSpacing(16, after: snippetsGroup)
         stack.setCustomSpacing(12, after: sep)
+        stack.setCustomSpacing(12, after: soundsRow)
+        stack.setCustomSpacing(12, after: soundsSep)
         return tabView(stack) { _ in
             sep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            soundsSep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
 
@@ -736,6 +764,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private func updateDependentControls() {
         showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
         snippetsHotKeyRecorder.isEnabled = snippetsHotKeyCheck.state == .on
+        hotKeySoundPopup.isEnabled = hotKeySoundsCheck.state == .on
     }
 
     // MARK: - Мгновенное применение
@@ -752,6 +781,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         updateDependentControls()
         onSave?()
         refreshHotKeyWarnings()
+    }
+
+    @objc private func hotKeySoundsChanged() {
+        config.hotKeySoundsEnabled = hotKeySoundsCheck.state == .on
+        updateDependentControls()
+    }
+
+    @objc private func hotKeySoundChanged() {
+        let index = hotKeySoundPopup.indexOfSelectedItem
+        guard hotKeySoundOptions.indices.contains(index) else { return }
+        let sound = hotKeySoundOptions[index].sound
+        config.hotKeySound = sound
+        HotKeySoundFeedback.play(sound)
     }
 
     /// Обновляет предупреждения под рекордерами. Два источника: (1) система отказала в
@@ -1020,6 +1062,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         showInputHotKeyRecorder.combo = (UInt32(config.showInputHotKeyKeyCode), UInt32(config.showInputHotKeyModifiers))
         snippetsHotKeyCheck.state = config.snippetsHotKeyEnabled ? .on : .off
         snippetsHotKeyRecorder.combo = (UInt32(config.snippetsHotKeyKeyCode), UInt32(config.snippetsHotKeyModifiers))
+        hotKeySoundsCheck.state = config.hotKeySoundsEnabled ? .on : .off
+        let soundIndex = hotKeySoundOptions.firstIndex { $0.sound == config.hotKeySound } ?? 0
+        hotKeySoundPopup.selectItem(at: soundIndex)
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()

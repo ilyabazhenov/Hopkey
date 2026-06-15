@@ -64,12 +64,21 @@
 /* Settings — Hotkeys tab */
 "settings.hotkeys.header" = "Global hotkeys work in any application.";
 "settings.hotkey.input" = "Open input window";
-"settings.hotkey.snippets" = "Snippets picker";
+"settings.hotkey.snippets" = "Paste snippet";
 "settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
-"settings.hotkey.snippets.hint" = "Opens the snippets list and pastes the chosen one into the active field. Requires Accessibility.";
+"settings.hotkey.snippets.hint" = "Opens the snippet list and pastes the chosen one into the active field. Requires Accessibility.";
 "settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";
 "settings.hotkey.conflict" = "⚠︎ This combination is already taken — pick another.";
 "settings.hotkey.risky" = "⚠︎ This combination may clash with app shortcuts — add ⌃ or ⌥.";
+"settings.hotkey.sounds" = "Play sound on hotkey press";
+"settings.hotkey.sound.pop" = "Pop";
+"settings.hotkey.sound.tink" = "Tink";
+"settings.hotkey.sound.purr" = "Purr";
+"settings.hotkey.sound.glass" = "Glass";
+"settings.hotkey.sound.ping" = "Ping";
+"settings.hotkey.sound.bottle" = "Bottle";
+"settings.hotkey.sound.blow" = "Blow";
+"settings.hotkey.sound.submarine" = "Submarine";
 
 /* Settings — General tab */
 "settings.general.description" = "Hopkey spots keys (PROJ-123, #42) in your clipboard or selection and opens or copies the matching link from your templates.";
