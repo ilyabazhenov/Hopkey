@@ -55,8 +55,31 @@ hdiutil create -volname "${APP_NAME} ${VERSION}" \
 rm -rf "${STAGING}"
 
 # 4. GitHub Release с обоими артефактами.
+
+# Список изменений относительно предыдущей версии — ОБЯЗАТЕЛЬНАЯ часть release notes
+# (см. RELEASING.md). По умолчанию собираем из git-истории: subject коммитов между
+# прошлым тегом и HEAD, без merge и без служебных «release …» бампов. Курированный
+# текст можно передать через переменную: CHANGELOG="- …\n- …" ./release.sh
+PREV_TAG="$(git describe --tags --abbrev=0 --exclude="${TAG}" 2>/dev/null || echo "")"
+if [ -n "${CHANGELOG:-}" ]; then
+    CHANGES="${CHANGELOG}"
+elif [ -n "${PREV_TAG}" ]; then
+    CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..HEAD" \
+        | grep -vE '^- release(:| v)' || true)"
+fi
+# Пустой changelog — это почти всегда ошибка (забыли поднять/закоммитить, или
+# запуск из неверной точки). Не публикуем релиз без описания изменений.
+if [ -z "${CHANGES:-}" ]; then
+    echo "❌ Не удалось собрать список изменений${PREV_TAG:+ относительно ${PREV_TAG}}." >&2
+    echo "   Укажите его явно: CHANGELOG=\$'- пункт\\\\n- пункт' ./release.sh" >&2
+    exit 1
+fi
+
 NOTES="$(cat <<EOF
 ## ${APP_NAME} ${VERSION}
+
+### Изменения${PREV_TAG:+ (с ${PREV_TAG})}
+${CHANGES}
 
 ### Установка (вручную)
 1. Скачайте \`${DMG_NAME}\`, откройте и перетащите **Hopkey** в **Applications**.
