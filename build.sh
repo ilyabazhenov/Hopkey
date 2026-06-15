@@ -49,14 +49,23 @@ cp "${APP_ICON}" "${RES_DIR}/AppIcon.icns"
 cp "${MENU_BAR_ICON}" "${RES_DIR}/MenuBarIcon.pdf"
 
 # Локализация. SwiftPM компилирует строки (en/ru) в ресурс-бандл таргета
-# Hopkey_Hopkey.bundle рядом с бинарником, как плоский набор .lproj. Кладём эти
-# .lproj прямо в Contents/Resources — штатное место локализации macOS, откуда их
-# находит Bundle.main (см. L(_:) в Localization.swift). Сам Hopkey_Hopkey.bundle
-# в .app НЕ копируем: его аксессор Bundle.module ждёт бандл в корне .app, что
-# ломает codesign ("unsealed contents present in the bundle root").
+# Hopkey_Hopkey.bundle рядом с бинарником. Кладём .lproj прямо в Contents/Resources —
+# штатное место локализации macOS, откуда их находит Bundle.main (см. L(_:) в
+# Localization.swift). Сам Hopkey_Hopkey.bundle в .app НЕ копируем: его аксессор
+# Bundle.module ждёт бандл в корне .app, что ломает codesign ("unsealed contents").
+#
+# Layout бандла зависит от арки: single-arch кладёт .lproj плоско в корень бандла,
+# а universal (--arch …) — в Contents/Resources/ (полноценный бандл macOS). Ищем
+# в обоих местах, иначе локализация молча выпадает из universal-сборки.
 RES_BUNDLE="${BIN_DIR}/${APP_NAME}_${APP_NAME}.bundle"
-if [ -d "${RES_BUNDLE}" ] && ls -d "${RES_BUNDLE}"/*.lproj >/dev/null 2>&1; then
-    cp -R "${RES_BUNDLE}"/*.lproj "${RES_DIR}/"
+LPROJ_SRC=""
+if ls -d "${RES_BUNDLE}"/*.lproj >/dev/null 2>&1; then
+    LPROJ_SRC="${RES_BUNDLE}"
+elif ls -d "${RES_BUNDLE}"/Contents/Resources/*.lproj >/dev/null 2>&1; then
+    LPROJ_SRC="${RES_BUNDLE}/Contents/Resources"
+fi
+if [ -n "${LPROJ_SRC}" ]; then
+    cp -R "${LPROJ_SRC}"/*.lproj "${RES_DIR}/"
 else
     echo "(!) .lproj не найдены в ${RES_BUNDLE} — локализация в .app работать не будет"
 fi
