@@ -107,6 +107,12 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
         let saveButton = NSButton(title: L("common.save"), target: self, action: #selector(save))
         saveButton.keyEquivalent = "\r"
+        // Медово-янтарная основная кнопка, как «Открыть»: единый вид главного действия.
+        saveButton.bezelColor = Brand.buttonFill
+        saveButton.attributedTitle = NSAttributedString(
+            string: L("common.save"),
+            attributes: [.foregroundColor: Brand.onAccentText,
+                         .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)])
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         let buttonRow = NSStackView(views: [cancelButton, saveButton])
         buttonRow.orientation = .horizontal

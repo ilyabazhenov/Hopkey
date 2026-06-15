@@ -15,6 +15,27 @@ private final class SnippetPickerPanel: NSPanel {
 private final class SnippetTableView: NSTableView {
     var onConfirm: (() -> Void)?
     var onDigit: ((Int) -> Void)?
+    /// Строка под курсором (или -1, если курсор вне строк) — для hover-подсветки.
+    var onHover: ((Int) -> Void)?
+
+    private var hoverTracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = hoverTracking { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onHover?(row(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseExited(with event: NSEvent) { onHover?(-1) }
 
     override func keyDown(with event: NSEvent) {
         // Цифра без модификаторов — быстрый выбор N-го сниппета.
@@ -37,22 +58,16 @@ private final class SnippetTableView: NSTableView {
 /// метка, поэтому клик по строке доходит до таблицы (→ вставка), а клик по кнопке
 /// обрабатывает сама кнопка (→ копирование), без конфликта действий.
 private final class SnippetRowView: NSView {
-    /// Номер для быстрого выбора (1–9); пусто для строк за пределами девяти.
-    let indexLabel = NSTextField(labelWithString: "")
+    /// Номер для быстрого выбора (1–9) в виде брендового колпачка клавиши; пусто для строк
+    /// за пределами девяти.
+    let indexBadge = KeycapBadge()
     let nameField = NSTextField(labelWithString: "")
     let copyButton = NSButton()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        indexLabel.isEditable = false
-        indexLabel.isSelectable = false
-        indexLabel.isBordered = false
-        indexLabel.drawsBackground = false
-        indexLabel.alignment = .center
-        indexLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        indexLabel.textColor = .tertiaryLabelColor
-        indexLabel.translatesAutoresizingMaskIntoConstraints = false
+        indexBadge.translatesAutoresizingMaskIntoConstraints = false
 
         nameField.isEditable = false
         nameField.isSelectable = false
@@ -73,16 +88,17 @@ private final class SnippetRowView: NSView {
         copyButton.setButtonType(.momentaryChange)
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(indexLabel)
+        addSubview(indexBadge)
         addSubview(nameField)
         addSubview(copyButton)
         NSLayoutConstraint.activate([
             // Отступы больше скругления выделения (dx:6 в SnippetRowBackground), иначе текст
             // и иконка вылезают за края скруглённой подсветки и кажутся подрезанными.
-            indexLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 13),
-            indexLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            indexLabel.widthAnchor.constraint(equalToConstant: 16),
-            nameField.leadingAnchor.constraint(equalTo: indexLabel.trailingAnchor, constant: 8),
+            indexBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            indexBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            indexBadge.widthAnchor.constraint(equalToConstant: 20),
+            indexBadge.heightAnchor.constraint(equalToConstant: 20),
+            nameField.leadingAnchor.constraint(equalTo: indexBadge.trailingAnchor, constant: 8),
             nameField.centerYAnchor.constraint(equalTo: centerYAnchor),
             copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             copyButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -98,12 +114,34 @@ private final class SnippetRowView: NSView {
 /// Фон строки: мягкое скруглённое выделение с лёгким оттенком акцента вместо тяжёлой
 /// сплошной синей заливки — чтобы вписаться в «стеклянный» вид.
 private final class SnippetRowBackground: NSTableRowView {
+    /// Курсор над строкой — рисуем слабую янтарную подсветку (слабее выделения).
+    var isHovered = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+
+    // Выделение заливаем мягким янтарём (не сплошным синим), поэтому НЕ даём AppKit
+    // перекрашивать текст ячеек в «эмфазный» белый: на светлой заливке он тонет. `.normal`
+    // оставляет имя сниппета тёмным независимо от выделения.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
+
+    /// Скруглённая «пилюля» под строку — общая геометрия для выделения и hover.
+    private func rowPath() -> NSBezierPath {
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 1), xRadius: 8, yRadius: 8)
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        // Hover показываем только на невыбранной строке: на выбранной поверх рисуется выделение.
+        guard isHovered, !isSelected else { return }
+        Brand.hoverFill.setFill()
+        rowPath().fill()
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        let rect = bounds.insetBy(dx: 6, dy: 1)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.selectedContentBackgroundColor.withAlphaComponent(0.30).setFill()
-        path.fill()
+        // Янтарный оттенок бренда вместо системного синего — мягкая заливка под «стекло».
+        Brand.selectionFill.setFill()
+        rowPath().fill()
     }
 }
 
@@ -126,10 +164,16 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     private let tableView = SnippetTableView()
     private let scroll = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: L("snippet.picker.empty"))
+    /// Иконка-кролик над текстом пустого состояния.
+    private let emptyIcon = NSImageView()
+    /// Иконка + текст пустого состояния в столбик — показываем, когда сниппетов нет.
+    private let emptyStack = NSStackView()
     private let hintLabel = NSTextField(labelWithString: L("snippet.picker.hint"))
 
     /// Текущий список (снимок на момент показа).
     private var snippets: [Snippet] = []
+    /// Строка под курсором для hover-подсветки (-1 — нет).
+    private var hoveredRow = -1
     /// Защита от двойного действия за один показ (клик по кнопке и по строке и т.п.).
     private var finished = false
 
@@ -188,6 +232,19 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         window.isOpaque = false
         window.backgroundColor = .clear
 
+        // Тёплый кремовый тон поверх стекла — фон теплеет под цвет иконки.
+        Brand.addGlassTint(to: backdrop)
+
+        // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по
+        // центру полосы заголовка — окно узнаётся как Hopkey.
+        window.titleVisibility = .hidden
+        let header = Brand.makeHeaderView(title: L("snippet.picker.title"))
+        backdrop.addSubview(header)
+        NSLayoutConstraint.activate([
+            header.centerXAnchor.constraint(equalTo: backdrop.centerXAnchor),
+            header.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 9),
+        ])
+
         let column = NSTableColumn(identifier: Self.rowID)
         tableView.addTableColumn(column)
         tableView.headerView = nil
@@ -210,6 +267,7 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         tableView.action = #selector(tableClicked)
         tableView.onConfirm = { [weak self] in self?.confirmSelection() }
         tableView.onDigit = { [weak self] digit in self?.pickByDigit(digit) }
+        tableView.onHover = { [weak self] row in self?.setHovered(row) }
 
         scroll.hasVerticalScroller = true
         scroll.borderType = .noBorder
@@ -235,8 +293,21 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         emptyLabel.alignment = .center
         emptyLabel.lineBreakMode = .byWordWrapping
         emptyLabel.maximumNumberOfLines = 0
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(emptyLabel)
+
+        // Брендовый empty-state: монохромный силуэт-кролик (приглушённый) над текстом.
+        emptyIcon.image = Brand.markImage
+        emptyIcon.contentTintColor = .tertiaryLabelColor  // приглушённый, адаптивный под тему
+        emptyIcon.imageScaling = .scaleProportionallyUpOrDown
+        emptyIcon.translatesAutoresizingMaskIntoConstraints = false
+        emptyIcon.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        emptyIcon.heightAnchor.constraint(equalToConstant: 44).isActive = true
+
+        emptyStack.orientation = .vertical
+        emptyStack.alignment = .centerX
+        emptyStack.spacing = 8
+        emptyStack.setViews([emptyIcon, emptyLabel], in: .center)
+        emptyStack.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(emptyStack)
 
         NSLayoutConstraint.activate([
             // Отступ сверху освобождает прозрачную полосу заголовка (с кнопками окна).
@@ -253,18 +324,19 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
             hintLabel.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -12),
             hintLabel.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -10),
 
-            emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-            emptyLabel.widthAnchor.constraint(lessThanOrEqualTo: scroll.widthAnchor, constant: -16),
+            emptyStack.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            emptyStack.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            emptyStack.widthAnchor.constraint(lessThanOrEqualTo: scroll.widthAnchor, constant: -16),
         ])
     }
 
     /// Показывает пикер поверх остальных и ставит фокус в список.
     func show() {
         finished = false
+        hoveredRow = -1
         snippets = store.snippets
         tableView.reloadData()
-        emptyLabel.isHidden = !snippets.isEmpty
+        emptyStack.isHidden = !snippets.isEmpty
         hintLabel.isHidden = snippets.isEmpty
         if !snippets.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
@@ -317,6 +389,17 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
             y: area.midY - size.height / 2))
     }
 
+    /// Обновляет hover-подсветку: гасим прежнюю строку, подсвечиваем новую под курсором.
+    private func setHovered(_ row: Int) {
+        guard row != hoveredRow else { return }
+        let previous = hoveredRow
+        hoveredRow = row
+        for r in [previous, row] where snippets.indices.contains(r) {
+            (tableView.rowView(atRow: r, makeIfNecessary: false) as? SnippetRowBackground)?
+                .isHovered = (r == row)
+        }
+    }
+
     // MARK: - Действия
 
     /// Клик мышью по строке (не по кнопке) — вставить именно эту строку.
@@ -363,16 +446,17 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let id = NSUserInterfaceItemIdentifier("snippetRowBg")
-        return (tableView.makeView(withIdentifier: id, owner: self) as? SnippetRowBackground)
+        let view = (tableView.makeView(withIdentifier: id, owner: self) as? SnippetRowBackground)
             ?? {
                 let v = SnippetRowBackground()
                 v.identifier = id
                 return v
             }()
+        view.isHovered = (row == hoveredRow)  // переиспользуемые строки не тащат чужой hover
+        return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard snippets.indices.contains(row) else { return nil }
         let cell = (tableView.makeView(withIdentifier: Self.rowID, owner: self) as? SnippetRowView)
             ?? {
                 let v = SnippetRowView()
@@ -381,8 +465,20 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
                 v.copyButton.action = #selector(copyClicked(_:))
                 return v
             }()
+        // НИКОГДА не возвращаем nil для строки, которую таблица раскладывает: иначе у строки
+        // не будет вью в колонке 0, и при простановке выделения AppKit вызовет
+        // -[NSTableRowView viewAtColumn:] → NSRangeException → краш всего приложения (а с ним
+        // пропадает и иконка в строке меню). Для невалидного индекса отдаём пустую ячейку.
+        guard snippets.indices.contains(row) else {
+            cell.indexBadge.value = ""
+            cell.nameField.stringValue = ""
+            cell.nameField.toolTip = nil
+            cell.setAccessibilityLabel(nil)
+            cell.copyButton.tag = -1
+            return cell
+        }
         let name = snippets[row].displayName
-        cell.indexLabel.stringValue = SnippetQuickSelect.label(forRow: row)  // номер для быстрого выбора
+        cell.indexBadge.value = SnippetQuickSelect.label(forRow: row)  // номер для быстрого выбора
         cell.nameField.stringValue = name
         cell.nameField.toolTip = name   // полное имя по наведению, когда оно обрезано хвостом
         cell.setAccessibilityLabel(name)

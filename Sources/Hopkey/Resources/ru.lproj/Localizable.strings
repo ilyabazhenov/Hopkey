@@ -136,7 +136,7 @@
 /* Окно быстрого ввода */
 "quick.window.title" = "Открыть по ключу";
 "quick.templateLabel" = "Шаблон:";
-"quick.placeholder" = "PROJ-123 или 123";
+"quick.placeholder" = "PROJ-123, #128 или 42";
 "quick.copy" = "Скопировать";
 "quick.open" = "Открыть";
 "quick.notKey" = "Не похоже на ключ";

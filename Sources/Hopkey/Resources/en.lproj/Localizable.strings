@@ -136,7 +136,7 @@
 /* Quick input window */
 "quick.window.title" = "Open by key";
 "quick.templateLabel" = "Template:";
-"quick.placeholder" = "PROJ-123 or 123";
+"quick.placeholder" = "PROJ-123, #128 or 42";
 "quick.copy" = "Copy";
 "quick.open" = "Open";
 "quick.notKey" = "Doesn’t look like a key";

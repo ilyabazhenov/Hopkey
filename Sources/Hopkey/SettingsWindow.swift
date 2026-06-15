@@ -1202,11 +1202,12 @@ private final class TabButton: NSView {
     }
 
     private func updateAppearance() {
-        let tint: NSColor = isSelected ? .controlAccentColor : .secondaryLabelColor
+        // Янтарь бренда вместо системного синего — вкладки в один тон с пикером/вводом.
+        let tint: NSColor = isSelected ? Brand.accentForeground : .secondaryLabelColor
         imageView.contentTintColor = tint
         titleLabel.textColor = tint
         highlightView.layer?.backgroundColor = isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+            ? Brand.accent.withAlphaComponent(0.15).cgColor
             : NSColor.clear.cgColor
     }
 }

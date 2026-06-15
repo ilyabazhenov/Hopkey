@@ -20,6 +20,42 @@ private final class QuickTicketPanel: NSPanel {
     }
 }
 
+/// Ячейка поля ввода с отступом слева — освобождает место под иконку-ключ внутри поля, не
+/// давая тексту (и при наборе, и при выделении) налезать на неё.
+private final class IconTextFieldCell: NSTextFieldCell {
+    /// Левый отступ под иконку. Совпадает с местом, куда кладём `keyIcon` в `buildUI`.
+    var leftInset: CGFloat = 26
+
+    private func inset(_ rect: NSRect) -> NSRect {
+        NSRect(x: rect.minX + leftInset, y: rect.minY,
+               width: max(0, rect.width - leftInset), height: rect.height)
+    }
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        super.drawInterior(withFrame: inset(cellFrame), in: controlView)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView,
+                       editor: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: inset(rect), in: controlView,
+                   editor: editor, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView,
+                         editor: NSText, delegate: Any?, start: Int, length: Int) {
+        super.select(withFrame: inset(rect), in: controlView,
+                     editor: editor, delegate: delegate, start: start, length: length)
+    }
+}
+
+/// Поле ввода с иконкой-ключом слева. Просто подменяет класс ячейки на `IconTextFieldCell`.
+private final class IconTextField: NSTextField {
+    override class var cellClass: AnyClass? {
+        get { IconTextFieldCell.self }
+        set {}
+    }
+}
+
 /// Окно быстрого ручного ввода тикета.
 ///
 /// Пользователь вводит ключ целиком (`PROJ-123`, `#42`) или только номер (`123`):
@@ -34,7 +70,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
     /// Найденные тикеты и выбранное действие — отдаём наружу.
     var onSubmit: (([TicketMatch], TicketAction) -> Void)?
 
-    private let input = NSTextField()
+    private let input = IconTextField()
     private let projectLabel = NSTextField(labelWithString: L("quick.templateLabel"))
     /// Вертикальный список шаблонов: заголовок + радио-кнопки. Выбор — одним кликом.
     private let projectGroup = NSStackView()
@@ -97,10 +133,37 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         window.backgroundColor = .clear
         let content = backdrop
 
+        // Тёплый кремовый тон поверх стекла — фон теплеет под цвет иконки.
+        Brand.addGlassTint(to: content)
+
+        // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по
+        // центру полосы заголовка — окно узнаётся как Hopkey.
+        window.titleVisibility = .hidden
+        let header = Brand.makeHeaderView(title: L("quick.window.title"))
+        content.addSubview(header)
+        NSLayoutConstraint.activate([
+            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
+        ])
+
         input.placeholderString = L("quick.placeholder")
         input.font = .systemFont(ofSize: 14)
         input.delegate = self  // ловим правки, чтобы обновлять превью на лету
         input.translatesAutoresizingMaskIntoConstraints = false
+
+        // Иконка-ключ внутри поля слева — сразу понятно, что вводим ключ тикета. Текст
+        // отступает под неё за счёт `IconTextFieldCell`.
+        let keyIcon = NSImageView(image: NSImage(
+            systemSymbolName: "key", accessibilityDescription: nil) ?? NSImage())
+        keyIcon.contentTintColor = .secondaryLabelColor
+        keyIcon.translatesAutoresizingMaskIntoConstraints = false
+        input.addSubview(keyIcon)
+        NSLayoutConstraint.activate([
+            keyIcon.leadingAnchor.constraint(equalTo: input.leadingAnchor, constant: 8),
+            keyIcon.centerYAnchor.constraint(equalTo: input.centerYAnchor),
+            keyIcon.widthAnchor.constraint(equalToConstant: 14),
+            keyIcon.heightAnchor.constraint(equalToConstant: 14),
+        ])
 
         // Превью итоговой ссылки: одна строка, длинный URL сокращаем посередине
         // (домен и хвост важнее середины), полный текст — во всплывающей подсказке.
@@ -136,9 +199,22 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
 
         // Основная кнопка по умолчанию ловит обычный ↩ даже при фокусе в поле.
         let openButton = NSButton(title: L("quick.open"), target: self, action: #selector(submitOpen))
-        openButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: L("quick.open"))
         openButton.imagePosition = .imageLeading
         openButton.keyEquivalent = "\r"
+        // Янтарь бренда вместо системно-синей кнопки по умолчанию. Тёмный титул и иконка —
+        // светлый янтарь сам по себе низкоконтрастен с белым.
+        openButton.bezelColor = Brand.buttonFill
+        openButton.attributedTitle = NSAttributedString(
+            string: L("quick.open"),
+            attributes: [.foregroundColor: Brand.onAccentText,
+                         .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)])
+        // Иконку красим в тот же адаптивный цвет и делаем НЕ-шаблонной: у дефолтной кнопки
+        // macOS иначе перетинтит шаблонную иконку в белый (как у эмфазной синей), и она
+        // разойдётся по цвету с титулом.
+        openButton.image = NSImage(systemSymbolName: "arrow.up.right.square",
+                                   accessibilityDescription: L("quick.open"))?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [Brand.onAccentText]))
+        openButton.image?.isTemplate = false
         openButton.translatesAutoresizingMaskIntoConstraints = false
 
         buttonRow.setViews([copyButton, openButton], in: .leading)
