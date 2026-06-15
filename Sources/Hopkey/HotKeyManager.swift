@@ -215,23 +215,27 @@ final class HotKeyManager {
 
     /// Кладёт `text` в буфер и синтезирует Cmd+V — чтобы значение вставилось в поле,
     /// которое сейчас в фокусе (вызывающий заранее вернул фокус целевому приложению).
+    /// Перед синтезом ждёт отпускания ⌃⌥⇧⌘ (как `captureSelection`), иначе зажатые
+    /// модификаторы хоткея дадут ⌃⌥⌘V вместо ⌘V.
     /// Прежнее содержимое буфера восстанавливается, НО только когда Accessibility выдан
     /// (иначе Cmd+V не сработал — оставляем `text` в буфере как запасной путь для ручного
     /// ⌘V). `completion` всегда вызывается на главном потоке.
     func paste(_ text: String, completion: (() -> Void)? = nil) {
-        let pasteboard = NSPasteboard.general
-        let saved = savedItems(of: pasteboard)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        whenModifiersCleared {
+            let pasteboard = NSPasteboard.general
+            let saved = self.savedItems(of: pasteboard)
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
 
-        synthesizePaste()
+            self.synthesizePaste()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            if AXIsProcessTrusted() {
-                pasteboard.clearContents()
-                if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                if AXIsProcessTrusted() {
+                    pasteboard.clearContents()
+                    if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+                }
+                completion?()
             }
-            completion?()
         }
     }
 
