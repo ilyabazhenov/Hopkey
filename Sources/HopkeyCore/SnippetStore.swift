@@ -199,13 +199,18 @@ public final class KeychainStore: SnippetSecretStore {
     }
 
     /// Записывает значение (создаёт или обновляет существующее).
+    ///
+    /// Сначала пробуем `SecItemUpdate`, и только если записи нет (`errSecItemNotFound`) —
+    /// `SecItemAdd`. БЕЗ предварительного `SecItemCopyMatching`: у записи со строгим ACL
+    /// каждое обращение к Keychain поднимает отдельный диалог доступа, поэтому лишняя проверка
+    /// существования удваивала запрос (один на проверку, второй на саму запись). Теперь на
+    /// обычном пути (запись уже есть) — ровно одно обращение, то есть максимум один диалог.
     public func set(_ value: String, for account: String) {
         let data = Data(value.utf8)
         let base = baseQuery(for: account)
-        let status: OSStatus
-        if SecItemCopyMatching(base as CFDictionary, nil) == errSecSuccess {
-            status = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        } else {
+        var status = SecItemUpdate(base as CFDictionary,
+                                   [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
             var query = base
             query[kSecValueData as String] = data
             status = SecItemAdd(query as CFDictionary, nil)
