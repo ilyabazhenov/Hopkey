@@ -9,6 +9,10 @@ cd "$(dirname "$0")"
 # иконка dev-сборки переставала появляться в строке меню. build.sh наследует переменную.
 export HOPKEY_BUNDLE_ID="${HOPKEY_BUNDLE_ID:-com.local.hopkey.dev}"
 
+# Dev-итерации: собираем только под текущую арку (быстрее). Релизный .app
+# (make app / release.sh) остаётся universal по умолчанию — см. build.sh.
+export UNIVERSAL="${UNIVERSAL:-0}"
+
 APP_NAME="Hopkey"
 APP_BUNDLE="build/${APP_NAME}.app"
 WATCH_PATHS=("Sources" "Package.swift")

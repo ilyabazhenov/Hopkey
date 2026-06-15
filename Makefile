@@ -33,7 +33,7 @@ app: ## Собрать release .app-бандл в build/
 	./build.sh
 
 run: ## Собрать dev .app (отдельный bundle id) и запустить (иконка в строке меню)
-	HOPKEY_BUNDLE_ID=$(DEV_BUNDLE_ID) ./build.sh
+	HOPKEY_BUNDLE_ID=$(DEV_BUNDLE_ID) UNIVERSAL=0 ./build.sh
 	open "$(APP_BUNDLE)"
 
 watch: ## Dev: следить за Sources/ и пересобирать+перезапускать при изменениях

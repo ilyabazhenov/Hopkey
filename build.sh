@@ -15,10 +15,25 @@ MENU_BAR_ICON="Assets/MenuBarIcon.pdf"
 
 cd "$(dirname "$0")"
 
-echo "==> Сборка release-бинарника…"
-swift build -c release --product "${APP_NAME}"
+# Архитектуры. По умолчанию собираем universal-бинарник (arm64 + x86_64), чтобы
+# .app запускался и на Apple Silicon, и на Intel. Sparkle.framework уже universal,
+# ресурсы архитектурно-независимы — остаётся слить сам бинарник из двух арок (lipo
+# делает SwiftPM сам). Для быстрых dev-итераций можно собрать только под текущую
+# арку: UNIVERSAL=0 ./build.sh (см. make run/watch).
+UNIVERSAL="${UNIVERSAL:-1}"
+if [ "${UNIVERSAL}" = "1" ]; then
+    ARCH_FLAGS="--arch arm64 --arch x86_64"
+    echo "==> Сборка release-бинарника (universal: arm64 + x86_64)…"
+else
+    ARCH_FLAGS=""
+    echo "==> Сборка release-бинарника (только текущая арка)…"
+fi
 
-BIN_DIR="$(swift build -c release --product "${APP_NAME}" --show-bin-path)"
+# ARCH_FLAGS намеренно без кавычек — нужно словоделение на отдельные флаги
+# (пустая строка раскрывается в ничего).
+swift build -c release ${ARCH_FLAGS} --product "${APP_NAME}"
+
+BIN_DIR="$(swift build -c release ${ARCH_FLAGS} --product "${APP_NAME}" --show-bin-path)"
 BIN_PATH="${BIN_DIR}/${APP_NAME}"
 
 APP_DIR="build/${APP_NAME}.app"
@@ -118,6 +133,24 @@ fi
 
 echo "==> Подпись приложения сертификатом «${SIGN_ID}»…"
 sign "${APP_DIR}"
+
+# Проверка арки. При universal-сборке бинарник обязан содержать оба слайса —
+# иначе .app молча не запустится на Intel (или на Apple Silicon). Падаем сразу,
+# чтобы битый релиз не уехал в дистрибуцию.
+if [ "${UNIVERSAL}" = "1" ]; then
+    echo "==> Проверка universal-арки…"
+    ARCHS="$(lipo -archs "${MACOS_DIR}/${APP_NAME}" 2>/dev/null || echo "")"
+    for need in arm64 x86_64; do
+        case " ${ARCHS} " in
+            *" ${need} "*) ;;
+            *)
+                echo "❌ Бинарник не universal: ожидались arm64 + x86_64, есть «${ARCHS}»" >&2
+                exit 1
+                ;;
+        esac
+    done
+    echo "   OK: ${ARCHS}"
+fi
 
 echo ""
 echo "✅ Готово: ${APP_DIR}"
