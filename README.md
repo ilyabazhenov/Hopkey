@@ -4,23 +4,26 @@
 
 # Hopkey
 
-**Увидел ключ — прыгнул в задачу.** · *Hop to the key.*
+**Увидел ключ — прыгнул по ссылке.** · *Hop to the key.*
 
-A macOS menu-bar app that spots Jira issue keys (`PROJ-123`) anywhere — in your
-clipboard or selection — and jumps straight to the ticket.
+A macOS menu-bar app that spots issue keys (`PROJ-123`, `#42`, `CVE-…`) anywhere —
+in your clipboard or selection — and opens or copies the matching link from your
+regex→URL templates. Plus text snippets you can paste with a hotkey.
 
 [![Release](https://img.shields.io/github/v/release/ilyabazhenov/Hopkey?label=release&color=f5a623)](https://github.com/ilyabazhenov/Hopkey/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/ilyabazhenov/Hopkey?color=blue)](LICENSE)
 ![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-black?logo=apple)
 ![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-f05138?logo=swift&logoColor=white)
 
 </div>
 
-Приложение для macOS в строке меню, которое распознаёт ID задач вида `PROJ-12345`
-где угодно в системе и открывает соответствующую ссылку Jira
-(`https://jira.example.com/browse/PROJ-12345`) в браузере по умолчанию.
+Приложение для macOS в строке меню: распознаёт **ключи** (`PROJ-123`, `#42`, `CVE-2024-1234`)
+где угодно в системе и открывает или копирует **ссылку** по настраиваемым шаблонам
+(regex → URL). Jira — лишь один из пресетов; тот же механизм работает для GitHub,
+GitLab, CVE и любых своих паттернов.
 
-Решает рутину: коллеги присылают только номер задачи — больше не нужно вручную собирать ссылку.
+Решает рутину: коллеги присылают только номер — больше не нужно вручную собирать ссылку.
 
 Вторая функция — **сниппеты**: заранее заданные значения (пароли, ссылки на комнаты,
 шаблонные ответы) вставляются в активное поле по хоткею. Обе функции объединяет общий
@@ -28,10 +31,11 @@ clipboard or selection — and jumps straight to the ticket.
 
 ### Почему «Hopkey»
 
-В Jira `PROJ-123` официально называется **issue key** — «ключ задачи». Hopkey узнаёт этот
-ключ где угодно и одним прыжком (**hop**) переносит тебя прямо на тикет — без копипаста и
-ручной сборки ссылок. **Hop + key = «hop to the key».** Имя обыгрывает тройной смысл «key»:
-*issue key* (`PROJ-123`) → *keyboard key* (срабатывает по хоткею) → *the key* к задаче.
+В трекерах вроде Jira `PROJ-123` называется **issue key** — «ключ задачи». Hopkey узнаёт такие
+ключи (и любые другие по вашим шаблонам) где угодно и одним прыжком (**hop**) переносит вас
+по ссылке — без копипаста и ручной сборки URL. **Hop + key = «hop to the key».** Имя обыгрывает
+тройной смысл «key»: *issue key* (`PROJ-123`) → *keyboard key* (срабатывает по хоткею) → *the key*
+к нужной странице.
 
 > **Почему не «замена на месте»?** Превратить текст в кликабельную ссылку прямо внутри
 > Telegram/Slack/Mail на macOS нельзя: системная «Замена текста» умеет только статичную замену
@@ -70,7 +74,9 @@ clipboard or selection — and jumps straight to the ticket.
 
 ## Сборка
 
-Нужен Xcode / Swift 5.9+ (macOS 13+).
+Нужен Xcode / Swift 5.9+ (macOS 13+). Релизные артефакты собираются под **Apple Silicon
+(arm64)** — автообновление Sparkle работает на Mac с чипом Apple. На Intel Mac приложение
+из релиза не запустится (нужен universal binary — см. [RELEASING.md](RELEASING.md)).
 
 ```bash
 ./build.sh

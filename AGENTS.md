@@ -19,11 +19,31 @@ make watch      # авто-пересборка/перезапуск при пр
 ## Архитектура
 
 - `Sources/HopkeyCore/` — чистое ядро без UI: парсер (`TicketParser`), модель шаблона
-  (`LinkTemplate` + пресеты), настройки (`JiraConfig`), ручной ввод (`QuickTicketInput`).
-  Покрыто тестами в `Tests/HopkeyCoreTests/`. **Логику меняем здесь и держим под тестами.**
-- `Sources/Hopkey/` — GUI-таргет (AppKit, меню-бар). Окна, хоткеи, уведомления.
+  (`LinkTemplate` + пресеты), настройки (`JiraConfig`), ручной ввод (`QuickTicketInput`),
+  сниппеты (`SnippetStore`, `SnippetQuickSelect`, `KeychainStore`). Покрыто тестами в
+  `Tests/HopkeyCoreTests/`. **Логику меняем здесь и держим под тестами.**
+- `Sources/Hopkey/` — GUI-таргет (AppKit, меню-бар). Окна, хоткеи, уведомления,
+  `SnippetPickerWindow` / `SnippetEditorWindow`.
 - `build.sh` собирает бинарник SwiftPM и вручную упаковывает его в `.app` (Info.plist,
   Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, self-signed подпись).
+
+## Сниппеты
+
+Вторая функция продукта — заранее заданные текстовые значения (пароли, ссылки, шаблонные
+ответы), вставляемые в активное поле по хоткею `⌃⌥V`.
+
+- **Хранение:** `SnippetStore` держит метаданные в памяти; значения — одним JSON-блобом
+  в Keychain (`KeychainStore`, ключ `"all"`). Загрузка **ленивая** (`prepare()` / первое
+  обращение) — до этого Keychain не трогаем.
+- **Миграция:** старый формат (метаданные в UserDefaults + значение на сниппет в Keychain)
+  переносится в единый блоб один раз (`snippetsBlobMigrated`).
+- **GUI:** вкладка «Сниппеты» в `SettingsWindow`, редактор `SnippetEditorWindow`,
+  пикер `SnippetPickerWindow`. Вставка в чужое поле синтезирует `Cmd+V` через
+  `HotKeyManager` — **требует Accessibility**. Без доступа значение копируется в буфер.
+- **Тесты:** `SnippetStoreTests`, `SnippetQuickSelectTests`; реальный Keychain в тестах
+  не используется — injectable `SnippetSecretStore`.
+
+**Правило:** логику сниппетов меняем в `HopkeyCore` под тестами; GUI только оркестрирует.
 
 ## Локализация (ru / en)
 
