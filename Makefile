@@ -18,6 +18,14 @@ build: ## Собрать debug-бинарник (быстрая проверка
 test: ## Прогнать юнит-тесты ядра (TicketParser)
 	swift test
 
+coverage: ## Отчёт покрытия HopkeyCore (llvm-cov)
+	swift test --enable-code-coverage
+	@xcrun llvm-cov report \
+		.build/arm64-apple-macosx/debug/HopkeyPackageTests.xctest/Contents/MacOS/HopkeyPackageTests \
+		-instr-profile=.build/arm64-apple-macosx/debug/codecov/default.profdata \
+		-ignore-filename-regex='Tests/' \
+		| tail -n +3
+
 app: ## Собрать release .app-бандл в build/
 	./build.sh
 

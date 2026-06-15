@@ -151,6 +151,8 @@ final class JiraConfigTests: XCTestCase {
         config.showInputHotKeyKeyCode = 1
         config.snippetsHotKeyEnabled = false
         config.snippetsHotKeyKeyCode = 2
+        config.hotKeySoundsEnabled = false
+        config.hotKeySound = .ping
 
         config.resetToDefaults()
 
@@ -165,6 +167,8 @@ final class JiraConfigTests: XCTestCase {
         XCTAssertTrue(config.snippetsHotKeyEnabled)
         XCTAssertEqual(config.snippetsHotKeyKeyCode, 9)
         XCTAssertEqual(config.snippetsHotKeyModifiers, 6144)
+        XCTAssertTrue(config.hotKeySoundsEnabled)
+        XCTAssertEqual(config.hotKeySound, .bottle)
     }
 
     func testResetToDefaultsPersistsAndSurvivesReload() {

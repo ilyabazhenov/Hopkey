@@ -105,6 +105,13 @@ final class LinkTemplateTests: XCTestCase {
         XCTAssertFalse(jira().matchesWhole("OTHER-5"))
     }
 
+    func testDisplayNameFallsBackToPatternWhenNameEmpty() {
+        let named = LinkTemplate(name: "Jira", pattern: "PROJ-(\\d+)", url: "https://x/$1")
+        XCTAssertEqual(named.displayName, "Jira")
+        let unnamed = LinkTemplate(name: "  ", pattern: "CVE-(\\d+)", url: "https://x/$1")
+        XCTAssertEqual(unnamed.displayName, "CVE-(\\d+)")
+    }
+
     // MARK: - presets
 
     func testPresetsAreValid() {

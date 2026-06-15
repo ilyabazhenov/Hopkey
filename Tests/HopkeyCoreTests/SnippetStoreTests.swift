@@ -151,4 +151,53 @@ final class SnippetStoreTests: XCTestCase {
         let reader = makeStore()
         XCTAssertEqual(reader.value(for: "a"), "va")
     }
+
+    func testCorruptBlobYieldsEmptyCache() {
+        secrets.set("not-json", for: "all")
+        let store = makeStore()
+        XCTAssertEqual(store.snippets, [])
+        XCTAssertNil(store.value(for: "a"))
+    }
+
+    func testValueForUnknownIdReturnsNil() {
+        let store = makeStore()
+        store.upsert(Snippet(id: "a", name: "A"), value: "va")
+        XCTAssertNil(store.value(for: "missing"))
+    }
+
+    func testDeleteUnknownIdIsNoOp() {
+        let store = makeStore()
+        store.upsert(Snippet(id: "a", name: "A"), value: "va")
+        store.delete(id: "missing")
+        XCTAssertEqual(store.snippets.map(\.id), ["a"])
+    }
+
+    func testSnippetDisplayNameUsesPlaceholderForEmptyName() {
+        XCTAssertEqual(Snippet(name: "").displayName, "—")
+        XCTAssertEqual(Snippet(name: "  ").displayName, "—")
+        XCTAssertEqual(Snippet(name: "Room").displayName, "Room")
+    }
+
+    func testMigrationUsesEmptyStringWhenLegacyValueMissing() {
+        seedLegacy([(id: "a", name: "A", value: "va")])
+        secrets.delete("a")
+        let store = makeStore()
+        store.prepare()
+        XCTAssertEqual(store.value(for: "a"), "")
+    }
+
+    func testPrepareIsIdempotent() {
+        let store = makeStore()
+        store.upsert(Snippet(id: "a", name: "A"), value: "va")
+        store.prepare()
+        store.prepare()
+        XCTAssertEqual(store.snippets.map(\.name), ["A"])
+    }
+
+    func testDeleteAllOnEmptyStoreClearsBlobAccount() {
+        secrets.set("stale", for: "all")
+        let store = makeStore()
+        store.deleteAll()
+        XCTAssertNil(secrets.storage["all"])
+    }
 }
