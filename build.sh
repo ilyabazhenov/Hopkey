@@ -6,7 +6,7 @@ set -euo pipefail
 
 APP_NAME="Hopkey"
 DISPLAY_NAME="Hopkey"
-BUNDLE_ID="com.local.hopkey"
+BUNDLE_ID="${HOPKEY_BUNDLE_ID:-com.local.hopkey}"
 # Версия берётся из файла VERSION в корне (единственный источник правды).
 # Можно переопределить через env: VERSION=1.2.3 ./build.sh — удобно для проб.
 VERSION="${VERSION:-$(cat "$(dirname "$0")/VERSION" 2>/dev/null || echo 0.0.0)}"

@@ -3,6 +3,9 @@
 
 APP_NAME := Hopkey
 APP_BUNDLE := build/$(APP_NAME).app
+# Dev-сборки (run/watch) идут под отдельным bundle id, чтобы не делить идентичность
+# с установленным релизом (com.local.hopkey). release.sh и `make app`/`install` — релизный id.
+DEV_BUNDLE_ID := com.local.hopkey.dev
 
 .DEFAULT_GOAL := help
 
@@ -29,11 +32,12 @@ coverage: ## Отчёт покрытия HopkeyCore (llvm-cov)
 app: ## Собрать release .app-бандл в build/
 	./build.sh
 
-run: app ## Собрать .app и запустить (иконка в строке меню)
+run: ## Собрать dev .app (отдельный bundle id) и запустить (иконка в строке меню)
+	HOPKEY_BUNDLE_ID=$(DEV_BUNDLE_ID) ./build.sh
 	open "$(APP_BUNDLE)"
 
 watch: ## Dev: следить за Sources/ и пересобирать+перезапускать при изменениях
-	./dev-watch.sh
+	HOPKEY_BUNDLE_ID=$(DEV_BUNDLE_ID) ./dev-watch.sh
 
 setup-signing: ## Создать self-signed сертификат, чтобы Accessibility не слетал при пересборках
 	./setup-signing.sh

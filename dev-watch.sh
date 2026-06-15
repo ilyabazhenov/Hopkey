@@ -4,6 +4,11 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# Dev-сборка ставит ОТДЕЛЬНЫЙ bundle id (не релизный com.local.hopkey): иначе dev и
+# установленный релиз делят одну идентичность в LaunchServices/менюбаре, из-за чего
+# иконка dev-сборки переставала появляться в строке меню. build.sh наследует переменную.
+export HOPKEY_BUNDLE_ID="${HOPKEY_BUNDLE_ID:-com.local.hopkey.dev}"
+
 APP_NAME="Hopkey"
 APP_BUNDLE="build/${APP_NAME}.app"
 WATCH_PATHS=("Sources" "Package.swift")
