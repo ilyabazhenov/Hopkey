@@ -4,6 +4,7 @@
 /* Общее */
 "common.cancel" = "Отмена";
 "common.save" = "Сохранить";
+"common.delete" = "Удалить";
 
 /* Меню приложения (строка меню) */
 "menu.app.about" = "О приложении Hopkey";
@@ -48,6 +49,8 @@
 "settings.templates.col.pattern" = "Шаблон (regex)";
 "settings.templates.edit" = "Изменить";
 "settings.templates.preset" = "Из пресета ▾";
+"settings.templates.deleteTitle" = "Удалить шаблон «%@»?";
+"settings.templates.deleteMessage" = "Действие нельзя отменить.";
 
 /* Настройки — вкладка «Сниппеты» */
 "settings.snippets.intro" = "Сниппеты — это заранее заданные значения (пароли, ссылки) для быстрой вставки. Нажмите хоткей, выберите сниппет — и он вставится в активное поле. Значения хранятся в Keychain.";
@@ -55,6 +58,8 @@
 "settings.snippets.empty" = "Нажмите +, чтобы добавить сниппет";
 "settings.snippets.col.name" = "Имя";
 "settings.snippets.col.value" = "Значение";
+"settings.snippets.deleteTitle" = "Удалить сниппет «%@»?";
+"settings.snippets.deleteMessage" = "Его значение будет удалено из Keychain. Действие нельзя отменить.";
 
 /* Настройки — вкладка «Хоткеи» */
 "settings.hotkeys.header" = "Глобальные хоткеи работают в любом приложении.";
@@ -63,6 +68,8 @@
 "settings.hotkey.input.hint" = "Открывает окно ручного ввода. Доступ не нужен; с Универсальным доступом подставит выделенный текст.";
 "settings.hotkey.snippets.hint" = "Открывает список сниппетов и вставляет выбранный в активное поле. Нужен Универсальный доступ.";
 "settings.hotkeys.accessNote" = "Универсальный доступ выдаётся в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ».";
+"settings.hotkey.conflict" = "⚠︎ Эта комбинация уже занята — выберите другую.";
+"settings.hotkey.risky" = "⚠︎ Комбинация может конфликтовать с сочетаниями приложений — добавьте ⌃ или ⌥.";
 
 /* Настройки — вкладка «Общие» */
 "settings.general.description" = "Hopkey распознаёт ключи (PROJ-123, #42) в буфере или выделении и открывает либо копирует ссылку по вашим шаблонам.";
@@ -102,6 +109,9 @@
 "template.wholeWord" = "Границы слова — совпадение не приклеено к буквам/цифрам (PROJ-1, но не XPROJ-1)";
 "template.uppercase" = "Верхний регистр — нормализовать ключ (proj-7 → PROJ-7)";
 "template.enabled" = "Включён";
+"template.placeholder.name" = "Jira";
+"template.placeholder.pattern" = "PROJ-(\\d+)";
+"template.placeholder.url" = "https://jira.company.net/browse/PROJ-$1";
 "template.hint.name" = "Например: «Jira», «GitHub», «TEST2»";
 "template.hint.pattern" = "Примеры: PROJ-(\\d+) · #(\\d+) · TEST2-(\\d+) · CVE-\\d{4}-\\d+";
 "template.hint.url" = "Примеры: https://jira.example.net/browse/TEST2-$1 · https://github.com/OWNER/REPO/issues/$1";
@@ -154,7 +164,13 @@
 "notif.copy.many" = "Нажмите, чтобы скопировать ссылки (%@)";
 "notif.copied.one" = "Ссылка скопирована";
 "notif.copied.many" = "Ссылки скопированы (%@)";
+"notif.snippet.copied" = "Сниппет скопирован";
 "notif.denied.title" = "Уведомления выключены";
 "notif.denied.body" = "Hopkey нашёл ключ тикета в буфере, но не может показать баннер для открытия — уведомления для приложения отключены.\n\nВключите их в Системных настройках, либо выберите «Открывать сразу» в меню Hopkey.";
 "notif.denied.openSettings" = "Открыть настройки уведомлений";
 "notif.denied.later" = "Позже";
+
+/* Подсказка про Accessibility для подстановки выделения */
+"hint.selectionAccess.title" = "Выделение не подставляется";
+"hint.selectionAccess.body" = "Чтобы подставить выделенный текст в окно ввода, Hopkey нужен Универсальный доступ (синтез Cmd+C над выделением). Без него окно всё равно открывается — просто пустым.\n\nВыдайте доступ и перезапустите Hopkey — выданный доступ подхватывается только при запуске. После пересборки приложения его, возможно, придётся выдать заново.";
+"hint.selectionAccess.openSettings" = "Открыть настройки доступа";

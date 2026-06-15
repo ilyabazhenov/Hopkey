@@ -15,6 +15,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let updater: UpdaterController
     /// Вызывается после любого изменения, чтобы AppDelegate переприменил конфиг (хоткеи и т.п.).
     var onSave: (() -> Void)?
+    /// Опрашивает AppDelegate, удалось ли зарегистрировать хоткеи при последнем применении
+    /// (комбинация могла быть занята). Читается после `onSave?()`, чтобы показать
+    /// предупреждение под нужным рекордером.
+    var hotKeyStatus: (() -> (input: Bool, snippets: Bool))?
 
     /// Рабочая копия шаблонов, которую редактирует список.
     private var templates: [LinkTemplate] = []
@@ -98,6 +102,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let showInputHotKeyRecorder = HotKeyRecorderView()
     private let snippetsHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.snippets"), target: nil, action: nil)
     private let snippetsHotKeyRecorder = HotKeyRecorderView()
+    /// Предупреждения «комбинация занята» под каждым рекордером (скрыты, пока всё ок).
+    private let showInputHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
+    private let snippetsHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
 
     // MARK: Контролы вкладки «Общие»
 
@@ -437,7 +444,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let checkWidth = ceil(max(showInputHotKeyCheck.intrinsicContentSize.width,
                                   snippetsHotKeyCheck.intrinsicContentSize.width))
 
-        func group(_ check: NSButton, _ recorder: HotKeyRecorderView, hint: String) -> NSView {
+        func group(_ check: NSButton, _ recorder: HotKeyRecorderView,
+                   hint: String, warning: NSTextField) -> NSView {
             check.translatesAutoresizingMaskIntoConstraints = false
             check.target = self
             check.action = #selector(hotKeyEnabledChanged)
@@ -448,7 +456,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             row.spacing = 8
             row.translatesAutoresizingMaskIntoConstraints = false
             let hintLabel = label(hint, secondary: true, wraps: true)
-            let box = NSStackView(views: [row, hintLabel])
+            warning.textColor = .systemRed
+            warning.font = .systemFont(ofSize: 11)
+            warning.lineBreakMode = .byWordWrapping
+            warning.maximumNumberOfLines = 0
+            warning.preferredMaxLayoutWidth = wrapWidth
+            warning.isHidden = true
+            warning.translatesAutoresizingMaskIntoConstraints = false
+            let box = NSStackView(views: [row, hintLabel, warning])
             box.orientation = .vertical
             box.alignment = .leading
             box.spacing = 2
@@ -461,16 +476,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         }
 
         showInputHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m); self?.onSave?()
+            self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m)
+            self?.onSave?(); self?.refreshHotKeyWarnings()
         }
         snippetsHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.snippetsHotKeyKeyCode = Int(k); self?.config.snippetsHotKeyModifiers = Int(m); self?.onSave?()
+            self?.config.snippetsHotKeyKeyCode = Int(k); self?.config.snippetsHotKeyModifiers = Int(m)
+            self?.onSave?(); self?.refreshHotKeyWarnings()
         }
 
         let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
-            hint: L("settings.hotkey.input.hint"))
+            hint: L("settings.hotkey.input.hint"), warning: showInputHotKeyWarning)
         let snippetsGroup = group(snippetsHotKeyCheck, snippetsHotKeyRecorder,
-            hint: L("settings.hotkey.snippets.hint"))
+            hint: L("settings.hotkey.snippets.hint"), warning: snippetsHotKeyWarning)
 
         let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
 
@@ -565,12 +582,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let tagline = label(L("settings.about.tagline"), secondary: true)
 
         let updateButton = NSButton(title: L("settings.about.checkUpdates"), target: self, action: #selector(checkForUpdates))
-        updateButton.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        updateButton.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: L("settings.about.checkUpdates"))
         updateButton.imagePosition = .imageLeading
         updateButton.translatesAutoresizingMaskIntoConstraints = false
 
         let gitButton = NSButton(title: L("settings.about.github"), target: self, action: #selector(openRepository))
-        gitButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        gitButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: L("settings.about.github"))
         gitButton.imagePosition = .imageLeading
         gitButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -734,6 +751,37 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         config.snippetsHotKeyEnabled = snippetsHotKeyCheck.state == .on
         updateDependentControls()
         onSave?()
+        refreshHotKeyWarnings()
+    }
+
+    /// Обновляет предупреждения под рекордерами. Два источника: (1) система отказала в
+    /// регистрации — комбинация реально занята; (2) эвристика «опасной по конструкции»
+    /// комбинации без ⌃/⌥ (Carbon регистрирует и `⌘C`, не сообщая о конфликте, поэтому
+    /// её ловим сами). Выключенный хоткей предупреждения не показывает.
+    private func refreshHotKeyWarnings() {
+        let status = hotKeyStatus?() ?? (input: false, snippets: false)
+        applyHotKeyWarning(showInputHotKeyWarning,
+                           enabled: showInputHotKeyCheck.state == .on,
+                           failed: status.input,
+                           modifiers: UInt32(config.showInputHotKeyModifiers))
+        applyHotKeyWarning(snippetsHotKeyWarning,
+                           enabled: snippetsHotKeyCheck.state == .on,
+                           failed: status.snippets,
+                           modifiers: UInt32(config.snippetsHotKeyModifiers))
+    }
+
+    private func applyHotKeyWarning(_ label: NSTextField, enabled: Bool,
+                                    failed: Bool, modifiers: UInt32) {
+        guard enabled else { label.isHidden = true; return }
+        if failed {
+            label.stringValue = L("settings.hotkey.conflict")
+            label.isHidden = false
+        } else if hotKeyLikelyConflicts(modifiers: modifiers) {
+            label.stringValue = L("settings.hotkey.risky")
+            label.isHidden = false
+        } else {
+            label.isHidden = true
+        }
     }
 
     @objc private func clipboardOptionChanged() {
@@ -858,13 +906,43 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     @objc private func removeSelectedRow() {
         let row = tableView.selectedRow
         guard templates.indices.contains(row) else { return }
-        templates.remove(at: row)
-        tableView.reloadData()
-        updateEmptyState()
-        let hasSelection = tableView.selectedRow >= 0
-        removeButton.isEnabled = hasSelection
-        editButton.isEnabled = hasSelection
-        commitTemplates()
+        let name = templates[row].displayName
+        confirmDelete(title: L("settings.templates.deleteTitle", name),
+                      message: L("settings.templates.deleteMessage")) { [weak self] in
+            guard let self, self.templates.indices.contains(row) else { return }
+            self.templates.remove(at: row)
+            self.tableView.reloadData()
+            self.updateEmptyState()
+            let hasSelection = self.tableView.selectedRow >= 0
+            self.removeButton.isEnabled = hasSelection
+            self.editButton.isEnabled = hasSelection
+            self.commitTemplates()
+        }
+    }
+
+    /// Спрашивает подтверждение перед необратимым удалением. По умолчанию активна кнопка
+    /// «Отмена» (Enter не удаляет случайно), деструктивная кнопка — слева.
+    private func confirmDelete(title: String, message: String, onConfirm: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        let deleteButton = alert.addButton(withTitle: L("common.delete"))
+        let cancelButton = alert.addButton(withTitle: L("common.cancel"))
+        if #available(macOS 11.0, *) { deleteButton.hasDestructiveAction = true }
+        // Дефолт (Enter) — «Отмена», а не «Удалить»: безопаснее для деструктивного действия.
+        deleteButton.keyEquivalent = ""
+        cancelButton.keyEquivalent = "\r"
+
+        let handler: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            onConfirm()
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: handler)
+        } else {
+            handler(alert.runModal())
+        }
     }
 
     // MARK: - Создание/редактирование сниппетов
@@ -905,14 +983,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     @objc private func removeSelectedSnippet() {
         let row = snippetsTableView.selectedRow
         guard snippets.indices.contains(row) else { return }
-        snippetStore.delete(id: snippets[row].id)
-        snippets = snippetStore.snippets
-        snippetsTableView.reloadData()
-        updateSnippetsEmptyState()
-        let hasSelection = snippetsTableView.selectedRow >= 0
-        snippetRemoveButton.isEnabled = hasSelection
-        snippetEditButton.isEnabled = hasSelection
-        onSave?()
+        let snippet = snippets[row]
+        confirmDelete(title: L("settings.snippets.deleteTitle", snippet.displayName),
+                      message: L("settings.snippets.deleteMessage")) { [weak self] in
+            guard let self else { return }
+            self.snippetStore.delete(id: snippet.id)
+            self.snippets = self.snippetStore.snippets
+            self.snippetsTableView.reloadData()
+            self.updateSnippetsEmptyState()
+            let hasSelection = self.snippetsTableView.selectedRow >= 0
+            self.snippetRemoveButton.isEnabled = hasSelection
+            self.snippetEditButton.isEnabled = hasSelection
+            self.onSave?()
+        }
     }
 
     // MARK: - Загрузка / показ
@@ -940,6 +1023,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()
+        refreshHotKeyWarnings()
     }
 
     func showWindow() {

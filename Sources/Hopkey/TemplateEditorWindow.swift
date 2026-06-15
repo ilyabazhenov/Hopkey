@@ -97,9 +97,13 @@ final class TemplateEditorWindowController: NSWindowController {
             field.font = .systemFont(ofSize: 13)
             field.translatesAutoresizingMaskIntoConstraints = false
         }
-        setupField(nameField, template.name, "Jira")
-        setupField(patternField, template.pattern, "PROJ-(\\d+)")
-        setupField(urlField, template.url, "https://jira.company.net/browse/PROJ-$1")
+        setupField(nameField, template.name, L("template.placeholder.name"))
+        setupField(patternField, template.pattern, L("template.placeholder.pattern"))
+        setupField(urlField, template.url, L("template.placeholder.url"))
+        // VoiceOver: подписи берём из тех же строк, что и видимые заголовки полей.
+        nameField.setAccessibilityLabel(L("template.field.name"))
+        patternField.setAccessibilityLabel(L("template.field.pattern"))
+        urlField.setAccessibilityLabel(L("template.field.url"))
         wholeWordCheck.state = template.wholeWord ? .on : .off
         uppercaseCheck.state = template.uppercase ? .on : .off
         enabledCheck.state = template.enabled ? .on : .off
@@ -191,6 +195,13 @@ final class TemplateEditorWindowController: NSWindowController {
         let template = currentTemplate()
         if let problem = template.validation {
             errorLabel.stringValue = Self.message(for: problem)
+            // Звук + фокус на поле с ошибкой: пустой/кривой regex → поле «Шаблон»,
+            // пустой/без плейсхолдера URL → поле «URL».
+            NSSound.beep()
+            switch problem {
+            case .emptyPattern, .invalidRegex: window?.makeFirstResponder(patternField)
+            case .emptyURL, .noPlaceholder: window?.makeFirstResponder(urlField)
+            }
             return
         }
         result = template

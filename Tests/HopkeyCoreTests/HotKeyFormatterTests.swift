@@ -57,4 +57,26 @@ final class HotKeyFormatterTests: XCTestCase {
     func testFullStringCombinesModifiersAndKey() {
         XCTAssertEqual(hotKeyDisplayString(keyCode: UInt32(kVK_ANSI_K), modifiers: control | option), "⌃⌥K")
     }
+
+    // MARK: - hotKeyLikelyConflicts
+
+    func testRiskyWithoutControlOrOption() {
+        // ⌘C, ⇧⌘Z, голое ⌘ — без ⌃/⌥ перехватывают сочетания приложений.
+        XCTAssertTrue(hotKeyLikelyConflicts(modifiers: command))            // ⌘C
+        XCTAssertTrue(hotKeyLikelyConflicts(modifiers: command | shift))    // ⇧⌘Z
+        XCTAssertTrue(hotKeyLikelyConflicts(modifiers: shift))              // голый ⇧
+    }
+
+    func testSafeWithControlOrOption() {
+        // Наличие ⌃ или ⌥ снимает предупреждение — рекомендуемые комбинации.
+        XCTAssertFalse(hotKeyLikelyConflicts(modifiers: control | option))  // ⌃⌥ (дефолты)
+        XCTAssertFalse(hotKeyLikelyConflicts(modifiers: control))           // ⌃
+        XCTAssertFalse(hotKeyLikelyConflicts(modifiers: option))            // ⌥
+        XCTAssertFalse(hotKeyLikelyConflicts(modifiers: control | command)) // ⌃⌘
+    }
+
+    func testNoModifiersNotFlagged() {
+        // Пустые модификаторы рекордер не принимает — отдельным предупреждением не шумим.
+        XCTAssertFalse(hotKeyLikelyConflicts(modifiers: 0))
+    }
 }

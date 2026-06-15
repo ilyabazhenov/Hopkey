@@ -58,6 +58,10 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         setupField(valueField, value, L("snippet.editor.value.placeholder"))
         setupField(secureValueField, value, L("snippet.editor.value.placeholder"))
         valueField.isHidden = true  // по умолчанию показываем защищённое поле
+        // VoiceOver: подписи берём из тех же строк, что и видимые заголовки полей.
+        nameField.setAccessibilityLabel(L("snippet.editor.name"))
+        valueField.setAccessibilityLabel(L("snippet.editor.value"))
+        secureValueField.setAccessibilityLabel(L("snippet.editor.value"))
 
         // Оба поля значения в одной ячейке-контейнере, друг поверх друга.
         let valueBox = NSView()
@@ -157,11 +161,16 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = currentValue()
         if name.isEmpty {
+            // Звук + фокус на проблемном поле: красную надпись легко не заметить.
             errorLabel.stringValue = L("snippet.error.emptyName")
+            NSSound.beep()
+            window?.makeFirstResponder(nameField)
             return
         }
         if value.isEmpty {
             errorLabel.stringValue = L("snippet.error.emptyValue")
+            NSSound.beep()
+            window?.makeFirstResponder(valueField.isHidden ? secureValueField : valueField)
             return
         }
         result = (Snippet(id: editing.id, name: name), value)

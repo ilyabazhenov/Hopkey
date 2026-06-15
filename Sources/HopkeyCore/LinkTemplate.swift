@@ -129,7 +129,13 @@ public struct LinkTemplate: Codable, Equatable {
                 i += 1
             }
         }
-        return URL(string: out)
+        guard let url = URL(string: out) else {
+            // Подстановка дала нерабочий адрес (например, пробел в литеральной части
+            // шаблона). Логируем — иначе ключ молча «не открывается» без следов.
+            NSLog("Hopkey: шаблон «\(name)» собрал невалидный URL: \(out)")
+            return nil
+        }
+        return url
     }
 
     /// Номера плейсхолдеров `$0…$9`, встречающиеся в `url`.

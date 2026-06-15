@@ -130,13 +130,13 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         // «Скопировать» — обычная серая кнопка. Шорткат ⌘↩ ловит сама панель
         // (см. `performKeyEquivalent`), чтобы кнопка не стала второй синей «по умолчанию».
         let copyButton = NSButton(title: L("quick.copy"), target: self, action: #selector(submitCopy))
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L("quick.copy"))
         copyButton.imagePosition = .imageLeading
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         // Основная кнопка по умолчанию ловит обычный ↩ даже при фокусе в поле.
         let openButton = NSButton(title: L("quick.open"), target: self, action: #selector(submitOpen))
-        openButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        openButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: L("quick.open"))
         openButton.imagePosition = .imageLeading
         openButton.keyEquivalent = "\r"
         openButton.translatesAutoresizingMaskIntoConstraints = false

@@ -4,6 +4,7 @@
 /* Common */
 "common.cancel" = "Cancel";
 "common.save" = "Save";
+"common.delete" = "Delete";
 
 /* Application menu (menu bar app) */
 "menu.app.about" = "About Hopkey";
@@ -48,6 +49,8 @@
 "settings.templates.col.pattern" = "Pattern (regex)";
 "settings.templates.edit" = "Edit";
 "settings.templates.preset" = "From preset ▾";
+"settings.templates.deleteTitle" = "Delete template “%@”?";
+"settings.templates.deleteMessage" = "This cannot be undone.";
 
 /* Settings — Snippets tab */
 "settings.snippets.intro" = "Snippets are preset values (passwords, links) for quick pasting. Press the hotkey, pick a snippet — and it’s pasted into the active field. Values are stored in the Keychain.";
@@ -55,6 +58,8 @@
 "settings.snippets.empty" = "Press + to add a snippet";
 "settings.snippets.col.name" = "Name";
 "settings.snippets.col.value" = "Value";
+"settings.snippets.deleteTitle" = "Delete snippet “%@”?";
+"settings.snippets.deleteMessage" = "Its value will be removed from the Keychain. This cannot be undone.";
 
 /* Settings — Hotkeys tab */
 "settings.hotkeys.header" = "Global hotkeys work in any application.";
@@ -63,6 +68,8 @@
 "settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
 "settings.hotkey.snippets.hint" = "Opens the snippets list and pastes the chosen one into the active field. Requires Accessibility.";
 "settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";
+"settings.hotkey.conflict" = "⚠︎ This combination is already taken — pick another.";
+"settings.hotkey.risky" = "⚠︎ This combination may clash with app shortcuts — add ⌃ or ⌥.";
 
 /* Settings — General tab */
 "settings.general.description" = "Hopkey spots keys (PROJ-123, #42) in your clipboard or selection and opens or copies the matching link from your templates.";
@@ -102,6 +109,9 @@
 "template.wholeWord" = "Word boundaries — the match is not glued to letters/digits (PROJ-1, but not XPROJ-1)";
 "template.uppercase" = "Uppercase — normalize the key (proj-7 → PROJ-7)";
 "template.enabled" = "Enabled";
+"template.placeholder.name" = "Jira";
+"template.placeholder.pattern" = "PROJ-(\\d+)";
+"template.placeholder.url" = "https://jira.company.net/browse/PROJ-$1";
 "template.hint.name" = "E.g. “Jira”, “GitHub”, “TEST2”";
 "template.hint.pattern" = "Examples: PROJ-(\\d+) · #(\\d+) · TEST2-(\\d+) · CVE-\\d{4}-\\d+";
 "template.hint.url" = "Examples: https://jira.example.net/browse/TEST2-$1 · https://github.com/OWNER/REPO/issues/$1";
@@ -154,7 +164,13 @@
 "notif.copy.many" = "Click to copy the links (%@)";
 "notif.copied.one" = "Link copied";
 "notif.copied.many" = "Links copied (%@)";
+"notif.snippet.copied" = "Snippet copied";
 "notif.denied.title" = "Notifications are off";
 "notif.denied.body" = "Hopkey found a ticket key in the clipboard but can’t show a banner to open it — notifications for the app are disabled.\n\nEnable them in System Settings, or choose “Open right away” in the Hopkey menu.";
 "notif.denied.openSettings" = "Open notification settings";
 "notif.denied.later" = "Later";
+
+/* Accessibility hint for selection prefill */
+"hint.selectionAccess.title" = "Selection isn’t inserted";
+"hint.selectionAccess.body" = "To prefill the input window with the text you selected, Hopkey needs Accessibility (it synthesizes Cmd+C over the selection). Without it the window still opens — just empty.\n\nGrant access, then restart Hopkey — the grant is only picked up at launch. After rebuilding the app you may need to grant it again.";
+"hint.selectionAccess.openSettings" = "Open Accessibility settings";

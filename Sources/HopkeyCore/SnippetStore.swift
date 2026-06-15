@@ -54,6 +54,11 @@ public final class SnippetStore {
     private var cache: [StoredSnippet] = []
     /// Загружали ли уже блоб из Keychain в этом запуске.
     private var loaded = false
+    /// Защищает `cache`/`loaded`: к сниппетам обращаются и UI (главный поток), и
+    /// возможные фоновые вызовы (пикер/вставка), поэтому первую загрузку и любую
+    /// правку блоба сериализуем. Замок нерекурсивный — публичные методы берут его
+    /// ровно один раз и зовут только приватные хелперы, которые замок не трогают.
+    private let lock = NSLock()
 
     /// Единственная запись в Keychain со всем JSON-блобом.
     private static let blobAccount = "all"
@@ -74,7 +79,7 @@ public final class SnippetStore {
     /// не обязательно: загрузка происходит ЛЕНИВО при первом обращении к данным — чтобы
     /// запрос доступа к связке появлялся не на старте, а когда сниппеты реально нужны
     /// (открыли их в настройках или впервые вызвали пикер/вставку).
-    public func prepare() { ensureLoaded() }
+    public func prepare() { lock.lock(); defer { lock.unlock() }; ensureLoaded() }
 
     /// Единственное место, читающее Keychain (и где возможен запрос доступа). Срабатывает
     /// один раз за запуск — при первом доступе к сниппетам.
@@ -87,18 +92,21 @@ public final class SnippetStore {
 
     /// Список сниппетов (id + имя). При первом обращении загружает блоб из Keychain.
     public var snippets: [Snippet] {
+        lock.lock(); defer { lock.unlock() }
         ensureLoaded()
         return cache.map { Snippet(id: $0.id, name: $0.name) }
     }
 
     /// Значение сниппета (nil, если не найден). При первом обращении загружает блоб.
     public func value(for id: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
         ensureLoaded()
         return cache.first { $0.id == id }?.value
     }
 
     /// Добавляет новый или обновляет существующий сниппет (по `id`) и переписывает блоб.
     public func upsert(_ snippet: Snippet, value: String) {
+        lock.lock(); defer { lock.unlock() }
         ensureLoaded()
         let record = StoredSnippet(id: snippet.id, name: snippet.name, value: value)
         if let i = cache.firstIndex(where: { $0.id == snippet.id }) {
@@ -111,6 +119,7 @@ public final class SnippetStore {
 
     /// Удаляет сниппет и переписывает блоб.
     public func delete(id: String) {
+        lock.lock(); defer { lock.unlock() }
         ensureLoaded()
         cache.removeAll { $0.id == id }
         persist()
@@ -118,6 +127,7 @@ public final class SnippetStore {
 
     /// Полностью очищает сниппеты (и саму запись в Keychain) — для сброса настроек.
     public func deleteAll() {
+        lock.lock(); defer { lock.unlock() }
         cache = []
         keychain.delete(Self.blobAccount)
     }
@@ -125,16 +135,26 @@ public final class SnippetStore {
     // MARK: - Внутреннее
 
     private func load() {
+        // Записи нет — штатная ситуация первого запуска (не ошибка), просто пустой кэш.
         guard let json = keychain.value(for: Self.blobAccount),
-              let data = json.data(using: .utf8),
-              let list = try? JSONDecoder().decode([StoredSnippet].self, from: data)
-        else { cache = []; return }
-        cache = list
+              let data = json.data(using: .utf8) else { cache = []; return }
+        do {
+            cache = try JSONDecoder().decode([StoredSnippet].self, from: data)
+        } catch {
+            // Блоб есть, но не читается (повреждён/чужой формат) — это уже ошибка: логируем,
+            // чтобы её можно было увидеть, а не молча терять сниппеты.
+            NSLog("Hopkey: не удалось декодировать блоб сниппетов из Keychain: \(error)")
+            cache = []
+        }
     }
 
     private func persist() {
-        let data = (try? JSONEncoder().encode(cache)) ?? Data()
-        keychain.set(String(decoding: data, as: UTF8.self), for: Self.blobAccount)
+        do {
+            let data = try JSONEncoder().encode(cache)
+            keychain.set(String(decoding: data, as: UTF8.self), for: Self.blobAccount)
+        } catch {
+            NSLog("Hopkey: не удалось сериализовать сниппеты для записи в Keychain: \(error)")
+        }
     }
 
     /// Одноразовый перенос старого формата (метаданные в UserDefaults + значение на КАЖДЫЙ
@@ -182,12 +202,18 @@ public final class KeychainStore: SnippetSecretStore {
     public func set(_ value: String, for account: String) {
         let data = Data(value.utf8)
         let base = baseQuery(for: account)
+        let status: OSStatus
         if SecItemCopyMatching(base as CFDictionary, nil) == errSecSuccess {
-            SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            status = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         } else {
             var query = base
             query[kSecValueData as String] = data
-            SecItemAdd(query as CFDictionary, nil)
+            status = SecItemAdd(query as CFDictionary, nil)
+        }
+        // Тихая потеря записи в Keychain незаметна пользователю (сниппет «не сохранился»),
+        // поэтому неуспех логируем, а не проглатываем.
+        if status != errSecSuccess {
+            NSLog("Hopkey: запись в Keychain не удалась (account=\(account), status=\(status))")
         }
     }
 
@@ -204,6 +230,10 @@ public final class KeychainStore: SnippetSecretStore {
 
     /// Удаляет запись (идемпотентно).
     public func delete(_ account: String) {
-        SecItemDelete(baseQuery(for: account) as CFDictionary)
+        let status = SecItemDelete(baseQuery(for: account) as CFDictionary)
+        // Отсутствие записи — норма (идемпотентность); прочие ошибки логируем.
+        if status != errSecSuccess && status != errSecItemNotFound {
+            NSLog("Hopkey: удаление из Keychain не удалось (account=\(account), status=\(status))")
+        }
     }
 }

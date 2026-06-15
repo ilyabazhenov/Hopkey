@@ -40,19 +40,24 @@ final class HotKeyManager {
 
     /// Регистрирует комбинацию под уникальным `id`, привязывая к ней действие над выделением
     /// (синтез Cmd+C → чтение буфера → `onCapture`). Требует Accessibility.
-    func register(id: UInt32, action: TicketAction, keyCode: UInt32, modifiers: UInt32) {
+    /// Возвращает `false`, если комбинация занята и зарегистрировать её не удалось.
+    @discardableResult
+    func register(id: UInt32, action: TicketAction, keyCode: UInt32, modifiers: UInt32) -> Bool {
         register(id: id, keyCode: keyCode, modifiers: modifiers, behavior: .capture(action))
     }
 
     /// Регистрирует комбинацию, которая при срабатывании просто вызывает `onFire`
     /// (например, показывает окно). Accessibility не требуется.
-    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, onFire: @escaping () -> Void) {
+    /// Возвращает `false`, если комбинация занята и зарегистрировать её не удалось.
+    @discardableResult
+    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, onFire: @escaping () -> Void) -> Bool {
         register(id: id, keyCode: keyCode, modifiers: modifiers, behavior: .fire(onFire))
     }
 
-    private func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, behavior: Behavior) {
+    @discardableResult
+    private func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, behavior: Behavior) -> Bool {
         installHandlerIfNeeded()
-        guard registered[id] == nil else { return }
+        guard registered[id] == nil else { return true }
 
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: signature, id: id)
@@ -60,10 +65,15 @@ final class HotKeyManager {
                                          GetApplicationEventTarget(), 0, &ref)
         if status == noErr, let ref {
             registered[id] = Registered(ref: ref, behavior: behavior)
-        } else {
-            NSLog("Hopkey: не удалось зарегистрировать хоткей id=\(id) (status=\(status)) — комбинация занята?")
+            return true
         }
+        NSLog("Hopkey: не удалось зарегистрировать хоткей id=\(id) (status=\(status)) — комбинация занята?")
+        return false
     }
+
+    /// Системный обработчик Carbon и регистрации хоткеев живут вне жизненного цикла
+    /// объекта — если не снять их при уничтожении, они «зависнут» в системе.
+    deinit { unregisterAll() }
 
     /// Снимает все зарегистрированные хоткеи и обработчик событий.
     func unregisterAll() {
@@ -108,24 +118,45 @@ final class HotKeyManager {
     }
 
     private func capture(action: TicketAction) {
-        let pasteboard = NSPasteboard.general
-        let beforeCount = pasteboard.changeCount
-
-        synthesizeCopy()
-
-        // Небольшая задержка, чтобы целевое приложение успело положить выделение в буфер.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+        whenModifiersCleared { [weak self] in
             guard let self else { return }
-            // Берём текст, только если буфер реально обновился после нашего Cmd+C.
-            if pasteboard.changeCount != beforeCount,
-               let text = pasteboard.string(forType: .string), !text.isEmpty {
-                self.onCapture?(text, action)
-            } else {
-                // Буфер не изменился: синтетический Cmd+C не сработал.
-                // Почти всегда это значит, что не выдан Accessibility для текущего бинарника.
-                NSLog("Hopkey: хоткей сработал, но буфер не изменился — проверьте разрешение Accessibility (после пересборки его нужно выдать заново).")
+            let pasteboard = NSPasteboard.general
+            let beforeCount = pasteboard.changeCount
+
+            self.synthesizeCopy()
+
+            // Небольшая задержка, чтобы целевое приложение успело положить выделение в буфер.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                guard let self else { return }
+                // Берём текст, только если буфер реально обновился после нашего Cmd+C.
+                if pasteboard.changeCount != beforeCount,
+                   let text = pasteboard.string(forType: .string), !text.isEmpty {
+                    self.onCapture?(text, action)
+                } else {
+                    // Буфер не изменился: синтетический Cmd+C не сработал.
+                    // Почти всегда это значит, что не выдан Accessibility для текущего бинарника.
+                    NSLog("Hopkey: хоткей сработал, но буфер не изменился — проверьте разрешение Accessibility (после пересборки его нужно выдать заново).")
+                }
             }
         }
+    }
+
+    /// Биты модификаторов, отпускания которых ждём перед синтезом Cmd+C (⌃⌥⇧⌘).
+    /// Caps Lock / Fn не учитываем — иначе ждали бы их отпускания зря.
+    private static let watchedModifierMask: UInt64 =
+        CGEventFlags([.maskControl, .maskAlternate, .maskShift, .maskCommand]).rawValue
+
+    /// Ждёт отпускания зажатых хоткеем модификаторов перед синтезом Cmd+C: иначе они
+    /// подмешаются (⌃⌥⌘C вместо ⌘C) и «Копировать» не сработает. Решение о готовности и
+    /// поллинг — в `ModifierReleaseWaiter`/`ModifierReleaseGate` (HopkeyCore, под тестами);
+    /// сюда внедряем реальный источник флагов и задержку ~20 мс (не дольше ~0.5 c суммарно).
+    private lazy var modifierWaiter = ModifierReleaseWaiter(
+        gate: ModifierReleaseGate(watched: Self.watchedModifierMask),
+        flags: { CGEventSource.flagsState(.combinedSessionState).rawValue },
+        schedule: { work in DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: work) })
+
+    private func whenModifiersCleared(_ work: @escaping () -> Void) {
+        modifierWaiter.wait(work)
     }
 
     /// Снимает текущее выделение синтетическим Cmd+C и ВОЗВРАЩАЕТ прежнее содержимое
@@ -133,24 +164,26 @@ final class HotKeyManager {
     /// буфер не меняется и `completion` получает `nil` (вызывающий откатится к буферу/пустому).
     /// `completion` всегда вызывается на главном потоке.
     func captureSelection(completion: @escaping (String?) -> Void) {
-        let pasteboard = NSPasteboard.general
-        let beforeCount = pasteboard.changeCount
-        let saved = savedItems(of: pasteboard)
+        whenModifiersCleared {
+            let pasteboard = NSPasteboard.general
+            let beforeCount = pasteboard.changeCount
+            let saved = self.savedItems(of: pasteboard)
 
-        synthesizeCopy()
+            self.synthesizeCopy()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            var text: String?
-            let changed = pasteboard.changeCount != beforeCount
-            if changed, let s = pasteboard.string(forType: .string), !s.isEmpty {
-                text = s
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                var text: String?
+                let changed = pasteboard.changeCount != beforeCount
+                if changed, let s = pasteboard.string(forType: .string), !s.isEmpty {
+                    text = s
+                }
+                // Возвращаем прежнее содержимое, только если сами его перетёрли своим Cmd+C.
+                if changed {
+                    pasteboard.clearContents()
+                    if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+                }
+                completion(text)
             }
-            // Возвращаем прежнее содержимое, только если сами его перетёрли своим Cmd+C.
-            if changed {
-                pasteboard.clearContents()
-                if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
-            }
-            completion(text)
         }
     }
 

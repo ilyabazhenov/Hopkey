@@ -381,8 +381,11 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
                 v.copyButton.action = #selector(copyClicked(_:))
                 return v
             }()
+        let name = snippets[row].displayName
         cell.indexLabel.stringValue = SnippetQuickSelect.label(forRow: row)  // номер для быстрого выбора
-        cell.nameField.stringValue = snippets[row].displayName
+        cell.nameField.stringValue = name
+        cell.nameField.toolTip = name   // полное имя по наведению, когда оно обрезано хвостом
+        cell.setAccessibilityLabel(name)
         cell.copyButton.tag = row  // действие кнопки знает свою строку
         return cell
     }

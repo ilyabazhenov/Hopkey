@@ -126,6 +126,27 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Короткое подтверждение, что значение сниппета скопировано в буфер. Копирование
+    /// (в отличие от вставки) не оставляет видимого следа, поэтому полезен баннер.
+    /// Если уведомления недоступны/запрещены — тихо ничего не делаем (буфер уже заполнен).
+    func confirmSnippetCopied() {
+        guard let center else { return }
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized ||
+                  settings.authorizationStatus == .provisional else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = L("notif.snippet.copied")
+            content.sound = nil
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
+            center.add(request, withCompletionHandler: nil)
+        }
+    }
+
     // Показывать баннер, даже когда приложение активно.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,

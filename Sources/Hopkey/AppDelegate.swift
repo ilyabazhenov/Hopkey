@@ -10,7 +10,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKey = HotKeyManager()
     private let notifications = NotificationManager()
     private let updater = UpdaterController()
-    private lazy var settings = SettingsWindowController(config: config, updater: updater)
+    private lazy var settings: SettingsWindowController = {
+        let controller = SettingsWindowController(config: config, updater: updater)
+        // Окно настроек само опрашивает статус регистрации, чтобы показать предупреждение
+        // под рекордером, если комбинация занята. Pull-модель: не дёргаем (ленивое) окно
+        // из AppDelegate, оно само спросит после применения изменений.
+        controller.hotKeyStatus = { [weak self] in
+            (input: self?.inputHotKeyFailed ?? false, snippets: self?.snippetsHotKeyFailed ?? false)
+        }
+        return controller
+    }()
     private lazy var quickTicket: QuickTicketWindowController = {
         let controller = QuickTicketWindowController(config: config)
         controller.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
@@ -31,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // (наш синтетический Cmd+C виден и наблюдателю буфера тоже).
     private var lastHandledText: String?
     private var lastHandledAt: Date = .distantPast
+
+    /// Не удалось зарегистрировать соответствующий хоткей при последнем применении
+    /// конфига (комбинация занята системой/другим приложением). Окно настроек читает
+    /// эти флаги, чтобы показать предупреждение под нужным рекордером.
+    private var inputHotKeyFailed = false
+    private var snippetsHotKeyFailed = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Сниппеты НЕ читаем на старте: блоб из Keychain грузится лениво при первом
@@ -265,18 +280,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         URLOpener.copy(value)
         clipboard.syncChangeCount()
+        // Копирование в буфер не видно глазу (в отличие от вставки, где значение
+        // появляется в поле) — даём короткое подтверждение баннером.
+        notifications.confirmSnippetCopied()
     }
 
     /// Хоткей окна ввода: сам снимает выделение (с сохранением буфера) и открывает окно
     /// с подставленным текстом. Если Accessibility не выдан или ничего не выделено —
     /// откатываемся к числу из буфера (или пустому окну).
     private func openQuickTicketFromSelection() {
+        // Подстановка выделения требует синтеза Cmd+C (Accessibility). Без доступа окно
+        // открываем как обычно (по числу из буфера), но разово объясняем, почему выделение
+        // не подставилось — иначе пустой ввод выглядит как баг. Захват не запускаем: без
+        // доступа Cmd+C ничего не даст, только лишняя пауза.
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            showSelectionAccessibilityHintIfNeeded()
+            quickTicket.showWindow(prefill: clipboardBareNumber())
+            return
+        }
+        // Доступ есть — «перевзводим» подсказку: если позже он слетит (типичный случай —
+        // пересборка меняет cdhash и TCC сбрасывает грант), мы снова один раз объясним причину.
+        if UserDefaults.standard.bool(forKey: Self.selectionHintKey) {
+            UserDefaults.standard.set(false, forKey: Self.selectionHintKey)
+        }
         hotKey.captureSelection { [weak self] selection in
             guard let self else { return }
             let prefill = selection.flatMap(self.prefillToken) ?? self.clipboardBareNumber()
             // Наши манипуляции с буфером (Cmd+C + восстановление) не должны будить наблюдателя.
             self.clipboard.syncChangeCount()
             self.quickTicket.showWindow(prefill: prefill)
+        }
+    }
+
+    /// Флаг «подсказку про Accessibility для подстановки выделения уже показывали».
+    /// Сбрасывается, как только доступ снова появляется (см. `openQuickTicketFromSelection`),
+    /// поэтому при повторной потере доступа подсказка покажется снова — ровно один раз.
+    private static let selectionHintKey = "selectionAccessibilityHintShown"
+
+    /// Разово (до следующей потери доступа) объясняет, что подстановка выделения в окно
+    /// ввода требует Универсального доступа, и предлагает открыть нужный раздел настроек.
+    /// Окно ввода при этом всё равно открывается — подсказка не блокирует основной путь.
+    private func showSelectionAccessibilityHintIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.selectionHintKey) else { return }
+        defaults.set(true, forKey: Self.selectionHintKey)
+
+        let alert = NSAlert()
+        alert.messageText = L("hint.selectionAccess.title")
+        alert.informativeText = L("hint.selectionAccess.body")
+        alert.addButton(withTitle: L("hint.selectionAccess.openSettings"))
+        alert.addButton(withTitle: L("notif.denied.later"))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -341,20 +398,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// id 4 — пикер сниппетов.
     private func registerHotKeys() {
         hotKey.unregisterAll()
+        inputHotKeyFailed = false
+        snippetsHotKeyFailed = false
         // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
+        // `register` возвращает false, если комбинация занята — запоминаем, чтобы настройки
+        // показали предупреждение (иначе пользователь думал бы, что хоткей работает).
         if config.showInputHotKeyEnabled, config.showInputHotKeyModifiers != 0 {
-            hotKey.register(id: 3,
+            let ok = hotKey.register(id: 3,
                             keyCode: UInt32(config.showInputHotKeyKeyCode),
                             modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
                 self?.openQuickTicketFromSelection()
             }
+            inputHotKeyFailed = !ok
         }
         if config.snippetsHotKeyEnabled, config.snippetsHotKeyModifiers != 0 {
-            hotKey.register(id: 4,
+            let ok = hotKey.register(id: 4,
                             keyCode: UInt32(config.snippetsHotKeyKeyCode),
                             modifiers: UInt32(config.snippetsHotKeyModifiers)) { [weak self] in
                 self?.showSnippetPicker()
             }
+            snippetsHotKeyFailed = !ok
         }
     }
 }
