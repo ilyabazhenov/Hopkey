@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = SnippetPickerWindowController(store: snippetStore)
         controller.onPick = { [weak self] snippet in self?.pasteSnippet(snippet) }
         controller.onCopy = { [weak self] snippet in self?.copySnippet(snippet) }
+        controller.onOpen = { [weak self] snippet in self?.openSnippet(snippet) }
         return controller
     }()
 
@@ -283,6 +284,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Копирование в буфер не видно глазу (в отличие от вставки, где значение
         // появляется в поле) — даём короткое подтверждение баннером.
         notifications.confirmSnippetCopied()
+    }
+
+    /// Открывает значение сниппета-ссылки в браузере. Значение нормализуется в http(s)-URL
+    /// той же логикой, что валидирует ссылку в редакторе.
+    private func openSnippet(_ snippet: Snippet) {
+        guard let value = snippetStore.value(for: snippet.id),
+              let url = Snippet.url(forValue: value) else {
+            NSSound.beep()
+            return
+        }
+        URLOpener.open([url])
     }
 
     /// Хоткей окна ввода: сам снимает выделение (с сохранением буфера) и открывает окно

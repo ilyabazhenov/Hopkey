@@ -140,6 +140,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     private enum SnippetColumn {
+        static let kind = NSUserInterfaceItemIdentifier("snippetKind")
         static let name = NSUserInterfaceItemIdentifier("snippetName")
         static let value = NSUserInterfaceItemIdentifier("snippetValue")
     }
@@ -374,14 +375,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private func buildSnippetsTab() -> NSView {
         let intro = label(L("settings.snippets.intro"), secondary: true, wraps: true)
 
+        let kindCol = NSTableColumn(identifier: SnippetColumn.kind)
+        kindCol.title = L("settings.snippets.col.kind")
+        kindCol.width = 90
+        kindCol.minWidth = 70
         let nameCol = NSTableColumn(identifier: SnippetColumn.name)
         nameCol.title = L("settings.snippets.col.name")
-        nameCol.width = 200
+        nameCol.width = 180
         nameCol.minWidth = 120
         let valueCol = NSTableColumn(identifier: SnippetColumn.value)
         valueCol.title = L("settings.snippets.col.value")
-        valueCol.width = 280
+        valueCol.width = 250
         valueCol.minWidth = 120
+        snippetsTableView.addTableColumn(kindCol)
         snippetsTableView.addTableColumn(nameCol)
         snippetsTableView.addTableColumn(valueCol)
         snippetsTableView.dataSource = self
@@ -685,19 +691,35 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         return check
     }
 
-    /// Ячейка строки сниппета: имя обычным цветом, значение — приглушёнными точками
-    /// (значение в Keychain не показываем; увидеть/изменить — в редакторе).
+    /// Ячейка строки сниппета. Имя — обычным цветом. Значение зависит от типа: у секрета
+    /// прячем точками (значение в Keychain не показываем), у текста показываем как есть,
+    /// у ссылки — акцентным цветом. Открыть ссылку можно из пикера; здесь — только показ.
     private func snippetCell(tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let tableColumn, snippets.indices.contains(row) else { return nil }
         let id = tableColumn.identifier
         let field = (snippetsTableView.makeView(withIdentifier: id, owner: self) as? NSTextField)
             ?? makeLabelCell(identifier: id)
-        if id == SnippetColumn.name {
-            field.stringValue = snippets[row].displayName
-            field.textColor = .labelColor
-        } else {
-            field.stringValue = "••••••"
+        let snippet = snippets[row]
+        if id == SnippetColumn.kind {
+            field.stringValue = L("snippet.kind.\(snippet.kind.rawValue)")
             field.textColor = .secondaryLabelColor
+            field.toolTip = nil
+        } else if id == SnippetColumn.name {
+            field.stringValue = snippet.displayName
+            field.textColor = .labelColor
+            field.toolTip = nil
+        } else {
+            switch snippet.kind {
+            case .secret:
+                field.stringValue = "••••••"
+                field.textColor = .secondaryLabelColor
+                field.toolTip = nil
+            case .text, .link:
+                let value = snippetStore.value(for: snippet.id) ?? ""
+                field.stringValue = value
+                field.textColor = snippet.kind == .link ? .linkColor : .labelColor
+                field.toolTip = value   // полное значение по наведению, когда обрезано хвостом
+            }
         }
         return field
     }

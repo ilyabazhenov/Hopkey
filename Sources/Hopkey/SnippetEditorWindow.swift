@@ -3,9 +3,10 @@ import HopkeyCore
 
 /// Модальное окно (sheet) создания/редактирования одного сниппета.
 ///
-/// Имя видно в списке пикера; значение по умолчанию скрыто (точками) — рядом тумблер
-/// «показать», т.к. это может быть пароль. По «Сохранить» кладёт результат в
-/// `result` (готовый `Snippet` + значение) и закрывает sheet с `.OK`.
+/// Имя видно в списке пикера; тип (секрет/текст/ссылка) задаёт, как показывать значение:
+/// у секрета поле скрыто точками с тумблером «показать», у текста и ссылки — обычное поле.
+/// По «Сохранить» кладёт результат в `result` (готовый `Snippet` + значение) и закрывает
+/// sheet с `.OK`.
 final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelegate {
 
     /// Результат по «Сохранить»: метаданные + значение. Читается после закрытия sheet.
@@ -14,13 +15,28 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
     /// Редактируемый сниппет (для новой записи — свежий id).
     private let editing: Snippet
 
+    /// Порядок сегментов переключателя типа — он же порядок `SnippetKind.allCases`.
+    private static let kinds = SnippetKind.allCases
+    /// Порядок сегментов переключателя действия ссылки — `SnippetLinkAction.allCases`.
+    private static let linkActions = SnippetLinkAction.allCases
+
+    private let kindControl = NSSegmentedControl()
+    /// Действие по умолчанию для ссылки (перейти/скопировать) + его подпись — видны только
+    /// когда тип = ссылка.
+    private let linkActionControl = NSSegmentedControl()
+    private let linkActionCaption = NSTextField(labelWithString: L("snippet.editor.linkAction"))
     private let nameField = NSTextField()
-    /// Два поля значения в одной позиции: защищённое (по умолчанию) и обычное.
+    /// Два поля значения в одной позиции: защищённое (для секрета) и обычное (текст/ссылка).
     /// Показываем одно за раз, держим их значения в синхроне (см. `controlTextDidChange`).
     private let valueField = NSTextField()
     private let secureValueField = NSSecureTextField()
     private let revealToggle = NSButton(checkboxWithTitle: L("snippet.editor.reveal"), target: nil, action: nil)
     private let errorLabel = NSTextField(labelWithString: "")
+
+    /// Вертикальный стек полей и ряд кнопок — нужны для пересчёта высоты окна при смене типа
+    /// (тумблер «показать» появляется/исчезает, и высота содержимого меняется).
+    private var contentStack: NSStackView!
+    private var buttonRow: NSStackView!
 
     init(snippet: Snippet?, value: String) {
         self.editing = snippet ?? Snippet(name: "")
@@ -54,10 +70,24 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
             field.delegate = self
             field.translatesAutoresizingMaskIntoConstraints = false
         }
-        setupField(nameField, editing.name, L("snippet.editor.name.placeholder"))
-        setupField(valueField, value, L("snippet.editor.value.placeholder"))
-        setupField(secureValueField, value, L("snippet.editor.value.placeholder"))
-        valueField.isHidden = true  // по умолчанию показываем защищённое поле
+        // Плейсхолдеры (пример имени и значения) зависят от типа — их ставит applyKind().
+        setupField(nameField, editing.name, "")
+        setupField(valueField, value, "")
+        setupField(secureValueField, value, "")
+        valueField.isHidden = true  // стартовая раскладка задаётся ниже в applyKind()
+
+        // Переключатель типа: Секрет / Текст / Ссылка. Порядок сегментов = `Self.kinds`.
+        configureSegments(kindControl, cases: Self.kinds, selected: editing.kind,
+                          labelPrefix: "snippet.kind.")
+        kindControl.target = self
+        kindControl.action = #selector(kindChanged)
+
+        // Действие по умолчанию для ссылки: Вставить / Перейти / Скопировать.
+        configureSegments(linkActionControl, cases: Self.linkActions, selected: editing.linkAction,
+                          labelPrefix: "snippet.linkAction.")
+        linkActionCaption.font = .systemFont(ofSize: 11)
+        linkActionCaption.textColor = .secondaryLabelColor
+        linkActionCaption.translatesAutoresizingMaskIntoConstraints = false
         // VoiceOver: подписи берём из тех же строк, что и видимые заголовки полей.
         nameField.setAccessibilityLabel(L("snippet.editor.name"))
         valueField.setAccessibilityLabel(L("snippet.editor.value"))
@@ -90,17 +120,22 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [
+            caption(L("snippet.editor.kind")), kindControl,
             caption(L("snippet.editor.name")), nameField,
             caption(L("snippet.editor.value")), valueBox, revealToggle,
+            linkActionCaption, linkActionControl,
             errorLabel,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
+        stack.setCustomSpacing(12, after: kindControl)
         stack.setCustomSpacing(12, after: nameField)
         stack.setCustomSpacing(6, after: valueBox)
-        stack.setCustomSpacing(16, after: revealToggle)
+        stack.setCustomSpacing(12, after: revealToggle)
+        stack.setCustomSpacing(16, after: linkActionControl)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack = stack
 
         let cancelButton = NSButton(title: L("common.cancel"), target: self, action: #selector(cancel))
         cancelButton.keyEquivalent = "\u{1b}"  // Esc
@@ -118,6 +153,7 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
+        self.buttonRow = buttonRow
 
         content.addSubview(stack)
         content.addSubview(buttonRow)
@@ -125,6 +161,8 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            kindControl.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            linkActionControl.widthAnchor.constraint(equalTo: stack.widthAnchor),
             nameField.widthAnchor.constraint(equalTo: stack.widthAnchor),
             valueBox.widthAnchor.constraint(equalTo: stack.widthAnchor),
             buttonRow.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
@@ -132,8 +170,16 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
             buttonRow.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 16),
         ])
 
+        applyKind()  // стартовая раскладка полей под текущий тип
+        resizeToFit()
+    }
+
+    /// Подгоняет высоту окна под текущее содержимое (число видимых полей меняется при смене
+    /// типа — у секрета есть тумблер «показать», у текста/ссылки нет).
+    private func resizeToFit() {
+        guard let window, let content = window.contentView else { return }
         content.layoutSubtreeIfNeeded()
-        let height = 20 + stack.fittingSize.height + 16 + buttonRow.fittingSize.height + 16
+        let height = 20 + contentStack.fittingSize.height + 16 + buttonRow.fittingSize.height + 16
         window.setContentSize(NSSize(width: 420, height: height))
     }
 
@@ -146,6 +192,56 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
         } else if edited === valueField {
             secureValueField.stringValue = valueField.stringValue
         }
+    }
+
+    /// Наполняет сегмент-контрол кейсами enum'а: подписи берутся из локализации по ключу
+    /// `labelPrefix + rawValue`, выделяется сегмент текущего значения. Порядок сегментов =
+    /// порядок `cases`.
+    private func configureSegments<T: Equatable & RawRepresentable>(
+        _ control: NSSegmentedControl, cases: [T], selected: T, labelPrefix: String
+    ) where T.RawValue == String {
+        control.segmentCount = cases.count
+        control.segmentDistribution = .fillEqually
+        control.trackingMode = .selectOne
+        for (i, value) in cases.enumerated() {
+            control.setLabel(L("\(labelPrefix)\(value.rawValue)"), forSegment: i)
+        }
+        control.selectedSegment = cases.firstIndex(of: selected) ?? 0
+        control.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    /// Тип, выбранный в переключателе (с защитой от рассинхрона индекса).
+    private func currentKind() -> SnippetKind {
+        Self.kinds.indices.contains(kindControl.selectedSegment)
+            ? Self.kinds[kindControl.selectedSegment] : .secret
+    }
+
+    @objc private func kindChanged() {
+        applyKind()
+        resizeToFit()  // высота зависит от наличия тумблера «показать»
+    }
+
+    /// Перестраивает поле значения под текущий тип: секрет — точки + тумблер «показать»;
+    /// текст/ссылка — обычное открытое поле (тумблер прячем). Значения полей синхронны.
+    private func applyKind() {
+        let kind = currentKind()
+        let isSecret = kind.isSecret
+        revealToggle.isHidden = !isSecret
+        // Выбор действия по умолчанию имеет смысл только для ссылки.
+        linkActionCaption.isHidden = kind != .link
+        linkActionControl.isHidden = kind != .link
+        // Секрет показываем по состоянию тумблера; текст и ссылку — всегда открытым полем.
+        let showPlain = isSecret ? (revealToggle.state == .on) : true
+        valueField.isHidden = !showPlain
+        secureValueField.isHidden = showPlain
+        let active = showPlain ? valueField : secureValueField
+        let other  = showPlain ? secureValueField : valueField
+        active.stringValue = other.stringValue
+        // Пример имени и значения под выбранный тип (ключи вида ...placeholder.secret/text/link).
+        nameField.placeholderString = L("snippet.editor.name.placeholder.\(kind.rawValue)")
+        let valuePlaceholder = L("snippet.editor.value.placeholder.\(kind.rawValue)")
+        valueField.placeholderString = valuePlaceholder
+        secureValueField.placeholderString = valuePlaceholder
     }
 
     @objc private func toggleReveal() {
@@ -166,6 +262,7 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
     @objc private func save() {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = currentValue()
+        let kind = currentKind()
         if name.isEmpty {
             // Звук + фокус на проблемном поле: красную надпись легко не заметить.
             errorLabel.stringValue = L("snippet.error.emptyName")
@@ -179,7 +276,20 @@ final class SnippetEditorWindowController: NSWindowController, NSTextFieldDelega
             window?.makeFirstResponder(valueField.isHidden ? secureValueField : valueField)
             return
         }
-        result = (Snippet(id: editing.id, name: name), value)
+        // Ссылку без валидного http(s)-адреса не сохраняем: иначе кнопка «открыть» молча
+        // не сработает. Точка нормализации одна и та же, что и при открытии.
+        if kind == .link, Snippet.url(forValue: value) == nil {
+            errorLabel.stringValue = L("snippet.error.invalidURL")
+            NSSound.beep()
+            window?.makeFirstResponder(valueField.isHidden ? secureValueField : valueField)
+            return
+        }
+        // linkAction осмыслен только для ссылки; у секрета/текста фиксируем дефолт, чтобы
+        // не сохранять «залипшее» в скрытом контроле значение.
+        let linkAction: SnippetLinkAction = kind == .link
+            && Self.linkActions.indices.contains(linkActionControl.selectedSegment)
+            ? Self.linkActions[linkActionControl.selectedSegment] : .open
+        result = (Snippet(id: editing.id, name: name, kind: kind, linkAction: linkAction), value)
         endSheet(.OK)
     }
 

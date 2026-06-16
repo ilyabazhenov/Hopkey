@@ -1,18 +1,98 @@
 import Foundation
 import Security
 
+/// Тип сниппета — определяет, как его показывать и что с ним можно делать.
+/// `secret` (по умолчанию) маскируется в UI; `text` показывается как есть;
+/// `link` показывается и его можно открыть в браузере.
+public enum SnippetKind: String, Codable, CaseIterable {
+    case secret
+    case text
+    case link
+
+    /// Маскируется ли значение в интерфейсе (точками вместо текста).
+    public var isSecret: Bool { self == .secret }
+}
+
+/// Действие по умолчанию для сниппета-ссылки — что делает основной выбор (1–9 / ↩ / клик).
+/// Порядок кейсов = порядок сегментов переключателя в редакторе.
+public enum SnippetLinkAction: String, Codable, CaseIterable {
+    /// Вставить ссылку в активное поле.
+    case paste
+    /// Открыть ссылку в браузере.
+    case open
+    /// Скопировать ссылку в буфер обмена.
+    case copy
+
+    /// Действие в пикере, соответствующее этому выбору.
+    public var activation: SnippetActivation {
+        switch self {
+        case .paste: return .paste
+        case .open:  return .open
+        case .copy:  return .copy
+        }
+    }
+}
+
+/// Что делает основной выбор сниппета в пикере (1–9 / ↩ / клик). Чистая логика поверх
+/// типа и `linkAction` — вынесена, чтобы покрыть тестами без UI. Порядок кейсов = порядок
+/// кнопок в строке пикера.
+public enum SnippetActivation: Equatable, CaseIterable {
+    case paste
+    case open
+    case copy
+}
+
 /// Сниппет — заранее заданное значение для быстрой вставки (пароль, ссылка на комнату
-/// и т.п.). Публичный тип для UI несёт только id и имя; само значение хранится отдельно
-/// (см. `SnippetStore`) и наружу отдаётся лишь по явному запросу `value(for:)`.
+/// и т.п.). Публичный тип для UI несёт только id, имя и тип; само значение хранится
+/// отдельно (см. `SnippetStore`) и наружу отдаётся лишь по явному запросу `value(for:)`.
 public struct Snippet: Codable, Equatable {
     /// Стабильный идентификатор (UUID-строкой).
     public var id: String
     /// Видимое имя в списке пикера и настроек.
     public var name: String
+    /// Тип: секрет / текст / ссылка.
+    public var kind: SnippetKind
+    /// Действие по умолчанию для ссылки (перейти/скопировать). Для прочих типов не
+    /// используется.
+    public var linkAction: SnippetLinkAction
 
-    public init(id: String = UUID().uuidString, name: String) {
+    public init(id: String = UUID().uuidString, name: String, kind: SnippetKind = .secret,
+                linkAction: SnippetLinkAction = .open) {
         self.id = id
         self.name = name
+        self.kind = kind
+        self.linkAction = linkAction
+    }
+
+    // Обратносовместимый декод: у legacy-метаданных (в UserDefaults до перехода на блоб)
+    // ключей `kind`/`linkAction` нет — трактуем тип как `.secret`, действие — как `.open`,
+    // иначе декод падает и миграция теряет старые сниппеты.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decodeIfPresent(SnippetKind.self, forKey: .kind) ?? .secret
+        linkAction = try c.decodeIfPresent(SnippetLinkAction.self, forKey: .linkAction) ?? .open
+    }
+
+    /// Что делает основной выбор (1–9 / ↩ / клик): секрет и текст вставляются, ссылка —
+    /// согласно `linkAction` (вставить / перейти / скопировать).
+    public var primaryActivation: SnippetActivation {
+        switch kind {
+        case .secret, .text: return .paste
+        case .link:          return linkAction.activation
+        }
+    }
+
+    /// Все действия, осмысленные для этого сниппета, и кнопки строки пикера. Вставить и
+    /// скопировать доступны всем; открыть — только ссылке. Кнопки показываем для всех явно
+    /// (даже когда действие совпадает с основным по 1–9/↩/клику) — так любое действие под
+    /// рукой; дубликат не мешает, потому что кнопки видны лишь на активной строке.
+    public var availableActivations: [SnippetActivation] {
+        switch kind {
+        case .secret, .text: return [.paste, .copy]
+        case .link:          return [.paste, .open, .copy]
+        }
     }
 
     /// Имя для показа: непустое `name`, иначе плейсхолдер «без имени».
@@ -20,13 +100,49 @@ public struct Snippet: Codable, Equatable {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "—" : trimmed
     }
+
+    /// Нормализует строку значения в URL для открытия: добавляет схему `https://`,
+    /// если она не указана. Возвращает `nil`, если получить валидный http(s)-URL не
+    /// удалось. Вынесено сюда, чтобы логику можно было покрыть тестами.
+    public static func url(forValue value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let url = URL(string: withScheme),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil else { return nil }
+        return url
+    }
 }
 
 /// Внутренняя запись с самим значением — из неё собирается единый JSON-блоб в Keychain.
+/// Декодер обратносовместим: у записей, сохранённых до появления `kind`, ключа нет —
+/// такие сниппеты трактуем как `.secret`, чтобы прежнее поведение (маскировка) сохранилось.
 private struct StoredSnippet: Codable {
     var id: String
     var name: String
     var value: String
+    var kind: SnippetKind
+    var linkAction: SnippetLinkAction
+
+    init(id: String, name: String, value: String, kind: SnippetKind,
+         linkAction: SnippetLinkAction) {
+        self.id = id
+        self.name = name
+        self.value = value
+        self.kind = kind
+        self.linkAction = linkAction
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        value = try c.decode(String.self, forKey: .value)
+        kind = try c.decodeIfPresent(SnippetKind.self, forKey: .kind) ?? .secret
+        linkAction = try c.decodeIfPresent(SnippetLinkAction.self, forKey: .linkAction) ?? .open
+    }
 }
 
 /// Хранилище секретов по строковому ключу. На проде — Keychain (`KeychainStore`);
@@ -94,7 +210,7 @@ public final class SnippetStore {
     public var snippets: [Snippet] {
         lock.lock(); defer { lock.unlock() }
         ensureLoaded()
-        return cache.map { Snippet(id: $0.id, name: $0.name) }
+        return cache.map { Snippet(id: $0.id, name: $0.name, kind: $0.kind, linkAction: $0.linkAction) }
     }
 
     /// Значение сниппета (nil, если не найден). При первом обращении загружает блоб.
@@ -108,7 +224,8 @@ public final class SnippetStore {
     public func upsert(_ snippet: Snippet, value: String) {
         lock.lock(); defer { lock.unlock() }
         ensureLoaded()
-        let record = StoredSnippet(id: snippet.id, name: snippet.name, value: value)
+        let record = StoredSnippet(id: snippet.id, name: snippet.name, value: value,
+                                   kind: snippet.kind, linkAction: snippet.linkAction)
         if let i = cache.firstIndex(where: { $0.id == snippet.id }) {
             cache[i] = record
         } else {
@@ -169,8 +286,10 @@ public final class SnippetStore {
               let oldList = try? JSONDecoder().decode([Snippet].self, from: data),
               !oldList.isEmpty else { return }
 
+        // Legacy-сниппеты появились до типов — все были секретами, переносим как `.secret`.
         cache = oldList.map { StoredSnippet(id: $0.id, name: $0.name,
-                                            value: keychain.value(for: $0.id) ?? "") }
+                                            value: keychain.value(for: $0.id) ?? "",
+                                            kind: $0.kind, linkAction: $0.linkAction) }
         persist()
         oldList.forEach { keychain.delete($0.id) }       // подчищаем старые пер-ключевые записи
         defaults.removeObject(forKey: Key.legacySnippets)

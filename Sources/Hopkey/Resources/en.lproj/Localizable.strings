@@ -56,6 +56,7 @@
 "settings.snippets.intro" = "Snippets are preset values (passwords, links) for quick pasting. Press the hotkey, pick a snippet — and it’s pasted into the active field. Values are stored in the Keychain.";
 "settings.snippets.listLabel" = "Snippets to paste:";
 "settings.snippets.empty" = "Press + to add a snippet";
+"settings.snippets.col.kind" = "Type";
 "settings.snippets.col.name" = "Name";
 "settings.snippets.col.value" = "Value";
 "settings.snippets.deleteTitle" = "Delete snippet “%@”?";
@@ -148,19 +149,34 @@
 /* Snippets picker */
 "snippet.picker.title" = "Paste snippet";
 "snippet.picker.empty" = "No snippets yet. Add them in settings.";
-"snippet.picker.hint" = "↩ / click / 1–9 — paste · button — copy · Esc — close";
+"snippet.picker.hint" = "↩ / click / 1–9 — primary action · ⌘↩ — open link · Esc — close";
 "snippet.picker.copy" = "Copy to clipboard";
+"snippet.picker.open" = "Open link";
+"snippet.picker.paste" = "Paste into field";
 
 /* Snippet editor */
 "snippet.editor.new" = "New snippet";
 "snippet.editor.edit" = "Snippet";
+"snippet.editor.kind" = "Type";
+"snippet.kind.secret" = "Secret";
+"snippet.kind.text" = "Text";
+"snippet.kind.link" = "Link";
+"snippet.editor.linkAction" = "Default action (1–9 / ↩ / click)";
+"snippet.linkAction.paste" = "Paste";
+"snippet.linkAction.open" = "Open";
+"snippet.linkAction.copy" = "Copy";
 "snippet.editor.name" = "Name — shown in the picker list";
-"snippet.editor.name.placeholder" = "Talk room";
+"snippet.editor.name.placeholder.secret" = "VPN password";
+"snippet.editor.name.placeholder.text" = "Work email";
+"snippet.editor.name.placeholder.link" = "Talk room";
 "snippet.editor.value" = "Value — pasted into the active field";
-"snippet.editor.value.placeholder" = "Value to paste";
+"snippet.editor.value.placeholder.secret" = "Password or token";
+"snippet.editor.value.placeholder.text" = "ivan@example.com";
+"snippet.editor.value.placeholder.link" = "https://meet.example.com/room";
 "snippet.editor.reveal" = "Show value";
 "snippet.error.emptyName" = "Enter a name.";
 "snippet.error.emptyValue" = "Enter a value.";
+"snippet.error.invalidURL" = "This doesn't look like a link. Enter an address like https://…";
 
 /* Hotkey recorder */
 "hotkey.recording" = "Press a shortcut…";

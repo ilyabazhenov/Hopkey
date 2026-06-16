@@ -56,6 +56,7 @@
 "settings.snippets.intro" = "Сниппеты — это заранее заданные значения (пароли, ссылки) для быстрой вставки. Нажмите хоткей, выберите сниппет — и он вставится в активное поле. Значения хранятся в Keychain.";
 "settings.snippets.listLabel" = "Сниппеты для вставки:";
 "settings.snippets.empty" = "Нажмите +, чтобы добавить сниппет";
+"settings.snippets.col.kind" = "Тип";
 "settings.snippets.col.name" = "Имя";
 "settings.snippets.col.value" = "Значение";
 "settings.snippets.deleteTitle" = "Удалить сниппет «%@»?";
@@ -148,19 +149,34 @@
 /* Пикер сниппетов */
 "snippet.picker.title" = "Вставить сниппет";
 "snippet.picker.empty" = "Сниппетов нет. Добавьте их в настройках.";
-"snippet.picker.hint" = "↩ / клик / 1–9 — вставить · кнопка — скопировать · Esc — закрыть";
+"snippet.picker.hint" = "↩ / клик / 1–9 — основное действие · ⌘↩ — открыть ссылку · Esc — закрыть";
 "snippet.picker.copy" = "Скопировать в буфер";
+"snippet.picker.open" = "Открыть ссылку";
+"snippet.picker.paste" = "Вставить в поле";
 
 /* Редактор сниппета */
 "snippet.editor.new" = "Новый сниппет";
 "snippet.editor.edit" = "Сниппет";
+"snippet.editor.kind" = "Тип";
+"snippet.kind.secret" = "Секрет";
+"snippet.kind.text" = "Текст";
+"snippet.kind.link" = "Ссылка";
+"snippet.editor.linkAction" = "Действие по умолчанию (1–9 / ↩ / клик)";
+"snippet.linkAction.paste" = "Вставить";
+"snippet.linkAction.open" = "Перейти";
+"snippet.linkAction.copy" = "Скопировать";
 "snippet.editor.name" = "Имя — видно в списке выбора";
-"snippet.editor.name.placeholder" = "Комната в Толке";
+"snippet.editor.name.placeholder.secret" = "Пароль от VPN";
+"snippet.editor.name.placeholder.text" = "Рабочая почта";
+"snippet.editor.name.placeholder.link" = "Комната в Толке";
 "snippet.editor.value" = "Значение — вставляется в активное поле";
-"snippet.editor.value.placeholder" = "Значение для вставки";
+"snippet.editor.value.placeholder.secret" = "Пароль или токен";
+"snippet.editor.value.placeholder.text" = "ivan@example.com";
+"snippet.editor.value.placeholder.link" = "https://meet.example.com/room";
 "snippet.editor.reveal" = "Показать значение";
 "snippet.error.emptyName" = "Укажите имя.";
 "snippet.error.emptyValue" = "Укажите значение.";
+"snippet.error.invalidURL" = "Это не похоже на ссылку. Укажите адрес вида https://…";
 
 /* Рекордер хоткея */
 "hotkey.recording" = "Нажмите комбинацию…";

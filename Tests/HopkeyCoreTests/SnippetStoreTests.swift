@@ -200,4 +200,116 @@ final class SnippetStoreTests: XCTestCase {
         store.deleteAll()
         XCTAssertNil(secrets.storage["all"])
     }
+
+    // MARK: Тип сниппета (kind)
+
+    func testKindDefaultsToSecret() {
+        XCTAssertEqual(Snippet(name: "A").kind, .secret)
+    }
+
+    func testKindIsSecretFlag() {
+        XCTAssertTrue(SnippetKind.secret.isSecret)
+        XCTAssertFalse(SnippetKind.text.isSecret)
+        XCTAssertFalse(SnippetKind.link.isSecret)
+    }
+
+    func testKindRoundTripsThroughStore() {
+        let store = makeStore()
+        store.upsert(Snippet(id: "a", name: "Pass", kind: .secret), value: "p")
+        store.upsert(Snippet(id: "b", name: "Mail", kind: .text), value: "me@x.io")
+        store.upsert(Snippet(id: "c", name: "Room", kind: .link), value: "https://meet.example/abc")
+
+        let reloaded = makeStore()
+        reloaded.prepare()
+        XCTAssertEqual(reloaded.snippets.map(\.kind), [.secret, .text, .link])
+    }
+
+    func testBlobWithoutKindDecodesAsSecret() {
+        // Блоб, записанный до появления `kind` (ключа нет ни у одной записи).
+        secrets.set(#"[{"id":"a","name":"A","value":"va"}]"#, for: "all")
+        let store = makeStore()
+        XCTAssertEqual(store.snippets, [Snippet(id: "a", name: "A", kind: .secret)])
+    }
+
+    func testLinkActionDefaultsToOpen() {
+        XCTAssertEqual(Snippet(name: "Room", kind: .link).linkAction, .open)
+    }
+
+    func testLinkActionRoundTripsThroughStore() {
+        let store = makeStore()
+        store.upsert(Snippet(id: "a", name: "Open", kind: .link, linkAction: .open), value: "https://a.io")
+        store.upsert(Snippet(id: "b", name: "Copy", kind: .link, linkAction: .copy), value: "https://b.io")
+
+        let reloaded = makeStore()
+        reloaded.prepare()
+        XCTAssertEqual(reloaded.snippets.map(\.linkAction), [.open, .copy])
+    }
+
+    func testBlobWithoutLinkActionDecodesAsOpen() {
+        // Блоб с типом link, но без ключа linkAction (формат до этой фичи).
+        secrets.set(#"[{"id":"a","name":"A","value":"https://a.io","kind":"link"}]"#, for: "all")
+        let store = makeStore()
+        XCTAssertEqual(store.snippets.first?.linkAction, .open)
+    }
+
+    func testPrimaryActivation() {
+        XCTAssertEqual(Snippet(name: "p", kind: .secret).primaryActivation, .paste)
+        XCTAssertEqual(Snippet(name: "t", kind: .text).primaryActivation, .paste)
+        XCTAssertEqual(Snippet(name: "v", kind: .link, linkAction: .paste).primaryActivation, .paste)
+        XCTAssertEqual(Snippet(name: "o", kind: .link, linkAction: .open).primaryActivation, .open)
+        XCTAssertEqual(Snippet(name: "c", kind: .link, linkAction: .copy).primaryActivation, .copy)
+        // linkAction у не-ссылки на основное действие не влияет.
+        XCTAssertEqual(Snippet(name: "s", kind: .secret, linkAction: .copy).primaryActivation, .paste)
+    }
+
+    func testAvailableActivations() {
+        // Секрет/текст: вставить + скопировать. Ссылка: ещё и открыть. Кнопки в строке —
+        // ровно эти действия (вне зависимости от того, какое из них основное).
+        XCTAssertEqual(Snippet(name: "s", kind: .secret).availableActivations, [.paste, .copy])
+        XCTAssertEqual(Snippet(name: "t", kind: .text).availableActivations, [.paste, .copy])
+        XCTAssertEqual(Snippet(name: "l", kind: .link).availableActivations, [.paste, .open, .copy])
+    }
+
+    func testLegacyMigrationDefaultsToSecret() {
+        seedLegacy([(id: "a", name: "A", value: "va")])
+        let store = makeStore()
+        store.prepare()
+        XCTAssertEqual(store.snippets.first?.kind, .secret)
+    }
+
+    // MARK: Нормализация URL для открытия ссылок
+
+    func testURLForValueAddsHttpsWhenSchemeMissing() {
+        XCTAssertEqual(Snippet.url(forValue: "meet.example.com/abc"),
+                       URL(string: "https://meet.example.com/abc"))
+    }
+
+    func testURLForValueKeepsExistingScheme() {
+        XCTAssertEqual(Snippet.url(forValue: "http://example.com"),
+                       URL(string: "http://example.com"))
+    }
+
+    func testURLForValueTrimsWhitespace() {
+        XCTAssertEqual(Snippet.url(forValue: "  https://example.com  "),
+                       URL(string: "https://example.com"))
+    }
+
+    func testURLForValueRejectsNonHTTPAndEmpty() {
+        XCTAssertNil(Snippet.url(forValue: ""))
+        XCTAssertNil(Snippet.url(forValue: "   "))
+        XCTAssertNil(Snippet.url(forValue: "ftp://example.com"))
+        XCTAssertNil(Snippet.url(forValue: "not a url"))
+    }
+
+    func testURLForValuePreservesPathAndQuery() {
+        XCTAssertEqual(Snippet.url(forValue: "alfabank.ktalk.ru/ibazhenov"),
+                       URL(string: "https://alfabank.ktalk.ru/ibazhenov"))
+        XCTAssertEqual(Snippet.url(forValue: "https://x.io/room?id=1&t=2"),
+                       URL(string: "https://x.io/room?id=1&t=2"))
+    }
+
+    func testURLForValueAcceptsUppercaseScheme() {
+        // Схема сравнивается без учёта регистра — «HTTPS://…» должен открываться.
+        XCTAssertEqual(Snippet.url(forValue: "HTTPS://example.com")?.host, "example.com")
+    }
 }

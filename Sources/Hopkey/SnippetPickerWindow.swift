@@ -14,6 +14,8 @@ private final class SnippetPickerPanel: NSPanel {
 /// соответствующего сниппета, Esc отдаём панели (закрытие).
 private final class SnippetTableView: NSTableView {
     var onConfirm: (() -> Void)?
+    /// ⌘↩ по выделенной строке — открыть ссылку (для не-ссылок ничего не делает).
+    var onOpen: (() -> Void)?
     var onDigit: ((Int) -> Void)?
     /// Строка под курсором (или -1, если курсор вне строк) — для hover-подсветки.
     var onHover: ((Int) -> Void)?
@@ -47,27 +49,55 @@ private final class SnippetTableView: NSTableView {
         }
         switch Int(event.keyCode) {
         case 36, 76:  // Return / keypad Enter
-            onConfirm?()
+            // С ⌘ — открыть ссылку, без модификаторов — вставить.
+            if mods == .command { onOpen?() } else { onConfirm?() }
         default:
             super.keyDown(with: event)  // в т.ч. Esc (53) → cancelOperation панели
         }
     }
 }
 
-/// Строка списка: имя слева + иконка-кнопка «скопировать» справа. Имя — некликабельная
-/// метка, поэтому клик по строке доходит до таблицы (→ вставка), а клик по кнопке
-/// обрабатывает сама кнопка (→ копирование), без конфликта действий.
+/// Строка списка: номер быстрого выбора + иконка типа + имя слева, кнопки всех доступных
+/// действий справа (вставить/скопировать всем, открыть — ссылкам). Кнопки видны только на
+/// активной строке. Имя — некликабельная метка, поэтому клик по строке доходит до таблицы
+/// (→ основное действие), а клики по кнопкам обрабатывают сами кнопки, без конфликта действий.
 private final class SnippetRowView: NSView {
     /// Номер для быстрого выбора (1–9) в виде брендового колпачка клавиши; пусто для строк
     /// за пределами девяти.
     let indexBadge = KeycapBadge()
+    /// Иконка типа сниппета (ключ / текст / ссылка) — узнаётся с одного взгляда.
+    let typeIcon = NSImageView()
     let nameField = NSTextField(labelWithString: "")
+    let pasteButton = NSButton()
+    let openButton = NSButton()
     let copyButton = NSButton()
+
+    /// Иконка SF Symbols для типа сниппета.
+    static func symbol(for kind: SnippetKind) -> String {
+        switch kind {
+        case .secret: return "key.fill"
+        case .text:   return "text.alignleft"
+        case .link:   return "link"
+        }
+    }
+
+    /// Кнопка строки, отвечающая за конкретное действие.
+    func button(for activation: SnippetActivation) -> NSButton {
+        switch activation {
+        case .paste: return pasteButton
+        case .open:  return openButton
+        case .copy:  return copyButton
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
         indexBadge.translatesAutoresizingMaskIntoConstraints = false
+
+        typeIcon.imageScaling = .scaleProportionallyDown
+        typeIcon.contentTintColor = .secondaryLabelColor
+        typeIcon.translatesAutoresizingMaskIntoConstraints = false
 
         nameField.isEditable = false
         nameField.isSelectable = false
@@ -78,19 +108,28 @@ private final class SnippetRowView: NSView {
         nameField.font = .systemFont(ofSize: 13, weight: .medium)
         nameField.translatesAutoresizingMaskIntoConstraints = false
 
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc",
-                                   accessibilityDescription: L("snippet.picker.copy"))
-        copyButton.imagePosition = .imageOnly
-        copyButton.isBordered = false
-        copyButton.bezelStyle = .accessoryBarAction
-        copyButton.contentTintColor = .secondaryLabelColor
-        copyButton.toolTip = L("snippet.picker.copy")
-        copyButton.setButtonType(.momentaryChange)
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
+        // Иконки намеренно с разными силуэтами: «вставить» — стрелка-в-документ (значение
+        // «опускается» в поле), «открыть» — стрелка наружу, «копировать» — два документа.
+        // Иначе вставка и копирование (оба «doc.on.…») сливаются на 24px.
+        configureIconButton(pasteButton, symbol: "arrow.down.doc",
+                            tooltip: L("snippet.picker.paste"))
+        configureIconButton(openButton, symbol: "arrow.up.right.square",
+                            tooltip: L("snippet.picker.open"))
+        configureIconButton(copyButton, symbol: "doc.on.doc",
+                            tooltip: L("snippet.picker.copy"))
+
+        // Трейлинг-стек: скрытые кнопки (действия, недоступные строке или являющиеся
+        // основным) схлопываются, отступ под имя считается автоматически — без ручного
+        // управления шириной в переиспользуемой строке.
+        let buttons = NSStackView(views: [pasteButton, openButton, copyButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = 2
+        buttons.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(indexBadge)
+        addSubview(typeIcon)
         addSubview(nameField)
-        addSubview(copyButton)
+        addSubview(buttons)
         NSLayoutConstraint.activate([
             // Отступы больше скругления выделения (dx:6 в SnippetRowBackground), иначе текст
             // и иконка вылезают за края скруглённой подсветки и кажутся подрезанными.
@@ -98,14 +137,29 @@ private final class SnippetRowView: NSView {
             indexBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
             indexBadge.widthAnchor.constraint(equalToConstant: 20),
             indexBadge.heightAnchor.constraint(equalToConstant: 20),
-            nameField.leadingAnchor.constraint(equalTo: indexBadge.trailingAnchor, constant: 8),
+            typeIcon.leadingAnchor.constraint(equalTo: indexBadge.trailingAnchor, constant: 8),
+            typeIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            typeIcon.widthAnchor.constraint(equalToConstant: 16),
+            typeIcon.heightAnchor.constraint(equalToConstant: 16),
+            nameField.leadingAnchor.constraint(equalTo: typeIcon.trailingAnchor, constant: 6),
             nameField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            copyButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            copyButton.widthAnchor.constraint(equalToConstant: 24),
-            copyButton.heightAnchor.constraint(equalToConstant: 24),
-            nameField.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -8),
+            buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            buttons.centerYAnchor.constraint(equalTo: centerYAnchor),
+            nameField.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -8),
         ])
+    }
+
+    private func configureIconButton(_ button: NSButton, symbol: String, tooltip: String) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.bezelStyle = .accessoryBarAction
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = tooltip
+        button.setButtonType(.momentaryChange)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
@@ -146,11 +200,15 @@ private final class SnippetRowBackground: NSTableRowView {
 }
 
 /// Окно-пикер сниппетов: по хоткею показывает список заранее заданных значений.
-/// Клик по строке (или ↩ по выделенной) — вставить в активное поле (`onPick`); кнопка
-/// «скопировать» в строке — положить значение в буфер (`onCopy`); Esc закрывает.
+///
+/// Клик по строке / ↩ / цифра 1–9 выполняют ОСНОВНОЕ действие сниппета
+/// (`Snippet.primaryActivation`): секрет и текст вставляются (`onPick`), ссылка — её
+/// действие по умолчанию (вставить/перейти `onOpen`/скопировать `onCopy`). В строке есть
+/// явные кнопки всех доступных действий (вставить/скопировать у всех, открыть — у ссылок),
+/// видимые только на активной строке. ⌘↩ открывает выделенную ссылку. Esc закрывает.
 /// Окно можно ресайзить, размер запоминается.
 ///
-/// Саму вставку/копирование (Keychain → буфер → Cmd+V) делает AppDelegate — окно лишь
+/// Само действие (Keychain → буфер → Cmd+V / открытие URL) делает AppDelegate — окно лишь
 /// показывает имена и сообщает выбранное действие.
 final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
                                            NSTableViewDataSource, NSTableViewDelegate {
@@ -160,6 +218,8 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     var onPick: ((Snippet) -> Void)?
     /// Выбран сниппет для копирования в буфер (без вставки).
     var onCopy: ((Snippet) -> Void)?
+    /// Выбран сниппет-ссылка для открытия в браузере.
+    var onOpen: ((Snippet) -> Void)?
 
     private let tableView = SnippetTableView()
     private let scroll = NSScrollView()
@@ -174,6 +234,8 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     private var snippets: [Snippet] = []
     /// Строка под курсором для hover-подсветки (-1 — нет).
     private var hoveredRow = -1
+    /// Прошлая выделенная строка — чтобы при смене выделения обновить кнопки и у неё тоже.
+    private var lastSelectedRow = -1
     /// Защита от двойного действия за один показ (клик по кнопке и по строке и т.п.).
     private var finished = false
 
@@ -266,6 +328,7 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         // Одиночный клик по строке — выбрать и вставить (выбор = действие).
         tableView.action = #selector(tableClicked)
         tableView.onConfirm = { [weak self] in self?.confirmSelection() }
+        tableView.onOpen = { [weak self] in self?.openSelection() }
         tableView.onDigit = { [weak self] digit in self?.pickByDigit(digit) }
         tableView.onHover = { [weak self] row in self?.setHovered(row) }
 
@@ -334,12 +397,14 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     func show() {
         finished = false
         hoveredRow = -1
+        lastSelectedRow = -1
         snippets = store.snippets
         tableView.reloadData()
         emptyStack.isHidden = !snippets.isEmpty
         hintLabel.isHidden = snippets.isEmpty
         if !snippets.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            lastSelectedRow = 0
         }
         fitWindow()
 
@@ -390,6 +455,8 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     }
 
     /// Обновляет hover-подсветку: гасим прежнюю строку, подсвечиваем новую под курсором.
+    /// Кнопки действий показываем только на активной (выделенной/наведённой) строке, поэтому
+    /// при смене hover пересобираем их видимость у обеих строк.
     private func setHovered(_ row: Int) {
         guard row != hoveredRow else { return }
         let previous = hoveredRow
@@ -397,38 +464,89 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         for r in [previous, row] where snippets.indices.contains(r) {
             (tableView.rowView(atRow: r, makeIfNecessary: false) as? SnippetRowBackground)?
                 .isHovered = (r == row)
+            refreshButtons(forRow: r)
         }
+    }
+
+    /// Активна ли строка для показа кнопок: выделена или под курсором.
+    private func isActiveRow(_ row: Int) -> Bool {
+        row == tableView.selectedRow || row == hoveredRow
+    }
+
+    /// Проставляет видимость кнопок строки: только на активной строке и только для её
+    /// доступных действий (см. `Snippet.availableActivations`).
+    private func applyButtons(to cell: SnippetRowView, snippet: Snippet, active: Bool) {
+        let actions = snippet.availableActivations
+        for activation in SnippetActivation.allCases {
+            cell.button(for: activation).isHidden = !(active && actions.contains(activation))
+        }
+    }
+
+    /// Пересобирает видимость кнопок уже размещённой строки (без перезагрузки ячейки).
+    private func refreshButtons(forRow row: Int) {
+        guard snippets.indices.contains(row),
+              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                  as? SnippetRowView else { return }
+        applyButtons(to: cell, snippet: snippets[row], active: isActiveRow(row))
     }
 
     // MARK: - Действия
 
-    /// Клик мышью по строке (не по кнопке) — вставить именно эту строку.
+    /// Выполняет конкретное действие над сниппетом — единая точка маршрутизации в колбэки.
+    private func dispatch(_ activation: SnippetActivation, _ snippet: Snippet) {
+        switch activation {
+        case .paste: onPick?(snippet)
+        case .open:  onOpen?(snippet)
+        case .copy:  onCopy?(snippet)
+        }
+    }
+
+    /// Основной выбор строки (клик / ↩ / 1–9): для секрета и текста — вставить, для ссылки —
+    /// её действие по умолчанию (вставить / перейти / скопировать).
+    private func activate(_ snippet: Snippet) {
+        dispatch(snippet.primaryActivation, snippet)
+    }
+
+    /// Клик по кнопке действия в строке: тег кнопки — номер строки.
+    private func buttonAction(_ sender: NSButton, _ activation: SnippetActivation) {
+        let row = sender.tag
+        guard snippets.indices.contains(row) else { return }
+        finish { self.dispatch(activation, self.snippets[row]) }
+    }
+
+    /// Клик мышью по строке (не по кнопке) — основное действие именно этой строки.
     @objc private func tableClicked() {
         let row = tableView.clickedRow
         guard snippets.indices.contains(row) else { return }
-        finish { self.onPick?(self.snippets[row]) }
+        finish { self.activate(self.snippets[row]) }
     }
 
-    /// Подтверждение с клавиатуры (↩) — вставить выделенную строку.
+    /// Подтверждение с клавиатуры (↩) — основное действие выделенной строки.
     @objc private func confirmSelection() {
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { NSSound.beep(); return }
-        finish { self.onPick?(self.snippets[row]) }
+        finish { self.activate(self.snippets[row]) }
     }
 
-    /// Быстрый выбор цифрой 1–9 — вставить N-й сниппет.
+    /// Быстрый выбор цифрой 1–9 — основное действие N-го сниппета.
     private func pickByDigit(_ digit: Int) {
         guard let row = SnippetQuickSelect.index(forDigit: digit, count: snippets.count) else {
             NSSound.beep(); return
         }
-        finish { self.onPick?(self.snippets[row]) }
+        finish { self.activate(self.snippets[row]) }
     }
 
-    /// Кнопка «скопировать» в строке — положить значение в буфер (без вставки).
-    @objc private func copyClicked(_ sender: NSButton) {
-        let row = sender.tag
-        guard snippets.indices.contains(row) else { return }
-        finish { self.onCopy?(self.snippets[row]) }
+    @objc private func pasteClicked(_ sender: NSButton) { buttonAction(sender, .paste) }
+    @objc private func copyClicked(_ sender: NSButton) { buttonAction(sender, .copy) }
+    @objc private func openClicked(_ sender: NSButton) { buttonAction(sender, .open) }
+
+    /// ⌘↩ по выделенной строке — открыть, если это ссылка; иначе сигнал.
+    private func openSelection() {
+        let row = tableView.selectedRow
+        guard snippets.indices.contains(row), snippets[row].kind == .link else {
+            NSSound.beep(); return
+        }
+        finish { self.dispatch(.open, self.snippets[row]) }
     }
 
     /// Закрывает окно и выполняет действие (порядок важен: закрытие вернёт ключевое окно
@@ -443,6 +561,14 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     // MARK: - Таблица
 
     func numberOfRows(in tableView: NSTableView) -> Int { snippets.count }
+
+    /// Стрелками двигают выделение — обновляем кнопки у потерявшей и получившей выделение строк.
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        let new = tableView.selectedRow
+        let previous = lastSelectedRow
+        lastSelectedRow = new
+        for r in [previous, new] { refreshButtons(forRow: r) }
+    }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let id = NSUserInterfaceItemIdentifier("snippetRowBg")
@@ -461,8 +587,12 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
             ?? {
                 let v = SnippetRowView()
                 v.identifier = Self.rowID
+                v.pasteButton.target = self
+                v.pasteButton.action = #selector(pasteClicked(_:))
                 v.copyButton.target = self
                 v.copyButton.action = #selector(copyClicked(_:))
+                v.openButton.target = self
+                v.openButton.action = #selector(openClicked(_:))
                 return v
             }()
         // НИКОГДА не возвращаем nil для строки, которую таблица раскладывает: иначе у строки
@@ -471,18 +601,28 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         // пропадает и иконка в строке меню). Для невалидного индекса отдаём пустую ячейку.
         guard snippets.indices.contains(row) else {
             cell.indexBadge.value = ""
+            cell.typeIcon.image = nil
             cell.nameField.stringValue = ""
             cell.nameField.toolTip = nil
             cell.setAccessibilityLabel(nil)
-            cell.copyButton.tag = -1
+            for activation in SnippetActivation.allCases {
+                let button = cell.button(for: activation)
+                button.isHidden = true
+                button.tag = -1
+            }
             return cell
         }
-        let name = snippets[row].displayName
+        let snippet = snippets[row]
+        let name = snippet.displayName
         cell.indexBadge.value = SnippetQuickSelect.label(forRow: row)  // номер для быстрого выбора
+        cell.typeIcon.image = NSImage(systemSymbolName: SnippetRowView.symbol(for: snippet.kind),
+                                      accessibilityDescription: nil)
         cell.nameField.stringValue = name
         cell.nameField.toolTip = name   // полное имя по наведению, когда оно обрезано хвостом
         cell.setAccessibilityLabel(name)
-        cell.copyButton.tag = row  // действие кнопки знает свою строку
+        // Тэг (номер строки) держим на всех кнопках, а видимость — только на активной строке.
+        for activation in SnippetActivation.allCases { cell.button(for: activation).tag = row }
+        applyButtons(to: cell, snippet: snippet, active: isActiveRow(row))
         return cell
     }
 }
