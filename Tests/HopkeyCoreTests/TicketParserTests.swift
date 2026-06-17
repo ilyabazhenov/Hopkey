@@ -35,6 +35,18 @@ final class TicketParserTests: XCTestCase {
         XCTAssertEqual(ids("see PROJ-1 and PROJ-2 and again PROJ-1", [jira()]), ["PROJ-1", "PROJ-2"])
     }
 
+    // Префилл окна ввода: выделенная masked-ссылка из нативного Telegram приходит как
+    // «ключ (URL)» — ключ встречается дважды, должен схлопнуться в один матч.
+    func testMaskedLinkTextWithURL() {
+        let s = "PROJ-41102 (https://jira.example.com/browse/PROJ-41102)"
+        XCTAssertEqual(ids(s, [jira()]), ["PROJ-41102"])
+    }
+
+    // Префилл: выделен голый URL задачи — ключ всё равно извлекается.
+    func testBareBrowseURL() {
+        XCTAssertEqual(ids("https://jira.example.com/browse/PROJ-41102", [jira()]), ["PROJ-41102"])
+    }
+
     func testWholeWordRejectsGluedPrefix() {
         XCTAssertTrue(ids("XPROJ-1", [jira()]).isEmpty)
         XCTAssertTrue(ids("PROJ-1X", [jira()]).isEmpty)

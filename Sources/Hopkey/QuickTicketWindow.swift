@@ -247,22 +247,28 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
     /// Показывает окно поверх остальных и ставит фокус в поле ввода.
     /// Приложение работает как `.accessory`, поэтому без `NSApp.activate` панель
     /// не получит клавиатурный фокус (тот же приём, что и в окне настроек).
-    /// Если окно уже открыто (повторное нажатие хоткея) — не сбрасываем введённое.
     /// - Parameter prefill: текст для подстановки в поле при открытии (например, голое число
-    ///   из выделения/буфера). Подставляется только когда окно открывается заново.
+    ///   из выделения/буфера).
+    ///
+    /// Свежий непустой префилл подставляем всегда — в том числе когда окно уже открыто
+    /// (пользователь выделил другой текст и повторил хоткей: ожидается, что в поле окажется
+    /// новое выделение, а не старое). Если же окно уже открыто, а нового префилла нет
+    /// (пустой/nil) — сохраняем то, что пользователь успел ввести вручную, и не сбрасываем.
     func showWindow(prefill: String? = nil) {
         let wasVisible = window?.isVisible ?? false
-        if !wasVisible {
+        let hasPrefill = !(prefill ?? "").isEmpty
+        let applyPrefill = !wasVisible || hasPrefill
+        if applyPrefill {
             input.stringValue = prefill ?? ""
             preparePicker()
         }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        if !wasVisible {
+        if applyPrefill {
             window?.makeFirstResponder(input)
             // Подставленное выделяем: ↩ откроет сразу, а ввод цифр заменит его.
-            if !(prefill ?? "").isEmpty { input.selectText(nil) }
+            if hasPrefill { input.selectText(nil) }
         }
     }
 

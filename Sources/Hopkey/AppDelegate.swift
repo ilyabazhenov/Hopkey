@@ -349,9 +349,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Выделенный текст как кандидат на префилл: один «токен» без внутренних пробелов
-    /// и не длиннее 40 символов (`PROJ-123`, `#42`, `12345`); иначе nil.
+    /// Выделенный текст как кандидат на префилл. Сначала пытаемся вытащить ключ по
+    /// включённым шаблонам — тогда срабатывают и «грязные» строки: `…/browse/PROJ-123`
+    /// (полный URL) и `PROJ-123 (https://…/browse/PROJ-123)` — именно так копирование
+    /// masked-ссылки отдаёт нативный Telegram (версия с сайта, не из App Store).
+    /// Иначе — один «токен» без внутренних пробелов и не длиннее 40 символов
+    /// (`#42`, `12345`); иначе nil.
     private func prefillToken(_ raw: String) -> String? {
+        if let match = TicketParser.matches(in: raw, templates: config.templates).first {
+            return match.id
+        }
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, t.count <= 40, !t.contains(where: \.isWhitespace) else { return nil }
         return t
