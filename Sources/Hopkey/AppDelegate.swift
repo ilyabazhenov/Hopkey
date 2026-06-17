@@ -184,26 +184,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Меню статично: действия с буфером и служебные пункты. Все переключатели
         // (авто-открытие, хоткеи, запуск при входе) живут в окне «Настройки…».
         let menu = NSMenu()
-        menu.addItem(withTitle: L("status.openFromClipboard"), action: #selector(openFromClipboard), keyEquivalent: "")
-        menu.addItem(withTitle: L("status.copyFromClipboard"), action: #selector(copyFromClipboard), keyEquivalent: "")
-        menu.addItem(withTitle: L("status.openByKey"), action: #selector(openQuickTicket), keyEquivalent: "")
-        menu.addItem(withTitle: L("status.pasteSnippet"), action: #selector(openSnippetPicker), keyEquivalent: "")
+        // У каждого пункта своя SF Symbol-иконка. Раз картинка есть у всех пунктов,
+        // NSMenu всё равно резервирует колонку — текст выровнен, ничего не «прыгает».
+        addStatusItem(menu, L("status.openFromClipboard"), #selector(openFromClipboard), symbol: "arrow.up.forward.app")
+        addStatusItem(menu, L("status.copyFromClipboard"), #selector(copyFromClipboard), symbol: "doc.on.clipboard")
+        addStatusItem(menu, L("status.openByKey"), #selector(openQuickTicket), symbol: "magnifyingglass")
+        addStatusItem(menu, L("status.pasteSnippet"), #selector(openSnippetPicker), symbol: "text.badge.plus")
         menu.addItem(.separator())
-        // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает
-        // шестерёнку (gearshape). Любая иконка у одного пункта заставляет NSMenu
-        // зарезервировать колонку под картинки и сдвинуть текст всех пунктов вправо.
-        // image = nil здесь не держится: система перерисовывает иконку при показе,
-        // поэтому окончательно гасим её в menuNeedsUpdate (см. NSMenuDelegate ниже).
-        menu.addItem(withTitle: L("status.settings"), action: #selector(openSettings), keyEquivalent: "")
-        menu.addItem(withTitle: L("status.checkUpdates"), action: #selector(checkForUpdates), keyEquivalent: "")
+        // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает свою
+        // шестерёнку. Ставим собственную иконку явно — она перебивает авто-картинку
+        // (систему она всё равно перерисовывает при показе, поэтому переустанавливаем
+        // нужные иконки в menuNeedsUpdate, см. NSMenuDelegate ниже).
+        addStatusItem(menu, L("status.settings"), #selector(openSettings), symbol: "gearshape")
+        addStatusItem(menu, L("status.checkUpdates"), #selector(checkForUpdates), symbol: "arrow.triangle.2.circlepath")
         menu.addItem(.separator())
-        menu.addItem(withTitle: L("status.quit"), action: #selector(quit), keyEquivalent: "")
-
-        for item in menu.items where item.action != nil {
-            item.target = self
-        }
+        addStatusItem(menu, L("status.quit"), #selector(quit), symbol: "power")
         menu.delegate = self
         statusItem.menu = menu
+    }
+
+    /// Добавляет пункт меню статус-бара с SF Symbol-иконкой и таргетом на self.
+    @discardableResult
+    private func addStatusItem(_ menu: NSMenu, _ title: String, _ action: Selector, symbol: String) -> NSMenuItem {
+        let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+        item.target = self
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        image?.isTemplate = true
+        item.image = image
+        return item
     }
 
     // MARK: - Действия меню
@@ -446,13 +454,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - NSMenuDelegate
 
 extension AppDelegate: NSMenuDelegate {
-    /// Вызывается прямо перед показом меню — последняя точка, где можно убрать
-    /// авто-шестерёнку, которую macOS навешивает на пункт «Настройки…».
-    /// Гасим иконки у всех пунктов, чтобы NSMenu не резервировал колонку под
-    /// картинки и не сдвигал текст влево.
+    /// Вызывается прямо перед показом меню. macOS опознаёт пункт «Настройки…» как
+    /// стандартный и при каждом показе перерисовывает на нём свою авто-шестерёнку,
+    /// затирая нашу. Переустанавливаем собственную gearshape, чтобы стиль иконки
+    /// был единым со всеми остальными пунктами.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        for item in menu.items where item.image != nil {
-            item.image = nil
+        for item in menu.items where item.action == #selector(openSettings) {
+            let image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: item.title)
+            image?.isTemplate = true
+            item.image = image
         }
     }
 }
