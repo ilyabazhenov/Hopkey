@@ -10,6 +10,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKey = HotKeyManager()
     private let notifications = NotificationManager()
     private let updater = UpdaterController()
+    private let mic = MicrophoneController()
+    private let keepAwake = KeepAwakeController()
+    /// Монитор нажатий модификаторов + детектор двойного тапа для вызова панели.
+    /// Пересоздаются при смене триггера (см. `setupPaletteTrigger`).
+    private var flagsMonitor: FlagsChangedMonitor?
+    private var doubleTapDetector: DoubleTapDetector?
+    private lazy var commandPanel = CommandPanelWindowController()
+    /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
+    private lazy var commands: [ToolboxCommand] = buildCommands()
+    /// Команды, чью прямую комбинацию не удалось зарегистрировать (занята).
+    private var failedCommandHotKeys: Set<CommandID> = []
     private lazy var settings: SettingsWindowController = {
         let controller = SettingsWindowController(config: config, updater: updater)
         // Окно настроек само опрашивает статус регистрации, чтобы показать предупреждение
@@ -56,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupStatusItem()
 
+        // Иконка статус-бара отражает мьют микрофона (перечёркнутый микрофон при мьюте).
+        mic.onStateChange = { [weak self] _ in self?.updateStatusIcon() }
+
         clipboard.onChange = { [weak self] text in self?.handle(text) }
         clipboard.start()
 
@@ -63,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: false) }
             registerHotKeys()
         }
+        setupPaletteTrigger()
 
         settings.onSave = { [weak self] in self?.applyConfig() }
 
@@ -172,35 +187,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Меню НЕ вешаем на statusItem: левый клик открывает панель команд, правый / ⌥-клик —
+        // меню (см. `statusItemClicked`). Иначе AppKit сам открывал бы меню на любой клик.
         if let button = statusItem.button {
-            let image = NSImage(named: "MenuBarIcon")
-                ?? NSImage(systemSymbolName: "ticket", accessibilityDescription: "Hopkey")
-            image?.isTemplate = true
-            image?.size = NSSize(width: 18, height: 18)
-            button.image = image
             button.imagePosition = .imageOnly
             button.toolTip = L("status.tooltip")
+            button.target = self
+            button.action = #selector(statusItemClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        // Меню статично: действия с буфером и служебные пункты. Все переключатели
-        // (авто-открытие, хоткеи, запуск при входе) живут в окне «Настройки…».
+        updateStatusIcon()
+    }
+
+    /// Иконка статус-бара: перечёркнутый микрофон при мьюте (индикатор состояния без открытия
+    /// панели), иначе штатная брендовая марка. Меню-бар рисует template-иконку монохромно.
+    private func updateStatusIcon() {
+        guard let button = statusItem.button else { return }
+        let image: NSImage?
+        if mic.isMuted {
+            image = NSImage(systemSymbolName: "mic.slash.fill", accessibilityDescription: L("status.micMuted"))
+        } else {
+            image = NSImage(named: "MenuBarIcon")
+                ?? NSImage(systemSymbolName: "ticket", accessibilityDescription: "Hopkey")
+        }
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        button.image = image
+    }
+
+    /// Левый клик — панель команд; правый или ⌥-клик — меню со служебными пунктами.
+    @objc private func statusItemClicked() {
+        let event = NSApp.currentEvent
+        let wantsMenu = event?.type == .rightMouseUp
+            || (event?.modifierFlags.contains(.option) ?? false)
+        if wantsMenu {
+            showStatusMenu()
+        } else {
+            openCommandPanel()
+        }
+    }
+
+    /// Показывает меню под иконкой нативно: временно вешаем его на statusItem и «кликаем».
+    private func showStatusMenu() {
+        let menu = buildStatusMenu()
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil  // снимаем, чтобы левый клик снова открывал панель
+    }
+
+    /// Меню статус-бара строится из реестра команд (с состоянием тумблеров) + служебные пункты.
+    private func buildStatusMenu() -> NSMenu {
         let menu = NSMenu()
-        // У каждого пункта своя SF Symbol-иконка. Раз картинка есть у всех пунктов,
-        // NSMenu всё равно резервирует колонку — текст выровнен, ничего не «прыгает».
+        menu.delegate = self  // menuNeedsUpdate переустанавливает иконку «Настройки…» (macOS её затирает)
         addStatusItem(menu, L("status.openFromClipboard"), #selector(openFromClipboard), symbol: "arrow.up.forward.app")
         addStatusItem(menu, L("status.copyFromClipboard"), #selector(copyFromClipboard), symbol: "doc.on.clipboard")
-        addStatusItem(menu, L("status.openByKey"), #selector(openQuickTicket), symbol: "magnifyingglass")
-        addStatusItem(menu, L("status.pasteSnippet"), #selector(openSnippetPicker), symbol: "text.badge.plus")
         menu.addItem(.separator())
-        // macOS сам опознаёт «Настройки…» как стандартный пункт и навешивает свою
-        // шестерёнку. Ставим собственную иконку явно — она перебивает авто-картинку
-        // (систему она всё равно перерисовывает при показе, поэтому переустанавливаем
-        // нужные иконки в menuNeedsUpdate, см. NSMenuDelegate ниже).
+        for command in commands {
+            let item = menu.addItem(withTitle: command.title(),
+                                    action: #selector(runCommandFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = command.id.rawValue
+            let image = NSImage(systemSymbolName: command.symbol(), accessibilityDescription: command.title())
+            image?.isTemplate = true
+            item.image = image
+            if command.isOn() == true { item.state = .on }
+        }
+        menu.addItem(.separator())
         addStatusItem(menu, L("status.settings"), #selector(openSettings), symbol: "gearshape")
         addStatusItem(menu, L("status.checkUpdates"), #selector(checkForUpdates), symbol: "arrow.triangle.2.circlepath")
         menu.addItem(.separator())
         addStatusItem(menu, L("status.quit"), #selector(quit), symbol: "power")
-        menu.delegate = self
-        statusItem.menu = menu
+        return menu
+    }
+
+    @objc private func runCommandFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let id = CommandID(rawValue: raw),
+              let command = commands.first(where: { $0.id == id }) else { return }
+        command.run()
+    }
+
+    /// Открывает панель команд с актуальным набором. Неактивирующая панель не крадёт фокус
+    /// у переднего приложения — важно для вставки/сниппетов.
+    private func openCommandPanel() {
+        commandPanel.show(commands: commands)
     }
 
     /// Добавляет пункт меню статус-бара с SF Symbol-иконкой и таргетом на self.
@@ -232,15 +302,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         perform(action, on: matches)
-    }
-
-    @objc private func openQuickTicket() {
-        // Из меню: префилл из буфера, если там голое число — без Accessibility (буфер читать можно).
-        quickTicket.showWindow(prefill: clipboardBareNumber())
-    }
-
-    @objc private func openSnippetPicker() {
-        showSnippetPicker()
     }
 
     /// Показывает окно-пикер сниппетов, запомнив активное приложение — чтобы после
@@ -397,57 +458,144 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    // MARK: - Реестр команд
+
+    /// Собирает команды тулбокса. Замыкания читают живое состояние (мьют/awake) при каждом
+    /// вызове, поэтому массив строится один раз, а меню/панель всегда показывают актуальное.
+    private func buildCommands() -> [ToolboxCommand] {
+        CommandID.allCases.map { command(for: $0) }
+    }
+
+    private func command(for id: CommandID) -> ToolboxCommand {
+        switch id {
+        case .quickInput:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.quickInput") }, symbol: { "magnifyingglass" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openQuickTicketFromSelection() })
+        case .snippets:
+            return ToolboxCommand(
+                id: id, needsAccessibility: true,
+                title: { L("cmd.snippets") }, symbol: { "text.badge.plus" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.showSnippetPicker() })
+        case .micToggle:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { [weak self] in L((self?.mic.isMuted ?? false) ? "cmd.mic.unmute" : "cmd.mic.mute") },
+                symbol: { [weak self] in (self?.mic.isMuted ?? false) ? "mic.slash.fill" : "mic.fill" },
+                // «Активное» состояние тумблера = замьючен (привлекает внимание).
+                isOn: { [weak self] in self?.mic.isMuted ?? false },
+                trailing: { [weak self] in
+                    L((self?.mic.isMuted ?? false) ? "cmd.mic.status.muted" : "cmd.mic.status.live") },
+                run: { [weak self] in self?.mic.toggle() })
+        case .keepAwake:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.keepAwake") },
+                symbol: { [weak self] in (self?.keepAwake.isOn ?? false) ? "cup.and.saucer.fill" : "cup.and.saucer" },
+                isOn: { [weak self] in self?.keepAwake.isOn ?? false },
+                trailing: { [weak self] in
+                    L((self?.keepAwake.isOn ?? false) ? "panel.toggle.on" : "panel.toggle.off") },
+                run: { [weak self] in self?.keepAwake.toggle() })
+        case .pastePlain:
+            return ToolboxCommand(
+                id: id, needsAccessibility: true,
+                title: { L("cmd.pastePlain") }, symbol: { "doc.on.clipboard" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.pastePlainText() })
+        }
+    }
+
+    /// Строка прямого хоткея команды для трейлинга в панели (nil, если комбинация не задана).
+    private func hotKeyHint(for id: CommandID) -> String? {
+        let binding = config.binding(for: id)
+        guard binding.isRegisterable else { return nil }
+        return hotKeyDisplayString(keyCode: UInt32(binding.keyCode), modifiers: UInt32(binding.modifiers))
+    }
+
+    /// Вставляет содержимое буфера как обычный текст (без форматирования): кладём в буфер голую
+    /// строку и синтезируем ⌘V в поле, где стоит курсор (переиспользуя гейт модификаторов и
+    /// восстановление буфера `hotKey.paste`). Требует Accessibility.
+    private func pastePlainText() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            NSSound.beep(); return
+        }
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            HotKeyManager.ensureAccessibility(prompt: true); return
+        }
+        hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
+    }
+
+    // MARK: - Триггер панели (двойной тап)
+
+    /// Включён ли вызов панели двойным тапом (нужен глобальный монитор → Accessibility).
+    private var paletteEnabled: Bool {
+        if case .disabled = config.paletteTrigger { return false }
+        return true
+    }
+
+    /// (Пере)создаёт детектор двойного тапа и монитор под текущий триггер из конфига.
+    private func setupPaletteTrigger() {
+        flagsMonitor?.stop()
+        flagsMonitor = nil
+        doubleTapDetector = nil
+        guard case .doubleTap(let side) = config.paletteTrigger else { return }
+
+        let detector = DoubleTapDetector(targetKeyCode: side.keyCode)
+        detector.onTrigger = { [weak self] in
+            DispatchQueue.main.async { self?.openCommandPanel() }
+        }
+        let monitor = FlagsChangedMonitor(detector: detector)
+        monitor.start()
+        doubleTapDetector = detector
+        flagsMonitor = monitor
+    }
+
     // MARK: - Применение настроек
 
     private func applyConfig() {
         if anyHotKeyEnabled {
-            // Accessibility нужен только пикеру сниппетов (синтез Cmd+V в чужое поле),
-            // не хоткею окна ввода — поэтому запрашиваем его лишь при необходимости.
             if needsAccessibility { HotKeyManager.ensureAccessibility(prompt: true) }
             registerHotKeys()
         } else {
             hotKey.unregisterAll()
         }
+        setupPaletteTrigger()
     }
 
     private var anyHotKeyEnabled: Bool {
-        needsAccessibility || config.showInputHotKeyEnabled
+        paletteEnabled || commands.contains { config.binding(for: $0.id).isRegisterable }
     }
 
-    /// Нужен ли Accessibility: его требует только пикер сниппетов (синтез Cmd+V при
-    /// вставке в чужое поле). Хоткею окна ввода доступ не нужен — он лишь показывает окно.
+    /// Нужен ли Accessibility: требуется командам с синтезом ⌘C/⌘V (сниппеты, paste-plain) и
+    /// монитору двойного тапа (глобальный перехват модификаторов). Окну ввода доступ не нужен.
     private var needsAccessibility: Bool {
-        config.snippetsHotKeyEnabled
+        if paletteEnabled { return true }
+        return commands.contains { $0.needsAccessibility && config.binding(for: $0.id).isRegisterable }
     }
 
-    /// Перерегистрирует обе горячие клавиши с актуальными комбинациями из конфига.
-    /// Каждая регистрируется только если включена; id 3 — окно ручного ввода,
-    /// id 4 — пикер сниппетов.
+    /// Перерегистрирует прямые хоткеи по реестру: каждая включённая команда с валидной
+    /// комбинацией получает свой хоткей (id = `CommandID.hotKeyID`). Занятые комбинации
+    /// запоминаем, чтобы настройки показали предупреждение.
     private func registerHotKeys() {
         hotKey.unregisterAll()
-        inputHotKeyFailed = false
-        snippetsHotKeyFailed = false
-        // Регистрируем только включённый хоткей с валидной комбинацией (есть модификатор).
-        // `register` возвращает false, если комбинация занята — запоминаем, чтобы настройки
-        // показали предупреждение (иначе пользователь думал бы, что хоткей работает).
-        if config.showInputHotKeyEnabled, config.showInputHotKeyModifiers != 0 {
-            let ok = hotKey.register(id: 3,
-                            keyCode: UInt32(config.showInputHotKeyKeyCode),
-                            modifiers: UInt32(config.showInputHotKeyModifiers)) { [weak self] in
+        failedCommandHotKeys.removeAll()
+        for command in commands {
+            let binding = config.binding(for: command.id)
+            guard binding.isRegisterable else { continue }
+            let ok = hotKey.register(id: command.id.hotKeyID,
+                                     keyCode: UInt32(binding.keyCode),
+                                     modifiers: UInt32(binding.modifiers)) { [weak self] in
+                _ = self  // держим ссылку живой на время вызова
                 HotKeySoundFeedback.playIfEnabled()
-                self?.openQuickTicketFromSelection()
+                command.run()
             }
-            inputHotKeyFailed = !ok
+            if !ok { failedCommandHotKeys.insert(command.id) }
         }
-        if config.snippetsHotKeyEnabled, config.snippetsHotKeyModifiers != 0 {
-            let ok = hotKey.register(id: 4,
-                            keyCode: UInt32(config.snippetsHotKeyKeyCode),
-                            modifiers: UInt32(config.snippetsHotKeyModifiers)) { [weak self] in
-                HotKeySoundFeedback.playIfEnabled()
-                self?.showSnippetPicker()
-            }
-            snippetsHotKeyFailed = !ok
-        }
+        inputHotKeyFailed = failedCommandHotKeys.contains(.quickInput)
+        snippetsHotKeyFailed = failedCommandHotKeys.contains(.snippets)
     }
 }
 
