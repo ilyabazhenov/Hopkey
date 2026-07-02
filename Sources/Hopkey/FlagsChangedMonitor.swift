@@ -11,6 +11,9 @@ final class FlagsChangedMonitor {
 
     private var monitor: Any?
     private let detector: DoubleTapDetector
+    /// Направление (нажат/отпущен) считаем по keyCode, а не по общему биту флага —
+    /// иначе отпускание правого модификатора при зажатом левом читалось бы как нажатие.
+    private let tracker = ModifierKeyTracker()
 
     init(detector: DoubleTapDetector) {
         self.detector = detector
@@ -18,6 +21,7 @@ final class FlagsChangedMonitor {
 
     func start() {
         guard monitor == nil else { return }
+        tracker.reset()
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             self?.handle(event)
         }
@@ -26,6 +30,7 @@ final class FlagsChangedMonitor {
     func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        tracker.reset()
     }
 
     deinit { stop() }
@@ -36,23 +41,26 @@ final class FlagsChangedMonitor {
             detector.handleOtherKey()
         case .flagsChanged:
             let keyCode = Int(event.keyCode)
-            detector.handleModifier(keyCode: keyCode,
-                                    isDown: modifierIsDown(keyCode: keyCode, flags: event.modifierFlags),
-                                    at: event.timestamp)
+            guard let bit = flagBit(for: keyCode) else {
+                // Не отслеживаемый модификатор (Caps Lock, Fn) — считаем посторонней активностью.
+                detector.handleOtherKey()
+                return
+            }
+            let isDown = tracker.update(keyCode: keyCode, bitSet: event.modifierFlags.contains(bit))
+            detector.handleModifier(keyCode: keyCode, isDown: isDown, at: event.timestamp)
         default:
             break
         }
     }
 
-    /// В `.flagsChanged` нет явного «нажата/отпущена» — выводим по наличию флага того модификатора,
-    /// к которому относится клавиша (левый/правый вариант делят один флаг, но разные keyCode).
-    private func modifierIsDown(keyCode: Int, flags: NSEvent.ModifierFlags) -> Bool {
+    /// Общий бит флага для keyCode модификатора (левый/правый вариант делят один бит).
+    private func flagBit(for keyCode: Int) -> NSEvent.ModifierFlags? {
         switch keyCode {
-        case 54, 55: return flags.contains(.command)
-        case 56, 60: return flags.contains(.shift)
-        case 58, 61: return flags.contains(.option)
-        case 59, 62: return flags.contains(.control)
-        default: return false
+        case 54, 55: return .command
+        case 56, 60: return .shift
+        case 58, 61: return .option
+        case 59, 62: return .control
+        default: return nil
         }
     }
 }

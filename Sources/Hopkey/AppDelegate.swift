@@ -579,8 +579,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard binding.isRegisterable else { continue }
             let ok = hotKey.register(id: command.id.hotKeyID,
                                      keyCode: UInt32(binding.keyCode),
-                                     modifiers: UInt32(binding.modifiers)) { [weak self] in
-                _ = self  // держим ссылку живой на время вызова
+                                     modifiers: UInt32(binding.modifiers)) {
+                // `command` захвачен по значению; его `run` уже держит self слабо — цикла нет.
                 HotKeySoundFeedback.playIfEnabled()
                 command.run()
             }
