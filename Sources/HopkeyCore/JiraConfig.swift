@@ -13,6 +13,7 @@ public final class JiraConfig {
         self.defaults = defaults
         registerDefaults()
         migrateProjectsIfNeeded()
+        migrateCommandBindingsIfNeeded()
     }
 
     private enum Key {
@@ -36,6 +37,11 @@ public final class JiraConfig {
         static let hotKeySound = "hotKeySound"
         // Имя шаблона, выбранного в окне ввода последним — для предвыбора.
         static let lastQuickTemplate = "lastQuickTemplate"
+        // Единый словарь биндингов команд (JSON [CommandID: HotKeyBinding]) и флаг миграции.
+        static let commandBindings = "commandBindings"
+        static let commandBindingsMigrated = "commandBindingsMigrated"
+        // Как вызывается панель команд (PaletteTrigger.rawValue).
+        static let paletteTrigger = "paletteTrigger"
     }
 
     /// Carbon-модификаторы controlKey | optionKey (⌃⌥).
@@ -56,6 +62,7 @@ public final class JiraConfig {
             Key.snippetsHotKeyModifiers: Self.defaultModifiers,
             Key.hotKeySoundsEnabled: true,
             Key.hotKeySound: HotKeySound.default.rawValue,
+            Key.paletteTrigger: PaletteTrigger.default.rawValue,
         ])
     }
 
@@ -68,6 +75,7 @@ public final class JiraConfig {
         Key.hotKeySoundsEnabled,
         Key.hotKeySound,
         Key.lastQuickTemplate,
+        Key.commandBindings, Key.commandBindingsMigrated, Key.paletteTrigger,
     ]
 
     /// Сбрасывает все настройки к значениям по умолчанию: шаблоны, действие при копировании
@@ -78,6 +86,9 @@ public final class JiraConfig {
         registerDefaults()
         // Чтобы повторная инициализация не восстановила шаблоны из остаточных legacy-`projects`.
         defaults.set(true, forKey: Key.templatesV1Migrated)
+        // Аналогично: не переимпортировать хоткеи из legacy-полей после сброса. Пустой словарь
+        // `commandBindings` → `binding(for:)` вернёт значения по умолчанию.
+        defaults.set(true, forKey: Key.commandBindingsMigrated)
     }
 
     /// Legacy-форма проекта (только для разбора старого `projects` при миграции).
@@ -160,46 +171,109 @@ public final class JiraConfig {
         set { defaults.set(newValue.rawValue, forKey: Key.clipboardAction) }
     }
 
-    // MARK: Hotkey «открыть окно ввода»
+    // MARK: Биндинги команд
 
-    /// Включён ли хоткей, открывающий окно ручного ввода тикета. По умолчанию включён.
-    /// Accessibility ему не нужен — он лишь показывает окно (с доступом подставит выделение).
+    /// Комбинация команды. Если в словаре записи нет — значение по умолчанию (`defaultBinding`),
+    /// поэтому свежая установка работает без явной инициализации словаря.
+    public func binding(for id: CommandID) -> HotKeyBinding {
+        loadCommandBindings()[id.rawValue] ?? Self.defaultBinding(for: id)
+    }
+
+    /// Сохраняет комбинацию команды в общий словарь (единый источник правды).
+    public func setBinding(_ binding: HotKeyBinding, for id: CommandID) {
+        var dict = loadCommandBindings()
+        dict[id.rawValue] = binding
+        storeCommandBindings(dict)
+    }
+
+    /// Значения по умолчанию: ⌃⌥C — окно ввода, ⌃⌥V — сниппеты, ⇧⌘M — мьют микрофона;
+    /// keep-awake и paste-plain по умолчанию без прямой комбинации (живут в панели).
+    public static func defaultBinding(for id: CommandID) -> HotKeyBinding {
+        switch id {
+        case .quickInput:
+            return HotKeyBinding(enabled: true, keyCode: 8,
+                                 modifiers: CarbonModifier.control | CarbonModifier.option)
+        case .snippets:
+            return HotKeyBinding(enabled: true, keyCode: 9,
+                                 modifiers: CarbonModifier.control | CarbonModifier.option)
+        case .micToggle:
+            return HotKeyBinding(enabled: true, keyCode: 46,
+                                 modifiers: CarbonModifier.shift | CarbonModifier.command)
+        case .keepAwake, .pastePlain:
+            return HotKeyBinding(enabled: false, keyCode: 0, modifiers: 0)
+        }
+    }
+
+    private func loadCommandBindings() -> [String: HotKeyBinding] {
+        guard let data = defaults.data(forKey: Key.commandBindings),
+              let dict = try? JSONDecoder().decode([String: HotKeyBinding].self, from: data)
+        else { return [:] }
+        return dict
+    }
+
+    private func storeCommandBindings(_ dict: [String: HotKeyBinding]) {
+        defaults.set(try? JSONEncoder().encode(dict), forKey: Key.commandBindings)
+    }
+
+    /// Как вызывается панель команд. По умолчанию — двойной тап правого ⌘.
+    public var paletteTrigger: PaletteTrigger {
+        get { PaletteTrigger(rawValue: defaults.string(forKey: Key.paletteTrigger) ?? "") ?? .default }
+        set { defaults.set(newValue.rawValue, forKey: Key.paletteTrigger) }
+    }
+
+    /// Однократно переносит пользовательские комбинации из legacy-полей в общий словарь.
+    /// Остальные команды берут значения из `defaultBinding`. Идемпотентно (флаг). Читаем СЫРЫЕ
+    /// legacy-ключи напрямую — свойства-шимы уже смотрят в словарь, через них читать нельзя.
+    private func migrateCommandBindingsIfNeeded() {
+        guard !defaults.bool(forKey: Key.commandBindingsMigrated) else { return }
+        defaults.set(true, forKey: Key.commandBindingsMigrated)
+
+        var dict = loadCommandBindings()
+        dict[CommandID.quickInput.rawValue] = HotKeyBinding(
+            enabled: defaults.bool(forKey: Key.showInputHotKeyEnabled),
+            keyCode: defaults.integer(forKey: Key.showInputHotKeyKeyCode),
+            modifiers: defaults.integer(forKey: Key.showInputHotKeyModifiers))
+        dict[CommandID.snippets.rawValue] = HotKeyBinding(
+            enabled: defaults.bool(forKey: Key.snippetsHotKeyEnabled),
+            keyCode: defaults.integer(forKey: Key.snippetsHotKeyKeyCode),
+            modifiers: defaults.integer(forKey: Key.snippetsHotKeyModifiers))
+        storeCommandBindings(dict)
+    }
+
+    // MARK: Legacy-шимы над `commandBindings`
+
+    /// Поля `showInputHotKey*` / `snippetsHotKey*` оставлены ради существующего кода
+    /// (SettingsWindow/AppDelegate). Это тонкие шимы над словарём команд — единый источник
+    /// правды — он; прямого чтения/записи в legacy-ключи `UserDefaults` больше нет.
     public var showInputHotKeyEnabled: Bool {
-        get { defaults.bool(forKey: Key.showInputHotKeyEnabled) }
-        set { defaults.set(newValue, forKey: Key.showInputHotKeyEnabled) }
+        get { binding(for: .quickInput).enabled }
+        set { updateBinding(.quickInput) { $0.enabled = newValue } }
     }
-
-    /// Код клавиши хоткея «окно ввода». По умолчанию 8 (C → ⌃⌥C).
     public var showInputHotKeyKeyCode: Int {
-        get { defaults.integer(forKey: Key.showInputHotKeyKeyCode) }
-        set { defaults.set(newValue, forKey: Key.showInputHotKeyKeyCode) }
+        get { binding(for: .quickInput).keyCode }
+        set { updateBinding(.quickInput) { $0.keyCode = newValue } }
     }
-
-    /// Модификаторы хоткея «окно ввода» в Carbon-формате.
     public var showInputHotKeyModifiers: Int {
-        get { defaults.integer(forKey: Key.showInputHotKeyModifiers) }
-        set { defaults.set(newValue, forKey: Key.showInputHotKeyModifiers) }
+        get { binding(for: .quickInput).modifiers }
+        set { updateBinding(.quickInput) { $0.modifiers = newValue } }
     }
-
-    // MARK: Hotkey «пикер сниппетов»
-
-    /// Включён ли хоткей, открывающий окно-пикер сниппетов. По умолчанию включён.
-    /// Авто-вставка выбранного значения (синтез Cmd+V в чужое поле) требует Accessibility.
     public var snippetsHotKeyEnabled: Bool {
-        get { defaults.bool(forKey: Key.snippetsHotKeyEnabled) }
-        set { defaults.set(newValue, forKey: Key.snippetsHotKeyEnabled) }
+        get { binding(for: .snippets).enabled }
+        set { updateBinding(.snippets) { $0.enabled = newValue } }
     }
-
-    /// Код клавиши хоткея «пикер сниппетов». По умолчанию 9 (V → ⌃⌥V).
     public var snippetsHotKeyKeyCode: Int {
-        get { defaults.integer(forKey: Key.snippetsHotKeyKeyCode) }
-        set { defaults.set(newValue, forKey: Key.snippetsHotKeyKeyCode) }
+        get { binding(for: .snippets).keyCode }
+        set { updateBinding(.snippets) { $0.keyCode = newValue } }
+    }
+    public var snippetsHotKeyModifiers: Int {
+        get { binding(for: .snippets).modifiers }
+        set { updateBinding(.snippets) { $0.modifiers = newValue } }
     }
 
-    /// Модификаторы хоткея «пикер сниппетов» в Carbon-формате.
-    public var snippetsHotKeyModifiers: Int {
-        get { defaults.integer(forKey: Key.snippetsHotKeyModifiers) }
-        set { defaults.set(newValue, forKey: Key.snippetsHotKeyModifiers) }
+    private func updateBinding(_ id: CommandID, _ mutate: (inout HotKeyBinding) -> Void) {
+        var b = binding(for: id)
+        mutate(&b)
+        setBinding(b, for: id)
     }
 
     /// Воспроизводить ли короткий звук при срабатывании глобальных хоткеев. По умолчанию включено.
