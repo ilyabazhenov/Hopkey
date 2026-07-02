@@ -18,7 +18,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Опрашивает AppDelegate, удалось ли зарегистрировать хоткеи при последнем применении
     /// (комбинация могла быть занята). Читается после `onSave?()`, чтобы показать
     /// предупреждение под нужным рекордером.
-    var hotKeyStatus: (() -> (input: Bool, snippets: Bool))?
+    var hotKeyStatus: (() -> Set<CommandID>)?
 
     /// Рабочая копия шаблонов, которую редактирует список.
     private var templates: [LinkTemplate] = []
@@ -40,13 +40,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Вкладки
 
     private enum Tab: String, CaseIterable {
-        case templates, snippets, hotkeys, general, about
+        case templates, snippets, commands, general, about
 
         var label: String {
             switch self {
             case .templates: return L("settings.tab.templates")
             case .snippets: return L("settings.tab.snippets")
-            case .hotkeys: return L("settings.tab.hotkeys")
+            case .commands: return L("settings.tab.commands")
             case .general: return L("settings.tab.general")
             case .about: return L("settings.tab.about")
             }
@@ -55,7 +55,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             switch self {
             case .templates: return "list.bullet.rectangle"
             case .snippets: return "text.badge.plus"
-            case .hotkeys: return "keyboard"
+            case .commands: return "command"
             case .general: return "gearshape"
             case .about: return "info.circle"
             }
@@ -94,17 +94,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private let snippetEditButton = NSButton()
     private let snippetsEmptyLabel = NSTextField(labelWithString: L("settings.snippets.empty"))
 
-    // MARK: Контролы вкладки «Хоткеи»
+    // MARK: Контролы вкладки «Команды»
 
-    /// Хоткей окна ввода (Accessibility не требует) + хоткей пикера сниппетов
-    /// (авто-вставка требует Accessibility).
-    private let showInputHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.input"), target: nil, action: nil)
-    private let showInputHotKeyRecorder = HotKeyRecorderView()
-    private let snippetsHotKeyCheck = NSButton(checkboxWithTitle: L("settings.hotkey.snippets"), target: nil, action: nil)
-    private let snippetsHotKeyRecorder = HotKeyRecorderView()
-    /// Предупреждения «комбинация занята» под каждым рекордером (скрыты, пока всё ок).
-    private let showInputHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
-    private let snippetsHotKeyWarning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
+    /// Чекбокс (вкл), рекордер комбинации и предупреждение «занято» на каждую команду —
+    /// строятся в `buildCommandsTab`, ключ — `CommandID`.
+    private var commandChecks: [CommandID: NSButton] = [:]
+    private var commandRecorders: [CommandID: HotKeyRecorderView] = [:]
+    private var commandWarnings: [CommandID: NSTextField] = [:]
+    /// Выбор триггера панели команд (двойной тап правого ⌘/⌥ или выкл).
+    private let paletteTriggerPopup = NSPopUpButton()
+    private let paletteTriggerOptions: [PaletteTrigger] = [
+        .doubleTap(.rightCommand), .doubleTap(.rightOption), .disabled,
+    ]
     private let hotKeySoundsCheck = NSButton(checkboxWithTitle: L("settings.hotkey.sounds"), target: nil, action: nil)
     private let hotKeySoundPopup = NSPopUpButton()
 
@@ -277,7 +278,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     private func buildTabs() {
         tabViews[.templates] = buildTemplatesTab()
         tabViews[.snippets] = buildSnippetsTab()
-        tabViews[.hotkeys] = buildHotKeysTab()
+        tabViews[.commands] = buildCommandsTab()
         tabViews[.general] = buildGeneralTab()
         tabViews[.about] = buildAboutTab()
     }
@@ -451,25 +452,66 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: Вкладка «Хоткеи»
 
-    private func buildHotKeysTab() -> NSView {
-        let header = label(L("settings.hotkeys.header"), secondary: true, wraps: true)
+    /// Заголовок-подпись команды на вкладке настроек (стабильное существительное, не действие).
+    private func settingsTitleKey(_ id: CommandID) -> String {
+        switch id {
+        case .quickInput: return "settings.hotkey.input"
+        case .snippets:   return "settings.hotkey.snippets"
+        case .micToggle:  return "settings.command.mic"
+        case .keepAwake:  return "settings.command.keepAwake"
+        case .pastePlain: return "settings.command.pastePlain"
+        }
+    }
 
-        // Галочки одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
-        let checkWidth = ceil(max(showInputHotKeyCheck.intrinsicContentSize.width,
-                                  snippetsHotKeyCheck.intrinsicContentSize.width))
+    /// Подсказка под строкой команды (nil — без подсказки).
+    private func settingsHintKey(_ id: CommandID) -> String? {
+        switch id {
+        case .quickInput: return "settings.hotkey.input.hint"
+        case .snippets:   return "settings.hotkey.snippets.hint"
+        default:          return nil
+        }
+    }
 
-        func group(_ check: NSButton, _ recorder: HotKeyRecorderView,
-                   hint: String, warning: NSTextField) -> NSView {
+    private func paletteTriggerTitle(_ trigger: PaletteTrigger) -> String {
+        switch trigger {
+        case .doubleTap(.rightCommand): return L("settings.palette.rightCommand")
+        case .doubleTap(.rightOption):  return L("settings.palette.rightOption")
+        case .disabled:                 return L("settings.palette.disabled")
+        }
+    }
+
+    private func buildCommandsTab() -> NSView {
+        let header = label(L("settings.commands.header"), secondary: true, wraps: true)
+
+        // Чекбоксы одинаковой ширины — чтобы рекордеры справа были на одной вертикали.
+        for id in CommandID.allCases {
+            let check = NSButton(checkboxWithTitle: L(settingsTitleKey(id)), target: self,
+                                 action: #selector(commandEnabledChanged))
             check.translatesAutoresizingMaskIntoConstraints = false
-            check.target = self
-            check.action = #selector(hotKeyEnabledChanged)
+            commandChecks[id] = check
+        }
+        let checkWidth = ceil(commandChecks.values.map { $0.intrinsicContentSize.width }.max() ?? 120)
+
+        func group(_ id: CommandID) -> NSView {
+            let check = commandChecks[id]!
+            let recorder = HotKeyRecorderView()
             recorder.translatesAutoresizingMaskIntoConstraints = false
+            recorder.onChange = { [weak self] k, m in
+                guard let self else { return }
+                var binding = self.config.binding(for: id)
+                binding.keyCode = Int(k); binding.modifiers = Int(m)
+                self.config.setBinding(binding, for: id)
+                self.onSave?(); self.refreshHotKeyWarnings()
+            }
+            commandRecorders[id] = recorder
+
             let row = NSStackView(views: [check, recorder])
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 8
             row.translatesAutoresizingMaskIntoConstraints = false
-            let hintLabel = label(hint, secondary: true, wraps: true)
+
+            let warning = NSTextField(labelWithString: L("settings.hotkey.conflict"))
             warning.textColor = .systemRed
             warning.font = .systemFont(ofSize: 11)
             warning.lineBreakMode = .byWordWrapping
@@ -477,7 +519,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             warning.preferredMaxLayoutWidth = wrapWidth
             warning.isHidden = true
             warning.translatesAutoresizingMaskIntoConstraints = false
-            let box = NSStackView(views: [row, hintLabel, warning])
+            commandWarnings[id] = warning
+
+            var views: [NSView] = [row]
+            if let hint = settingsHintKey(id) { views.append(label(L(hint), secondary: true, wraps: true)) }
+            views.append(warning)
+            let box = NSStackView(views: views)
             box.orientation = .vertical
             box.alignment = .leading
             box.spacing = 2
@@ -489,49 +536,48 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
             return box
         }
 
-        showInputHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.showInputHotKeyKeyCode = Int(k); self?.config.showInputHotKeyModifiers = Int(m)
-            self?.onSave?(); self?.refreshHotKeyWarnings()
-        }
-        snippetsHotKeyRecorder.onChange = { [weak self] k, m in
-            self?.config.snippetsHotKeyKeyCode = Int(k); self?.config.snippetsHotKeyModifiers = Int(m)
-            self?.onSave?(); self?.refreshHotKeyWarnings()
-        }
+        let groups = CommandID.allCases.map(group)
 
-        let inputGroup = group(showInputHotKeyCheck, showInputHotKeyRecorder,
-            hint: L("settings.hotkey.input.hint"), warning: showInputHotKeyWarning)
-        let snippetsGroup = group(snippetsHotKeyCheck, snippetsHotKeyRecorder,
-            hint: L("settings.hotkey.snippets.hint"), warning: snippetsHotKeyWarning)
+        // Триггер панели команд.
+        paletteTriggerPopup.removeAllItems()
+        paletteTriggerPopup.addItems(withTitles: paletteTriggerOptions.map(paletteTriggerTitle))
+        paletteTriggerPopup.target = self
+        paletteTriggerPopup.action = #selector(paletteTriggerChanged)
+        paletteTriggerPopup.translatesAutoresizingMaskIntoConstraints = false
+        let paletteRow = NSStackView(views: [label(L("settings.palette.trigger")), paletteTriggerPopup])
+        paletteRow.orientation = .horizontal
+        paletteRow.alignment = .centerY
+        paletteRow.spacing = 8
+        paletteRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
-
+        // Звук хоткеев.
         hotKeySoundsCheck.target = self
         hotKeySoundsCheck.action = #selector(hotKeySoundsChanged)
         hotKeySoundsCheck.translatesAutoresizingMaskIntoConstraints = false
-
         hotKeySoundPopup.removeAllItems()
         hotKeySoundPopup.addItems(withTitles: hotKeySoundOptions.map(\.title))
         hotKeySoundPopup.target = self
         hotKeySoundPopup.action = #selector(hotKeySoundChanged)
         hotKeySoundPopup.translatesAutoresizingMaskIntoConstraints = false
-
         let soundsRow = NSStackView(views: [hotKeySoundsCheck, hotKeySoundPopup])
         soundsRow.orientation = .horizontal
         soundsRow.alignment = .centerY
         soundsRow.spacing = 8
         soundsRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let sep = separator()
-        let soundsSep = separator()
-        let stack = NSStackView(views: [header, inputGroup, snippetsGroup, sep, soundsRow, soundsSep, accessNote])
-        stack.spacing = 14
-        stack.setCustomSpacing(16, after: snippetsGroup)
-        stack.setCustomSpacing(12, after: sep)
-        stack.setCustomSpacing(12, after: soundsRow)
-        stack.setCustomSpacing(12, after: soundsSep)
+        let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
+
+        let sep1 = separator()
+        let sep2 = separator()
+        var views: [NSView] = [header]
+        views.append(contentsOf: groups)
+        views.append(contentsOf: [sep1, paletteRow, sep2, soundsRow, accessNote])
+        let stack = NSStackView(views: views)
+        stack.spacing = 12
+        if let lastGroup = groups.last { stack.setCustomSpacing(16, after: lastGroup) }
         return tabView(stack) { _ in
-            sep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            soundsSep.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            sep1.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            sep2.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
 
@@ -784,8 +830,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     /// Каждый рекордер активен только при включённой своей галочке.
     private func updateDependentControls() {
-        showInputHotKeyRecorder.isEnabled = showInputHotKeyCheck.state == .on
-        snippetsHotKeyRecorder.isEnabled = snippetsHotKeyCheck.state == .on
+        for id in CommandID.allCases {
+            commandRecorders[id]?.isEnabled = commandChecks[id]?.state == .on
+        }
         hotKeySoundPopup.isEnabled = hotKeySoundsCheck.state == .on
     }
 
@@ -797,12 +844,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         onSave?()
     }
 
-    @objc private func hotKeyEnabledChanged() {
-        config.showInputHotKeyEnabled = showInputHotKeyCheck.state == .on
-        config.snippetsHotKeyEnabled = snippetsHotKeyCheck.state == .on
+    @objc private func commandEnabledChanged() {
+        for id in CommandID.allCases {
+            guard let check = commandChecks[id] else { continue }
+            var binding = config.binding(for: id)
+            binding.enabled = check.state == .on
+            config.setBinding(binding, for: id)
+        }
         updateDependentControls()
         onSave?()
         refreshHotKeyWarnings()
+    }
+
+    @objc private func paletteTriggerChanged() {
+        let index = paletteTriggerPopup.indexOfSelectedItem
+        guard paletteTriggerOptions.indices.contains(index) else { return }
+        config.paletteTrigger = paletteTriggerOptions[index]
+        onSave?()
     }
 
     @objc private func hotKeySoundsChanged() {
@@ -823,15 +881,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// комбинации без ⌃/⌥ (Carbon регистрирует и `⌘C`, не сообщая о конфликте, поэтому
     /// её ловим сами). Выключенный хоткей предупреждения не показывает.
     private func refreshHotKeyWarnings() {
-        let status = hotKeyStatus?() ?? (input: false, snippets: false)
-        applyHotKeyWarning(showInputHotKeyWarning,
-                           enabled: showInputHotKeyCheck.state == .on,
-                           failed: status.input,
-                           modifiers: UInt32(config.showInputHotKeyModifiers))
-        applyHotKeyWarning(snippetsHotKeyWarning,
-                           enabled: snippetsHotKeyCheck.state == .on,
-                           failed: status.snippets,
-                           modifiers: UInt32(config.snippetsHotKeyModifiers))
+        let failed = hotKeyStatus?() ?? []
+        for id in CommandID.allCases {
+            guard let warning = commandWarnings[id] else { continue }
+            let binding = config.binding(for: id)
+            applyHotKeyWarning(warning,
+                               enabled: binding.enabled,
+                               failed: failed.contains(id),
+                               modifiers: UInt32(binding.modifiers))
+        }
     }
 
     private func applyHotKeyWarning(_ label: NSTextField, enabled: Bool,
@@ -1080,10 +1138,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
         languagePopup.selectItem(at: languageOrder.firstIndex(of: AppLanguage.current) ?? 0)
 
-        showInputHotKeyCheck.state = config.showInputHotKeyEnabled ? .on : .off
-        showInputHotKeyRecorder.combo = (UInt32(config.showInputHotKeyKeyCode), UInt32(config.showInputHotKeyModifiers))
-        snippetsHotKeyCheck.state = config.snippetsHotKeyEnabled ? .on : .off
-        snippetsHotKeyRecorder.combo = (UInt32(config.snippetsHotKeyKeyCode), UInt32(config.snippetsHotKeyModifiers))
+        for id in CommandID.allCases {
+            let binding = config.binding(for: id)
+            commandChecks[id]?.state = binding.enabled ? .on : .off
+            commandRecorders[id]?.combo = (UInt32(binding.keyCode), UInt32(binding.modifiers))
+        }
+        paletteTriggerPopup.selectItem(at: paletteTriggerOptions.firstIndex(of: config.paletteTrigger) ?? 0)
         hotKeySoundsCheck.state = config.hotKeySoundsEnabled ? .on : .off
         let soundIndex = hotKeySoundOptions.firstIndex { $0.sound == config.hotKeySound } ?? 0
         hotKeySoundPopup.selectItem(at: soundIndex)

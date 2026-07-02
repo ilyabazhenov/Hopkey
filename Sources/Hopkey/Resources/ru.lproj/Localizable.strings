@@ -35,7 +35,7 @@
 "settings.window.title" = "Настройки Hopkey";
 "settings.tab.templates" = "Шаблоны";
 "settings.tab.snippets" = "Сниппеты";
-"settings.tab.hotkeys" = "Хоткеи";
+"settings.tab.commands" = "Команды";
 "settings.tab.general" = "Общие";
 "settings.tab.about" = "О приложении";
 
@@ -80,6 +80,35 @@
 "settings.hotkey.sound.bottle" = "Bottle";
 "settings.hotkey.sound.blow" = "Blow";
 "settings.hotkey.sound.submarine" = "Submarine";
+
+/* Настройки — вкладка «Команды» (доп. подписи) */
+"settings.commands.header" = "Глобальные хоткеи работают в любом приложении. Панель команд вызывается двойным тапом правого модификатора.";
+"settings.command.mic" = "Микрофон";
+"settings.command.keepAwake" = "Не давать засыпать";
+"settings.command.pastePlain" = "Вставить без форматирования";
+"settings.palette.trigger" = "Вызов панели команд:";
+"settings.palette.rightCommand" = "Двойной правый ⌘";
+"settings.palette.rightOption" = "Двойной правый ⌥";
+"settings.palette.disabled" = "Выключено";
+
+/* Команды тулбокса (меню и панель) */
+"cmd.quickInput" = "Открыть тикет по ключу";
+"cmd.snippets" = "Вставить сниппет";
+"cmd.mic.mute" = "Выключить микрофон";
+"cmd.mic.unmute" = "Включить микрофон";
+"cmd.mic.status.muted" = "выкл";
+"cmd.mic.status.live" = "вкл";
+"cmd.keepAwake" = "Не давать засыпать";
+"cmd.pastePlain" = "Вставить без форматирования";
+
+/* Панель команд */
+"panel.title" = "Команды";
+"panel.section.toggles" = "Переключатели";
+"panel.section.actions" = "Действия";
+"panel.section.launchers" = "Jira и сниппеты";
+"panel.toggle.on" = "вкл";
+"panel.toggle.off" = "выкл";
+"status.micMuted" = "Микрофон выключен";
 
 /* Настройки — вкладка «Общие» */
 "settings.general.description" = "Hopkey распознаёт ключи (PROJ-123, #42) в буфере или выделении и открывает либо копирует ссылку по вашим шаблонам.";

@@ -26,9 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Окно настроек само опрашивает статус регистрации, чтобы показать предупреждение
         // под рекордером, если комбинация занята. Pull-модель: не дёргаем (ленивое) окно
         // из AppDelegate, оно само спросит после применения изменений.
-        controller.hotKeyStatus = { [weak self] in
-            (input: self?.inputHotKeyFailed ?? false, snippets: self?.snippetsHotKeyFailed ?? false)
-        }
+        controller.hotKeyStatus = { [weak self] in self?.failedCommandHotKeys ?? [] }
         return controller
     }()
     private lazy var quickTicket: QuickTicketWindowController = {
@@ -52,12 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // (наш синтетический Cmd+C виден и наблюдателю буфера тоже).
     private var lastHandledText: String?
     private var lastHandledAt: Date = .distantPast
-
-    /// Не удалось зарегистрировать соответствующий хоткей при последнем применении
-    /// конфига (комбинация занята системой/другим приложением). Окно настроек читает
-    /// эти флаги, чтобы показать предупреждение под нужным рекордером.
-    private var inputHotKeyFailed = false
-    private var snippetsHotKeyFailed = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Сниппеты НЕ читаем на старте: блоб из Keychain грузится лениво при первом
@@ -594,8 +586,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             if !ok { failedCommandHotKeys.insert(command.id) }
         }
-        inputHotKeyFailed = failedCommandHotKeys.contains(.quickInput)
-        snippetsHotKeyFailed = failedCommandHotKeys.contains(.snippets)
     }
 }
 

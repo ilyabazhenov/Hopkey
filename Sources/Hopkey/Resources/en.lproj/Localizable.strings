@@ -35,7 +35,7 @@
 "settings.window.title" = "Hopkey Settings";
 "settings.tab.templates" = "Templates";
 "settings.tab.snippets" = "Snippets";
-"settings.tab.hotkeys" = "Hotkeys";
+"settings.tab.commands" = "Commands";
 "settings.tab.general" = "General";
 "settings.tab.about" = "About";
 
@@ -80,6 +80,35 @@
 "settings.hotkey.sound.bottle" = "Bottle";
 "settings.hotkey.sound.blow" = "Blow";
 "settings.hotkey.sound.submarine" = "Submarine";
+
+/* Settings — Commands tab (extra labels) */
+"settings.commands.header" = "Global hotkeys work in any application. The command panel is summoned by double-tapping the right modifier.";
+"settings.command.mic" = "Microphone";
+"settings.command.keepAwake" = "Keep awake";
+"settings.command.pastePlain" = "Paste without formatting";
+"settings.palette.trigger" = "Summon command panel:";
+"settings.palette.rightCommand" = "Double right ⌘";
+"settings.palette.rightOption" = "Double right ⌥";
+"settings.palette.disabled" = "Off";
+
+/* Toolbox commands (menu and panel) */
+"cmd.quickInput" = "Open ticket by key";
+"cmd.snippets" = "Paste snippet";
+"cmd.mic.mute" = "Mute microphone";
+"cmd.mic.unmute" = "Unmute microphone";
+"cmd.mic.status.muted" = "off";
+"cmd.mic.status.live" = "on";
+"cmd.keepAwake" = "Keep awake";
+"cmd.pastePlain" = "Paste without formatting";
+
+/* Command panel */
+"panel.title" = "Commands";
+"panel.section.toggles" = "Toggles";
+"panel.section.actions" = "Actions";
+"panel.section.launchers" = "Jira and snippets";
+"panel.toggle.on" = "on";
+"panel.toggle.off" = "off";
+"status.micMuted" = "Microphone muted";
 
 /* Settings — General tab */
 "settings.general.description" = "Hopkey spots keys (PROJ-123, #42) in your clipboard or selection and opens or copies the matching link from your templates.";
