@@ -304,25 +304,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelIsOpen = true
     }
 
-    /// Открывает отдельное окно истории буфера (команда «История буфера»).
-    private lazy var clipboardHistoryWindow: ClipboardHistoryWindowController = {
-        let controller = ClipboardHistoryWindowController()
-        controller.onPaste = { [weak self] text in self?.pasteHistory(text) }
-        controller.onClear = { [weak self] in self?.clipboardHistory.clear() }
-        return controller
+    // Четыре пикера на одном обобщённом окне-списке (GlassListWindowController); специфику строк
+    // дают статические билдеры Item.
+
+    /// Окно истории буфера (команда «История буфера»).
+    private lazy var clipboardHistoryWindow: GlassListWindowController = {
+        let window = GlassListWindowController(titleKey: "clipboard.title", emptyKey: "clipboard.empty",
+                                               rowHeight: 34)
+        window.enableClearButton { [weak self] in self?.clipboardHistory.clear() }
+        return window
     }()
 
     private func openClipboardHistory() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
-        clipboardHistoryWindow.show(history: clipboardHistory.entries)
+        let items = GlassListWindowController.historyItems(clipboardHistory.entries) { [weak self] text in
+            self?.pasteHistory(text)
+        }
+        clipboardHistoryWindow.show(items: items)
     }
 
     /// Окно преобразований выделенного текста.
-    private lazy var transformWindow: TransformPickerWindowController = {
-        let controller = TransformPickerWindowController()
-        controller.onApply = { [weak self] result in self?.pasteTransform(result) }
-        return controller
-    }()
+    private lazy var transformWindow = GlassListWindowController(titleKey: "transform.window.title",
+                                                                 width: 500, maxHeight: 600)
 
     /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C), открывает пикер с превью.
     /// Без Accessibility снять выделение нельзя — источником берём буфер.
@@ -342,26 +345,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showTransforms(source: String) {
         guard !source.isEmpty else { NSSound.beep(); return }
-        transformWindow.show(source: source)
+        let items = GlassListWindowController.transformItems(source: source) { [weak self] result in
+            self?.pasteTransform(result)
+        }
+        transformWindow.show(items: items)
     }
 
     /// Окна выбора аудиовыхода и аудиовхода (один класс, разные заголовки/действия).
-    private lazy var audioOutputWindow: AudioDeviceWindowController = {
-        let controller = AudioDeviceWindowController(titleKey: "audio.output.title")
-        controller.onPick = { [weak self] id in self?.audio.setOutput(id) }
-        return controller
-    }()
-    private lazy var audioInputWindow: AudioDeviceWindowController = {
-        let controller = AudioDeviceWindowController(titleKey: "audio.input.title")
-        controller.onPick = { [weak self] id in self?.audio.setInput(id) }
-        return controller
-    }()
+    private lazy var audioOutputWindow = GlassListWindowController(titleKey: "audio.output.title",
+                                                                   emptyKey: "audio.empty", maxHeight: 520)
+    private lazy var audioInputWindow = GlassListWindowController(titleKey: "audio.input.title",
+                                                                  emptyKey: "audio.empty", maxHeight: 520)
 
     private func openAudioOutput() {
-        audioOutputWindow.show(devices: audio.outputDevices(), currentID: audio.currentOutputDeviceID())
+        let (items, preselect) = GlassListWindowController.audioItems(
+            audio.outputDevices(), currentID: audio.currentOutputDeviceID()) { [weak self] id in
+            self?.audio.setOutput(id)
+        }
+        audioOutputWindow.show(items: items, preselect: preselect)
     }
     private func openAudioInput() {
-        audioInputWindow.show(devices: audio.inputDevices(), currentID: audio.currentInputDeviceID())
+        let (items, preselect) = GlassListWindowController.audioItems(
+            audio.inputDevices(), currentID: audio.currentInputDeviceID()) { [weak self] id in
+            self?.audio.setInput(id)
+        }
+        audioInputWindow.show(items: items, preselect: preselect)
     }
 
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.

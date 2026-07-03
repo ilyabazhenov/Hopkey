@@ -807,32 +807,48 @@ private func historyPreview(_ text: String) -> String {
     return oneLine.count > 60 ? String(oneLine.prefix(60)) + "…" : oneLine
 }
 
-// MARK: - Окно истории буфера
+// MARK: - Обобщённое окно-список (пикер)
 
-/// Отдельное стеклянное окно истории буфера: список последних значений с номерами 1–9,
-/// клик/Enter/цифра — вставить, кнопка-корзина — очистить, Esc — закрыть.
-final class ClipboardHistoryWindowController: NSWindowController, NSWindowDelegate {
+/// Обобщённое стеклянное окно-список: заголовок, прокручиваемый список строк с клавнавигацией
+/// (стрелки/1–9/Enter/Esc), выделение, пустое состояние, опц. кнопка-корзина в заголовке.
+/// Специфику строк (история/трансформации/аудио) дают статические билдеры `Item`.
+final class GlassListWindowController: NSWindowController, NSWindowDelegate {
 
-    var onPaste: ((String) -> Void)?
-    var onClear: (() -> Void)?
+    struct Item {
+        let view: NSView
+        let digit: Int?
+        /// Применимо ли (у трансформации с nil-результатом — false: сигнал, окно остаётся).
+        let enabled: Bool
+        let setSelected: (Bool) -> Void
+        let setOnClick: (@escaping () -> Void) -> Void
+        let run: () -> Void
+    }
 
-    private struct Entry { let view: NSView; let setSelected: (Bool) -> Void; let run: () -> Void }
-    private var entries: [Entry] = []
+    private let titleKey: String
+    private let emptyKey: String?
+    private let rowHeight: CGFloat
+    private let width: CGFloat
+    private let maxHeight: CGFloat
+    private var clearHandler: (() -> Void)?
+
+    private var items: [Item] = []
     private var selectedIndex = 0
     private var finished = false
-
     private let listView = CommandListView()
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
-    private let emptyLabel = NSTextField(labelWithString: L("clipboard.empty"))
+    private let emptyLabel = NSTextField(labelWithString: "")
     private var clearButton: ClosureButton?
 
-    private static let width: CGFloat = 460
-    private static let maxHeight: CGFloat = 560
-
-    init() {
+    init(titleKey: String, emptyKey: String? = nil, rowHeight: CGFloat = 40,
+         width: CGFloat = 460, maxHeight: CGFloat = 560) {
+        self.titleKey = titleKey
+        self.emptyKey = emptyKey
+        self.rowHeight = rowHeight
+        self.width = width
+        self.maxHeight = maxHeight
         let panel = CommandPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 280),
             styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -848,19 +864,26 @@ final class ClipboardHistoryWindowController: NSWindowController, NSWindowDelega
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
+    /// Включает кнопку-корзину в заголовке (напр. очистка истории). Клик — `handler` + закрыть.
+    func enableClearButton(_ handler: @escaping () -> Void) {
+        clearHandler = handler
+    }
+
     private func buildChrome() {
         guard let window else { return }
         let content = NSView()
         installGlass(in: window, content: content)
 
-        let header = Brand.makeHeaderView(title: L("clipboard.title"))
+        let header = Brand.makeHeaderView(title: L(titleKey))
         header.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(header)
 
         let clear = ClosureButton(symbol: "trash", tooltip: L("panel.clipboard.clear")) { [weak self] in
-            self?.clearAll()
+            self?.clearHandler?()
+            self?.window?.close()
         }
         clear.translatesAutoresizingMaskIntoConstraints = false
+        clear.isHidden = true
         content.addSubview(clear)
         clearButton = clear
 
@@ -878,9 +901,11 @@ final class ClipboardHistoryWindowController: NSWindowController, NSWindowDelega
         scroll.documentView = listView
         content.addSubview(scroll)
 
+        emptyLabel.stringValue = emptyKey.map { L($0) } ?? ""
         emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.isHidden = true
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(emptyLabel)
 
@@ -922,194 +947,19 @@ final class ClipboardHistoryWindowController: NSWindowController, NSWindowDelega
         ])
 
         listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
-        listView.onRun = { [weak self] index in self?.runIndex(index) }
-        listView.onDigit = { [weak self] digit in self?.runIndex(digit - 1) }
+        listView.onRun = { [weak self] _ in self?.runIndex(-1) }
+        listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
         listView.onClose = { [weak self] in self?.window?.close() }
     }
 
-    func show(history: [String]) {
+    func show(items: [Item], preselect: Int = 0) {
         finished = false
-        rebuild(history)
-        sizeToFit()
-        centerOnActiveScreen()
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
-        window?.makeFirstResponder(listView)
-    }
-
-    private func rebuild(_ history: [String]) {
-        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        entries.removeAll()
-        for (i, text) in history.enumerated() {
-            let row = HistoryRowView()
-            row.configure(digit: i < 9 ? i + 1 : nil, text: historyPreview(text))
-            row.onClick = { [weak self] in self?.finish { self?.onPaste?(text) } }
-            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-            row.translatesAutoresizingMaskIntoConstraints = false
-            row.heightAnchor.constraint(equalToConstant: 34).isActive = true
-            contentStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-            entries.append(Entry(view: row,
-                                 setSelected: { [weak row] in row?.isSelected = $0 },
-                                 run: { [weak self] in self?.finish { self?.onPaste?(text) } }))
-        }
-        emptyLabel.isHidden = !history.isEmpty
-        clearButton?.isHidden = history.isEmpty
-        selectedIndex = entries.isEmpty ? -1 : 0
-        updateSelection()
-    }
-
-    private func moveSelection(by delta: Int) {
-        guard !entries.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
-        updateSelection()
-        entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
-    }
-    private func updateSelection() {
-        for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
-    }
-    private func runIndex(_ index: Int) {
-        let target = index < 0 ? selectedIndex : index
-        guard entries.indices.contains(target) else { NSSound.beep(); return }
-        entries[target].run()
-    }
-    private func clearAll() {
-        onClear?()
-        window?.close()
-    }
-    private func finish(_ action: @escaping () -> Void) {
-        guard !finished else { return }
-        finished = true
-        window?.close()
-        action()
-    }
-    func windowWillClose(_ notification: Notification) {}
-
-    private func sizeToFit() {
-        guard let window else { return }
-        contentStack.layoutSubtreeIfNeeded()
-        let inner = entries.isEmpty ? 60 : contentStack.fittingSize.height + 12
-        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
-        let height = min(inner + chrome, Self.maxHeight)
-        window.setContentSize(NSSize(width: Self.width, height: height))
-    }
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
-    }
-}
-
-// MARK: - Окно трансформаций текста
-
-/// Отдельное стеклянное окно преобразований выделенного текста: список с превью результата,
-/// номера 1–9, клик/Enter/цифра — применить и вставить, Esc — закрыть.
-final class TransformPickerWindowController: NSWindowController, NSWindowDelegate {
-
-    /// Готовый результат выбранного преобразования — вызывающий вставляет его.
-    var onApply: ((String) -> Void)?
-
-    private struct Entry { let view: NSView; let setSelected: (Bool) -> Void; let run: () -> Void }
-    private var entries: [Entry] = []
-    private var selectedIndex = 0
-    private var finished = false
-    private var sourceText = ""
-
-    private let listView = CommandListView()
-    private let contentStack = NSStackView()
-    private let scroll = NSScrollView()
-
-    private static let width: CGFloat = 500
-    private static let maxHeight: CGFloat = 600
-
-    init() {
-        let panel = CommandPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 300),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered, defer: false)
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        buildChrome()
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
-
-    private func buildChrome() {
-        guard let window else { return }
-        let content = NSView()
-        installGlass(in: window, content: content)
-
-        let header = Brand.makeHeaderView(title: L("transform.window.title"))
-        header.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header)
-
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 4
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        listView.translatesAutoresizingMaskIntoConstraints = false
-        listView.addSubview(contentStack)
-
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.documentView = listView
-        content.addSubview(scroll)
-
-        let hint = NSTextField(labelWithString: L("panel.footer"))
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-        hint.alignment = .center
-        hint.lineBreakMode = .byTruncatingTail
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(hint)
-
-        NSLayoutConstraint.activate([
-            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
-
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
-
-            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-
-            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
-            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
-            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
-            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
-
-            hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
-            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
-        ])
-
-        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
-        listView.onRun = { [weak self] index in self?.runIndex(index) }
-        listView.onDigit = { [weak self] digit in self?.runIndex(digit - 1) }
-        listView.onClose = { [weak self] in self?.window?.close() }
-    }
-
-    func show(source: String) {
-        finished = false
-        sourceText = source
+        self.items = items
         rebuild()
+        selectedIndex = items.isEmpty ? -1 : min(max(preselect, 0), items.count - 1)
+        updateSelection()
+        emptyLabel.isHidden = !items.isEmpty
+        clearButton?.isHidden = (clearHandler == nil || items.isEmpty)
         sizeToFit()
         centerOnActiveScreen()
         showWindow(nil)
@@ -1120,45 +970,34 @@ final class TransformPickerWindowController: NSWindowController, NSWindowDelegat
 
     private func rebuild() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        entries.removeAll()
-        for (i, transform) in TextTransform.allCases.enumerated() {
-            let result = transform.apply(to: sourceText)
-            let row = CommandRowView()
-            row.configure(digit: i < 9 ? i + 1 : nil, symbol: Self.symbol(transform),
-                          title: L(transform.titleKey), trailing: result.map(historyPreview) ?? "—")
-            row.onClick = { [weak self] in self?.run(result) }
-            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-            row.translatesAutoresizingMaskIntoConstraints = false
-            row.heightAnchor.constraint(equalToConstant: 40).isActive = true
-            contentStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-            entries.append(Entry(view: row,
-                                 setSelected: { [weak row] in row?.isSelected = $0 },
-                                 run: { [weak self] in self?.run(result) }))
+        for (index, item) in items.enumerated() {
+            item.setOnClick { [weak self] in self?.runIndex(index) }
+            item.view.translatesAutoresizingMaskIntoConstraints = false
+            item.view.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
+            contentStack.addArrangedSubview(item.view)
+            item.view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
         }
-        selectedIndex = entries.isEmpty ? -1 : 0
-        updateSelection()
-    }
-
-    /// Применить: неприменимое преобразование (nil-результат) — сигнал, окно остаётся.
-    private func run(_ result: String?) {
-        guard let result else { NSSound.beep(); return }
-        finish { [weak self] in self?.onApply?(result) }
     }
 
     private func moveSelection(by delta: Int) {
-        guard !entries.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
+        guard !items.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + items.count) % items.count
         updateSelection()
-        entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
+        items[selectedIndex].view.scrollToVisible(items[selectedIndex].view.bounds)
     }
     private func updateSelection() {
-        for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
+        for (i, item) in items.enumerated() { item.setSelected(i == selectedIndex) }
+    }
+    private func runDigit(_ digit: Int) {
+        guard let index = items.firstIndex(where: { $0.digit == digit }) else { NSSound.beep(); return }
+        runIndex(index)
     }
     private func runIndex(_ index: Int) {
         let target = index < 0 ? selectedIndex : index
-        guard entries.indices.contains(target) else { NSSound.beep(); return }
-        entries[target].run()
+        guard items.indices.contains(target) else { NSSound.beep(); return }
+        let item = items[target]
+        guard item.enabled else { NSSound.beep(); return }
+        finish { item.run() }
     }
     private func finish(_ action: @escaping () -> Void) {
         guard !finished else { return }
@@ -1171,10 +1010,10 @@ final class TransformPickerWindowController: NSWindowController, NSWindowDelegat
     private func sizeToFit() {
         guard let window else { return }
         contentStack.layoutSubtreeIfNeeded()
-        let inner = contentStack.fittingSize.height + 12
+        let inner = items.isEmpty ? 60 : contentStack.fittingSize.height + 12
         let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
-        let height = min(inner + chrome, Self.maxHeight)
-        window.setContentSize(NSSize(width: Self.width, height: height))
+        let height = min(inner + chrome, maxHeight)
+        window.setContentSize(NSSize(width: width, height: height))
     }
     private func centerOnActiveScreen() {
         guard let window else { return }
@@ -1186,7 +1025,56 @@ final class TransformPickerWindowController: NSWindowController, NSWindowDelegat
         window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 
-    private static func symbol(_ t: TextTransform) -> String {
+    // MARK: - Билдеры Item
+
+    static func historyItems(_ history: [String], onPaste: @escaping (String) -> Void) -> [Item] {
+        history.enumerated().map { index, text in
+            let digit = index < 9 ? index + 1 : nil
+            let row = HistoryRowView()
+            row.configure(digit: digit, text: historyPreview(text))
+            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+            return Item(view: row, digit: digit, enabled: true,
+                        setSelected: { [weak row] in row?.isSelected = $0 },
+                        setOnClick: { [weak row] handler in row?.onClick = handler },
+                        run: { onPaste(text) })
+        }
+    }
+
+    static func transformItems(source: String, onApply: @escaping (String) -> Void) -> [Item] {
+        TextTransform.allCases.enumerated().map { index, transform in
+            let digit = index < 9 ? index + 1 : nil
+            let result = transform.apply(to: source)
+            let row = CommandRowView()
+            row.configure(digit: digit, symbol: transformSymbol(transform),
+                          title: L(transform.titleKey), trailing: result.map(historyPreview) ?? "—")
+            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+            return Item(view: row, digit: digit, enabled: result != nil,
+                        setSelected: { [weak row] in row?.isSelected = $0 },
+                        setOnClick: { [weak row] handler in row?.onClick = handler },
+                        run: { if let result { onApply(result) } })
+        }
+    }
+
+    static func audioItems(_ devices: [AudioDevice], currentID: AudioDeviceID?,
+                           onPick: @escaping (AudioDeviceID) -> Void) -> (items: [Item], preselect: Int) {
+        var preselect = 0
+        let items = devices.enumerated().map { index, device -> Item in
+            let digit = index < 9 ? index + 1 : nil
+            let isCurrent = device.id == currentID
+            if isCurrent { preselect = index }
+            let row = CommandRowView()
+            row.configure(digit: digit, symbol: audioSymbol(device.transport),
+                          title: device.name, trailing: isCurrent ? L("audio.current") : nil)
+            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+            return Item(view: row, digit: digit, enabled: true,
+                        setSelected: { [weak row] in row?.isSelected = $0 },
+                        setOnClick: { [weak row] handler in row?.onClick = handler },
+                        run: { onPick(device.id) })
+        }
+        return (items, preselect)
+    }
+
+    private static func transformSymbol(_ t: TextTransform) -> String {
         switch t {
         case .upper, .lower, .title, .camel, .snake, .kebab, .constant, .slug: return "textformat"
         case .trim, .collapseSpaces, .removeEmptyLines, .joinLines: return "wand.and.stars"
@@ -1196,200 +1084,7 @@ final class TransformPickerWindowController: NSWindowController, NSWindowDelegat
         case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return "arrow.up.arrow.down"
         }
     }
-}
-
-// MARK: - Окно выбора аудиоустройства (вход/выход)
-
-/// Отдельное стеклянное окно выбора аудиоустройства: список (иконка по типу шины), текущее
-/// отмечено и предвыбрано; клик/Enter/цифра — переключить, Esc — закрыть. Заголовок задаётся
-/// при создании — один класс для входа и выхода.
-final class AudioDeviceWindowController: NSWindowController, NSWindowDelegate {
-
-    var onPick: ((AudioDeviceID) -> Void)?
-
-    private let titleKey: String
-    private struct Entry { let view: NSView; let setSelected: (Bool) -> Void; let run: () -> Void }
-    private var entries: [Entry] = []
-    private var selectedIndex = 0
-    private var finished = false
-
-    private let listView = CommandListView()
-    private let contentStack = NSStackView()
-    private let scroll = NSScrollView()
-    private let emptyLabel = NSTextField(labelWithString: L("audio.empty"))
-
-    private static let width: CGFloat = 460
-    private static let maxHeight: CGFloat = 520
-
-    init(titleKey: String) {
-        self.titleKey = titleKey
-        let panel = CommandPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 260),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered, defer: false)
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        buildChrome()
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
-
-    private func buildChrome() {
-        guard let window else { return }
-        let content = NSView()
-        installGlass(in: window, content: content)
-
-        let header = Brand.makeHeaderView(title: L(titleKey))
-        header.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header)
-
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 4
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        listView.translatesAutoresizingMaskIntoConstraints = false
-        listView.addSubview(contentStack)
-
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.documentView = listView
-        content.addSubview(scroll)
-
-        emptyLabel.font = .systemFont(ofSize: 13)
-        emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.alignment = .center
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(emptyLabel)
-
-        let hint = NSTextField(labelWithString: L("panel.footer"))
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-        hint.alignment = .center
-        hint.lineBreakMode = .byTruncatingTail
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(hint)
-
-        NSLayoutConstraint.activate([
-            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
-
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
-
-            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-
-            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
-            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
-            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
-            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
-
-            emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-
-            hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
-            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
-        ])
-
-        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
-        listView.onRun = { [weak self] index in self?.runIndex(index) }
-        listView.onDigit = { [weak self] digit in self?.runIndex(digit - 1) }
-        listView.onClose = { [weak self] in self?.window?.close() }
-    }
-
-    func show(devices: [AudioDevice], currentID: AudioDeviceID?) {
-        finished = false
-        rebuild(devices, currentID: currentID)
-        sizeToFit()
-        centerOnActiveScreen()
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
-        window?.makeFirstResponder(listView)
-    }
-
-    private func rebuild(_ devices: [AudioDevice], currentID: AudioDeviceID?) {
-        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        entries.removeAll()
-        for (i, device) in devices.enumerated() {
-            let isCurrent = device.id == currentID
-            let row = CommandRowView()
-            row.configure(digit: i < 9 ? i + 1 : nil, symbol: Self.symbol(device.transport),
-                          title: device.name, trailing: isCurrent ? L("audio.current") : nil)
-            row.onClick = { [weak self] in self?.run(device.id) }
-            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-            row.translatesAutoresizingMaskIntoConstraints = false
-            row.heightAnchor.constraint(equalToConstant: 40).isActive = true
-            contentStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-            entries.append(Entry(view: row,
-                                 setSelected: { [weak row] in row?.isSelected = $0 },
-                                 run: { [weak self] in self?.run(device.id) }))
-            if isCurrent { selectedIndex = i }
-        }
-        emptyLabel.isHidden = !devices.isEmpty
-        if entries.isEmpty { selectedIndex = -1 }
-        updateSelection()
-    }
-
-    private func run(_ id: AudioDeviceID) {
-        finish { [weak self] in self?.onPick?(id) }
-    }
-    private func moveSelection(by delta: Int) {
-        guard !entries.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
-        updateSelection()
-        entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
-    }
-    private func updateSelection() {
-        for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
-    }
-    private func runIndex(_ index: Int) {
-        let target = index < 0 ? selectedIndex : index
-        guard entries.indices.contains(target) else { NSSound.beep(); return }
-        entries[target].run()
-    }
-    private func finish(_ action: @escaping () -> Void) {
-        guard !finished else { return }
-        finished = true
-        window?.close()
-        action()
-    }
-    func windowWillClose(_ notification: Notification) {}
-
-    private func sizeToFit() {
-        guard let window else { return }
-        contentStack.layoutSubtreeIfNeeded()
-        let inner = entries.isEmpty ? 60 : contentStack.fittingSize.height + 12
-        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
-        let height = min(inner + chrome, Self.maxHeight)
-        window.setContentSize(NSSize(width: Self.width, height: height))
-    }
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
-    }
-
-    /// Иконка по типу шины устройства.
-    private static func symbol(_ transport: UInt32) -> String {
+    private static func audioSymbol(_ transport: UInt32) -> String {
         switch transport {
         case kAudioDeviceTransportTypeBuiltIn: return "laptopcomputer"
         case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
