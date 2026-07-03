@@ -105,6 +105,31 @@
 "clipboard.title" = "Clipboard history";
 "clipboard.empty" = "History is empty";
 "settings.command.clipboardHistory" = "Clipboard history";
+"cmd.textTransform" = "Transform selection";
+"transform.window.title" = "Transform text";
+"settings.command.textTransform" = "Transform text";
+"transform.upper" = "UPPERCASE";
+"transform.lower" = "lowercase";
+"transform.title" = "Title Case";
+"transform.camel" = "camelCase";
+"transform.snake" = "snake_case";
+"transform.kebab" = "kebab-case";
+"transform.constant" = "CONSTANT_CASE";
+"transform.slug" = "slug (for URLs)";
+"transform.trim" = "Trim whitespace";
+"transform.collapseSpaces" = "Collapse spaces";
+"transform.removeEmptyLines" = "Remove empty lines";
+"transform.joinLines" = "Join into one line";
+"transform.jsonPretty" = "JSON: prettify";
+"transform.jsonMinify" = "JSON: minify";
+"transform.urlEncode" = "URL-encode";
+"transform.urlDecode" = "URL-decode";
+"transform.base64Encode" = "Base64-encode";
+"transform.base64Decode" = "Base64-decode";
+"transform.sortLines" = "Sort lines A→Z";
+"transform.sortLinesDesc" = "Sort lines Z→A";
+"transform.dedupeLines" = "Remove duplicate lines";
+"transform.reverseLines" = "Reverse line order";
 
 /* Command panel */
 "panel.title" = "Commands";

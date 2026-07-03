@@ -20,4 +20,6 @@ public enum CommandID: String, CaseIterable, Codable {
     case pastePlain
     /// Открыть отдельное окно истории буфера обмена.
     case clipboardHistory
+    /// Преобразовать выделенный текст (регистр, JSON, URL, Base64, строки…).
+    case textTransform
 }

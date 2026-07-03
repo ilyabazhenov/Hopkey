@@ -461,6 +461,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         case .keepAwake:        return "settings.command.keepAwake"
         case .pastePlain:       return "settings.command.pastePlain"
         case .clipboardHistory: return "settings.command.clipboardHistory"
+        case .textTransform:    return "settings.command.textTransform"
         }
     }
 

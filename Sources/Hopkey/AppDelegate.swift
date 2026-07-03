@@ -316,6 +316,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardHistoryWindow.show(history: clipboardHistory.entries)
     }
 
+    /// Окно преобразований выделенного текста.
+    private lazy var transformWindow: TransformPickerWindowController = {
+        let controller = TransformPickerWindowController()
+        controller.onApply = { [weak self] result in self?.pasteTransform(result) }
+        return controller
+    }()
+
+    /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C), открывает пикер с превью.
+    /// Без Accessibility снять выделение нельзя — источником берём буфер.
+    private func openTextTransforms() {
+        snippetTargetApp = NSWorkspace.shared.frontmostApplication
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            showTransforms(source: NSPasteboard.general.string(forType: .string) ?? "")
+            HotKeyManager.ensureAccessibility(prompt: true)
+            return
+        }
+        hotKey.captureSelection { [weak self] selection in
+            guard let self else { return }
+            self.clipboard.syncChangeCount()
+            self.showTransforms(source: selection ?? NSPasteboard.general.string(forType: .string) ?? "")
+        }
+    }
+
+    private func showTransforms(source: String) {
+        guard !source.isEmpty else { NSSound.beep(); return }
+        transformWindow.show(source: source)
+    }
+
+    /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.
+    private func pasteTransform(_ text: String) {
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            URLOpener.copy(text); clipboard.syncChangeCount(); return
+        }
+        hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
+    }
+
     /// Маршрутизирует конкретное действие сниппета из панели (первичное или вторичное).
     private func dispatchSnippet(_ snippet: Snippet, _ activation: SnippetActivation) {
         switch activation {
@@ -585,6 +621,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: { L("cmd.clipboardHistory") }, symbol: { "clock.arrow.circlepath" },
                 isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
                 run: { [weak self] in self?.openClipboardHistory() })
+        case .textTransform:
+            return ToolboxCommand(
+                id: id, needsAccessibility: true,
+                title: { L("cmd.textTransform") }, symbol: { "textformat" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openTextTransforms() })
         }
     }
 

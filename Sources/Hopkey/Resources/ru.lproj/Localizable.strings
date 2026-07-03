@@ -105,6 +105,31 @@
 "clipboard.title" = "История буфера";
 "clipboard.empty" = "История пуста";
 "settings.command.clipboardHistory" = "История буфера";
+"cmd.textTransform" = "Преобразовать выделение";
+"transform.window.title" = "Преобразовать текст";
+"settings.command.textTransform" = "Преобразовать текст";
+"transform.upper" = "ВЕРХНИЙ РЕГИСТР";
+"transform.lower" = "нижний регистр";
+"transform.title" = "Заголовок Как Этот";
+"transform.camel" = "camelCase";
+"transform.snake" = "snake_case";
+"transform.kebab" = "kebab-case";
+"transform.constant" = "CONSTANT_CASE";
+"transform.slug" = "slug (для URL)";
+"transform.trim" = "Обрезать пробелы по краям";
+"transform.collapseSpaces" = "Схлопнуть пробелы";
+"transform.removeEmptyLines" = "Убрать пустые строки";
+"transform.joinLines" = "Склеить в одну строку";
+"transform.jsonPretty" = "JSON: форматировать";
+"transform.jsonMinify" = "JSON: минифицировать";
+"transform.urlEncode" = "URL-кодировать";
+"transform.urlDecode" = "URL-раскодировать";
+"transform.base64Encode" = "Base64-кодировать";
+"transform.base64Decode" = "Base64-раскодировать";
+"transform.sortLines" = "Сортировать строки А→Я";
+"transform.sortLinesDesc" = "Сортировать строки Я→А";
+"transform.dedupeLines" = "Убрать дубли строк";
+"transform.reverseLines" = "Перевернуть порядок строк";
 
 /* Панель команд */
 "panel.title" = "Команды";

@@ -1004,6 +1004,199 @@ final class ClipboardHistoryWindowController: NSWindowController, NSWindowDelega
     }
 }
 
+// MARK: - Окно трансформаций текста
+
+/// Отдельное стеклянное окно преобразований выделенного текста: список с превью результата,
+/// номера 1–9, клик/Enter/цифра — применить и вставить, Esc — закрыть.
+final class TransformPickerWindowController: NSWindowController, NSWindowDelegate {
+
+    /// Готовый результат выбранного преобразования — вызывающий вставляет его.
+    var onApply: ((String) -> Void)?
+
+    private struct Entry { let view: NSView; let setSelected: (Bool) -> Void; let run: () -> Void }
+    private var entries: [Entry] = []
+    private var selectedIndex = 0
+    private var finished = false
+    private var sourceText = ""
+
+    private let listView = CommandListView()
+    private let contentStack = NSStackView()
+    private let scroll = NSScrollView()
+
+    private static let width: CGFloat = 500
+    private static let maxHeight: CGFloat = 600
+
+    init() {
+        let panel = CommandPanel(
+            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 300),
+            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.isMovableByWindowBackground = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        super.init(window: panel)
+        panel.delegate = self
+        buildChrome()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    private func buildChrome() {
+        guard let window else { return }
+        let content = NSView()
+        installGlass(in: window, content: content)
+
+        let header = Brand.makeHeaderView(title: L("transform.window.title"))
+        header.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(header)
+
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 4
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.addSubview(contentStack)
+
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.documentView = listView
+        content.addSubview(scroll)
+
+        let hint = NSTextField(labelWithString: L("panel.footer"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(hint)
+
+        NSLayoutConstraint.activate([
+            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
+
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+
+            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
+            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
+            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
+            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
+
+            hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
+            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+        ])
+
+        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
+        listView.onRun = { [weak self] index in self?.runIndex(index) }
+        listView.onDigit = { [weak self] digit in self?.runIndex(digit - 1) }
+        listView.onClose = { [weak self] in self?.window?.close() }
+    }
+
+    func show(source: String) {
+        finished = false
+        sourceText = source
+        rebuild()
+        sizeToFit()
+        centerOnActiveScreen()
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+        window?.makeFirstResponder(listView)
+    }
+
+    private func rebuild() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        entries.removeAll()
+        for (i, transform) in TextTransform.allCases.enumerated() {
+            let result = transform.apply(to: sourceText)
+            let row = CommandRowView()
+            row.configure(digit: i < 9 ? i + 1 : nil, symbol: Self.symbol(transform),
+                          title: L(transform.titleKey), trailing: result.map(historyPreview) ?? "—")
+            row.onClick = { [weak self] in self?.run(result) }
+            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.heightAnchor.constraint(equalToConstant: 40).isActive = true
+            contentStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            entries.append(Entry(view: row,
+                                 setSelected: { [weak row] in row?.isSelected = $0 },
+                                 run: { [weak self] in self?.run(result) }))
+        }
+        selectedIndex = entries.isEmpty ? -1 : 0
+        updateSelection()
+    }
+
+    /// Применить: неприменимое преобразование (nil-результат) — сигнал, окно остаётся.
+    private func run(_ result: String?) {
+        guard let result else { NSSound.beep(); return }
+        finish { [weak self] in self?.onApply?(result) }
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !entries.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
+        updateSelection()
+        entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
+    }
+    private func updateSelection() {
+        for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
+    }
+    private func runIndex(_ index: Int) {
+        let target = index < 0 ? selectedIndex : index
+        guard entries.indices.contains(target) else { NSSound.beep(); return }
+        entries[target].run()
+    }
+    private func finish(_ action: @escaping () -> Void) {
+        guard !finished else { return }
+        finished = true
+        window?.close()
+        action()
+    }
+    func windowWillClose(_ notification: Notification) {}
+
+    private func sizeToFit() {
+        guard let window else { return }
+        contentStack.layoutSubtreeIfNeeded()
+        let inner = contentStack.fittingSize.height + 12
+        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
+        let height = min(inner + chrome, Self.maxHeight)
+        window.setContentSize(NSSize(width: Self.width, height: height))
+    }
+    private func centerOnActiveScreen() {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main ?? NSScreen.screens.first
+        guard let area = screen?.visibleFrame else { window.center(); return }
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
+    }
+
+    private static func symbol(_ t: TextTransform) -> String {
+        switch t {
+        case .upper, .lower, .title, .camel, .snake, .kebab, .constant, .slug: return "textformat"
+        case .trim, .collapseSpaces, .removeEmptyLines, .joinLines: return "wand.and.stars"
+        case .jsonPretty, .jsonMinify: return "curlybraces"
+        case .urlEncode, .urlDecode: return "link"
+        case .base64Encode, .base64Decode: return "barcode"
+        case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return "arrow.up.arrow.down"
+        }
+    }
+}
+
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
