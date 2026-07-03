@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = CommandPanelWindowController()
         // Клик по сниппету в панели → его первичное действие (как в пикере).
         controller.onSnippet = { [weak self] snippet in self?.activateSnippet(snippet) }
+        // При закрытии панели сбрасываем состояние жеста-триггера: пока панель была ключевой,
+        // монитор не видел отпускание правого ⌘ — иначе следующий двойной тап не сработает.
+        controller.onClose = { [weak self] in self?.flagsMonitor?.resetGesture() }
         return controller
     }()
     /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
@@ -267,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Открывает панель команд с актуальным набором. Неактивирующая панель не крадёт фокус
     /// у переднего приложения — важно для вставки/сниппетов.
     private func openCommandPanel() {
+        // Сбрасываем состояние жеста: нажатие, открывшее панель, оставило правый ⌘ «зажатым»
+        // в трекере (отпускание уйдёт уже в ключевую панель, мимо монитора).
+        flagsMonitor?.resetGesture()
         // Запоминаем активное приложение — сниппет/paste вставятся туда, где стоял курсор.
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         // Сниппеты показываем построчно (каждый в один клик), поэтому лончер сниппетов из

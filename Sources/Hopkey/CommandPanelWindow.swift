@@ -244,6 +244,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
 
     /// Первичное действие над сниппетом (вставить/перейти/скопировать решает вызывающий).
     var onSnippet: ((Snippet) -> Void)?
+    /// Панель закрылась (Esc/выбор/клик мимо) — вызывающий сбрасывает состояние жеста-триггера.
+    var onClose: (() -> Void)?
 
     /// Одна выбираемая позиция панели (плитка или строка) в визуальном порядке.
     private struct Entry {
@@ -577,6 +579,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         finished = true
         window?.close()
         action()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose?()
     }
 
     // MARK: Геометрия

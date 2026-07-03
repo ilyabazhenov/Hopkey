@@ -22,14 +22,16 @@ public final class DoubleTapDetector {
         case idle
         /// Целевая клавиша нажата, ждём отпускания.
         case firstDown(downAt: TimeInterval)
-        /// Один чистый тап завершён; `downAt` — время его нажатия (от него меряем `maxGap`).
-        case firstTapped(downAt: TimeInterval)
+        /// Один чистый тап завершён; `upAt` — время ОТПУСКАНИЯ (от него меряем паузу до второго
+        /// нажатия). Пауза от отпускания, а не от нажатия — так жест не обязан целиком уложиться
+        /// в узкое окно, и двойной тап не приходится «выстукивать» очень быстро.
+        case firstTapped(upAt: TimeInterval)
     }
     private var state: State = .idle
 
     public init(targetKeyCode: Int,
-                maxTapDuration: TimeInterval = 0.25,
-                maxGap: TimeInterval = 0.30) {
+                maxTapDuration: TimeInterval = 0.35,
+                maxGap: TimeInterval = 0.40) {
         self.targetKeyCode = targetKeyCode
         self.maxTapDuration = maxTapDuration
         self.maxGap = maxGap
@@ -60,7 +62,7 @@ public final class DoubleTapDetector {
     }
 
     private func handleDown(at time: TimeInterval) {
-        if case .firstTapped(let downAt) = state, time - downAt <= maxGap {
+        if case .firstTapped(let upAt) = state, time - upAt <= maxGap {
             state = .idle
             onTrigger?()
         } else {
@@ -70,7 +72,7 @@ public final class DoubleTapDetector {
 
     private func handleUp(at time: TimeInterval) {
         if case .firstDown(let downAt) = state, time - downAt <= maxTapDuration {
-            state = .firstTapped(downAt: downAt)
+            state = .firstTapped(upAt: time)
         } else {
             state = .idle
         }

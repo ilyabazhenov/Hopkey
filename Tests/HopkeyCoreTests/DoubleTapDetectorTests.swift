@@ -21,6 +21,16 @@ final class DoubleTapDetectorTests: XCTestCase {
         XCTAssertEqual(count(), 1)
     }
 
+    /// «Спокойный» двойной тап (чуть придержали, пауза побольше) тоже срабатывает — паузу меряем
+    /// от ОТПУСКАНИЯ первого тапа. Раньше (окно от нажатия, 0.30 с) этот жест не срабатывал.
+    func testRelaxedDoubleTapFires() {
+        let (d, count) = makeDetector()
+        d.handleModifier(keyCode: target, isDown: true, at: 0.00)
+        d.handleModifier(keyCode: target, isDown: false, at: 0.15)  // первый тап придержан
+        d.handleModifier(keyCode: target, isDown: true, at: 0.45)   // пауза 0.30 от отпускания
+        XCTAssertEqual(count(), 1)
+    }
+
     /// Второе нажатие позже `maxGap` — не двойной тап; но становится новым «первым».
     func testNoFireWhenGapTooLong() {
         let (d, count) = makeDetector()
