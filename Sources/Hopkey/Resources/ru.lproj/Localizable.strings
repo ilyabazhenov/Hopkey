@@ -106,6 +106,9 @@
 "panel.section.toggles" = "Переключатели";
 "panel.section.actions" = "Действия";
 "panel.section.launchers" = "Jira и сниппеты";
+"panel.section.snippets" = "Сниппеты";
+"panel.snippets.all" = "⌃⌥V — все";
+"panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
 "panel.toggle.on" = "вкл";
 "panel.toggle.off" = "выкл";
 "status.micMuted" = "Микрофон выключен";

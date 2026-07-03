@@ -106,6 +106,9 @@
 "panel.section.toggles" = "Toggles";
 "panel.section.actions" = "Actions";
 "panel.section.launchers" = "Jira and snippets";
+"panel.section.snippets" = "Snippets";
+"panel.snippets.all" = "⌃⌥V — all";
+"panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
 "panel.toggle.on" = "on";
 "panel.toggle.off" = "off";
 "status.micMuted" = "Microphone muted";

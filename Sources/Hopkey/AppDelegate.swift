@@ -16,7 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Пересоздаются при смене триггера (см. `setupPaletteTrigger`).
     private var flagsMonitor: FlagsChangedMonitor?
     private var doubleTapDetector: DoubleTapDetector?
-    private lazy var commandPanel = CommandPanelWindowController()
+    private lazy var commandPanel: CommandPanelWindowController = {
+        let controller = CommandPanelWindowController()
+        // Клик по сниппету в панели → его первичное действие (как в пикере).
+        controller.onSnippet = { [weak self] snippet in self?.activateSnippet(snippet) }
+        return controller
+    }()
     /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
     private lazy var commands: [ToolboxCommand] = buildCommands()
     /// Команды, чью прямую комбинацию не удалось зарегистрировать (занята).
@@ -262,7 +267,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Открывает панель команд с актуальным набором. Неактивирующая панель не крадёт фокус
     /// у переднего приложения — важно для вставки/сниппетов.
     private func openCommandPanel() {
-        commandPanel.show(commands: commands)
+        // Запоминаем активное приложение — сниппет/paste вставятся туда, где стоял курсор.
+        snippetTargetApp = NSWorkspace.shared.frontmostApplication
+        // Сниппеты показываем построчно (каждый в один клик), поэтому лончер сниппетов из
+        // панели убираем; ⌃⌥V по-прежнему открывает полный пикер.
+        let panelCommands = commands.filter { $0.id != .snippets }
+        commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets)
+    }
+
+    /// Первичное действие сниппета из панели (как в пикере): секрет/текст — вставить,
+    /// ссылка — её действие по умолчанию.
+    private func activateSnippet(_ snippet: Snippet) {
+        switch snippet.primaryActivation {
+        case .paste: pasteSnippet(snippet)
+        case .open:  openSnippet(snippet)
+        case .copy:  copySnippet(snippet)
+        }
     }
 
     /// Добавляет пункт меню статус-бара с SF Symbol-иконкой и таргетом на self.
