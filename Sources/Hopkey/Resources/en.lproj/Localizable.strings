@@ -101,6 +101,10 @@
 "cmd.mic.status.live" = "on";
 "cmd.keepAwake" = "Keep awake";
 "cmd.pastePlain" = "Paste without formatting";
+"cmd.clipboardHistory" = "Clipboard history";
+"clipboard.title" = "Clipboard history";
+"clipboard.empty" = "History is empty";
+"settings.command.clipboardHistory" = "Clipboard history";
 
 /* Command panel */
 "panel.title" = "Commands";
@@ -108,6 +112,8 @@
 "panel.section.actions" = "Actions";
 "panel.section.launchers" = "Jira and snippets";
 "panel.section.snippets" = "Snippets";
+"panel.section.clipboard" = "Clipboard";
+"panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
 "panel.toggle.on" = "on";

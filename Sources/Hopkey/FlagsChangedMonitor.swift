@@ -10,6 +10,9 @@ import HopkeyCore
 final class FlagsChangedMonitor {
 
     private var monitor: Any?
+    /// Локальный монитор — ловит события, когда ключевое окно наше (открытая панель), чтобы
+    /// двойной тап при открытой панели закрывал её (глобальный монитор наши события не видит).
+    private var localMonitor: Any?
     private let detector: DoubleTapDetector
     /// Направление (нажат/отпущен) считаем по keyCode, а не по общему биту флага —
     /// иначе отпускание правого модификатора при зажатом левом читалось бы как нажатие.
@@ -25,11 +28,17 @@ final class FlagsChangedMonitor {
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             self?.handle(event)
         }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+            self?.handle(event)
+            return event  // не поглощаем — окно продолжает получать событие
+        }
     }
 
     func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         monitor = nil
+        localMonitor = nil
         tracker.reset()
     }
 

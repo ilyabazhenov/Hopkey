@@ -101,6 +101,10 @@
 "cmd.mic.status.live" = "вкл";
 "cmd.keepAwake" = "Не давать засыпать";
 "cmd.pastePlain" = "Вставить без форматирования";
+"cmd.clipboardHistory" = "История буфера";
+"clipboard.title" = "История буфера";
+"clipboard.empty" = "История пуста";
+"settings.command.clipboardHistory" = "История буфера";
 
 /* Панель команд */
 "panel.title" = "Команды";
@@ -108,6 +112,8 @@
 "panel.section.actions" = "Действия";
 "panel.section.launchers" = "Jira и сниппеты";
 "panel.section.snippets" = "Сниппеты";
+"panel.section.clipboard" = "Буфер";
+"panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
 "panel.toggle.on" = "вкл";

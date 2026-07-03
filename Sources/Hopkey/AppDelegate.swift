@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updater = UpdaterController()
     private let mic = MicrophoneController()
     private let keepAwake = KeepAwakeController()
+    /// История буфера обмена (только в памяти), для быстрой повторной вставки из панели.
+    private let clipboardHistory = ClipboardHistory()
     /// Монитор нажатий модификаторов + детектор двойного тапа для вызова панели.
     /// Пересоздаются при смене триггера (см. `setupPaletteTrigger`).
     private var flagsMonitor: FlagsChangedMonitor?
@@ -24,13 +26,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // При закрытии панели сбрасываем состояние жеста-триггера: пока панель была ключевой,
         // монитор не видел отпускание правого ⌘ — иначе следующий двойной тап не сработает.
-        controller.onClose = { [weak self] in self?.flagsMonitor?.resetGesture() }
+        controller.onClose = { [weak self] in
+            self?.panelIsOpen = false
+            self?.flagsMonitor?.resetGesture()
+        }
         return controller
     }()
     /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
     private lazy var commands: [ToolboxCommand] = buildCommands()
     /// Команды, чью прямую комбинацию не удалось зарегистрировать (занята).
     private var failedCommandHotKeys: Set<CommandID> = []
+    /// Открыта ли сейчас панель команд (для toggle двойным тапом: открыть/закрыть).
+    private var panelIsOpen = false
     private lazy var settings: SettingsWindowController = {
         let controller = SettingsWindowController(config: config, updater: updater)
         // Окно настроек само опрашивает статус регистрации, чтобы показать предупреждение
@@ -94,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Автонаблюдение за буфером: срабатываем, только если в буфере ровно ключ тикета
     /// (случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер).
     private func handle(_ text: String) {
+        // Пишем в историю буфера все пользовательские копии, кроме «скрытых» (пароль-менеджеры).
+        if !clipboardIsConcealed() { clipboardHistory.record(text) }
+
         guard let match = TicketParser.exactMatch(in: text, templates: config.templates) else { return }
         let matches = [match]
 
@@ -271,6 +281,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Открывает панель команд с актуальным набором. Неактивирующая панель не крадёт фокус
     /// у переднего приложения — важно для вставки/сниппетов.
+    /// Двойной тап: если панель открыта — закрыть, иначе открыть.
+    private func togglePanel() {
+        if panelIsOpen {
+            commandPanel.close()
+        } else {
+            openCommandPanel()
+        }
+    }
+
     private func openCommandPanel() {
         // Сбрасываем состояние жеста: нажатие, открывшее панель, оставило правый ⌘ «зажатым»
         // в трекере (отпускание уйдёт уже в ключевую панель, мимо монитора).
@@ -281,6 +300,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // панели убираем; ⌃⌥V по-прежнему открывает полный пикер.
         let panelCommands = commands.filter { $0.id != .snippets }
         commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets)
+        panelIsOpen = true
+    }
+
+    /// Открывает отдельное окно истории буфера (команда «История буфера»).
+    private lazy var clipboardHistoryWindow: ClipboardHistoryWindowController = {
+        let controller = ClipboardHistoryWindowController()
+        controller.onPaste = { [weak self] text in self?.pasteHistory(text) }
+        controller.onClear = { [weak self] in self?.clipboardHistory.clear() }
+        return controller
+    }()
+
+    private func openClipboardHistory() {
+        snippetTargetApp = NSWorkspace.shared.frontmostApplication
+        clipboardHistoryWindow.show(history: clipboardHistory.entries)
     }
 
     /// Маршрутизирует конкретное действие сниппета из панели (первичное или вторичное).
@@ -290,6 +323,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .open:  openSnippet(snippet)
         case .copy:  copySnippet(snippet)
         }
+    }
+
+    /// Вставляет запись истории буфера в активное поле (как paste-plain). Требует Accessibility.
+    private func pasteHistory(_ text: String) {
+        guard !text.isEmpty else { NSSound.beep(); return }
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            HotKeyManager.ensureAccessibility(prompt: true); return
+        }
+        hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
+    }
+
+    /// «Скрытая» ли текущая копия: пароль-менеджеры и т.п. помечают буфер служебными типами,
+    /// такие значения в историю не пишем.
+    private func clipboardIsConcealed() -> Bool {
+        let concealed: Set<String> = [
+            "org.nspasteboard.ConcealedType",
+            "org.nspasteboard.TransientType",
+            "org.nspasteboard.AutoGeneratedType",
+        ]
+        return (NSPasteboard.general.types ?? []).contains { concealed.contains($0.rawValue) }
     }
 
     /// Добавляет пункт меню статус-бара с SF Symbol-иконкой и таргетом на self.
@@ -526,6 +579,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: { L("cmd.pastePlain") }, symbol: { "doc.on.clipboard" },
                 isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
                 run: { [weak self] in self?.pastePlainText() })
+        case .clipboardHistory:
+            return ToolboxCommand(
+                id: id, needsAccessibility: true,
+                title: { L("cmd.clipboardHistory") }, symbol: { "clock.arrow.circlepath" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openClipboardHistory() })
         }
     }
 
@@ -566,7 +625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let detector = DoubleTapDetector(targetKeyCode: side.keyCode)
         detector.onTrigger = { [weak self] in
-            DispatchQueue.main.async { self?.openCommandPanel() }
+            DispatchQueue.main.async { self?.togglePanel() }
         }
         let monitor = FlagsChangedMonitor(detector: detector)
         monitor.start()

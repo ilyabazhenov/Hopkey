@@ -457,9 +457,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         switch id {
         case .quickInput: return "settings.hotkey.input"
         case .snippets:   return "settings.hotkey.snippets"
-        case .micToggle:  return "settings.command.mic"
-        case .keepAwake:  return "settings.command.keepAwake"
-        case .pastePlain: return "settings.command.pastePlain"
+        case .micToggle:        return "settings.command.mic"
+        case .keepAwake:        return "settings.command.keepAwake"
+        case .pastePlain:       return "settings.command.pastePlain"
+        case .clipboardHistory: return "settings.command.clipboardHistory"
         }
     }
 

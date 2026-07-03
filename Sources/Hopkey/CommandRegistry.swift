@@ -44,18 +44,19 @@ extension CommandID {
         switch self {
         case .quickInput: return 3
         case .snippets:   return 4
-        case .micToggle:  return 5
-        case .keepAwake:  return 6
-        case .pastePlain: return 7
+        case .micToggle:        return 5
+        case .keepAwake:        return 6
+        case .pastePlain:       return 7
+        case .clipboardHistory: return 8
         }
     }
 
     /// В какую зону панели попадает команда.
     var section: CommandSection {
         switch self {
-        case .micToggle, .keepAwake: return .toggles
-        case .pastePlain:            return .actions
-        case .quickInput, .snippets: return .launchers
+        case .micToggle, .keepAwake:      return .toggles
+        case .pastePlain, .clipboardHistory: return .actions
+        case .quickInput, .snippets:      return .launchers
         }
     }
 }

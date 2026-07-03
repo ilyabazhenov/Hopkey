@@ -18,4 +18,6 @@ public enum CommandID: String, CaseIterable, Codable {
     case keepAwake
     /// Вставить содержимое буфера без форматирования.
     case pastePlain
+    /// Открыть отдельное окно истории буфера обмена.
+    case clipboardHistory
 }
