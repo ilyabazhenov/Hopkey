@@ -94,6 +94,7 @@
 /* Toolbox commands (menu and panel) */
 "cmd.quickInput" = "Open ticket by key";
 "cmd.snippets" = "Paste snippet";
+"cmd.mic" = "Microphone";
 "cmd.mic.mute" = "Mute microphone";
 "cmd.mic.unmute" = "Unmute microphone";
 "cmd.mic.status.muted" = "off";

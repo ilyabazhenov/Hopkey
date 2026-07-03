@@ -18,8 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var doubleTapDetector: DoubleTapDetector?
     private lazy var commandPanel: CommandPanelWindowController = {
         let controller = CommandPanelWindowController()
-        // Клик по сниппету в панели → его первичное действие (как в пикере).
-        controller.onSnippet = { [weak self] snippet in self?.activateSnippet(snippet) }
+        // Действие над сниппетом из панели (первичное по клику, вторичное по кнопкам).
+        controller.onSnippetActivation = { [weak self] snippet, activation in
+            self?.dispatchSnippet(snippet, activation)
+        }
         // При закрытии панели сбрасываем состояние жеста-триггера: пока панель была ключевой,
         // монитор не видел отпускание правого ⌘ — иначе следующий двойной тап не сработает.
         controller.onClose = { [weak self] in self?.flagsMonitor?.resetGesture() }
@@ -281,10 +283,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets)
     }
 
-    /// Первичное действие сниппета из панели (как в пикере): секрет/текст — вставить,
-    /// ссылка — её действие по умолчанию.
-    private func activateSnippet(_ snippet: Snippet) {
-        switch snippet.primaryActivation {
+    /// Маршрутизирует конкретное действие сниппета из панели (первичное или вторичное).
+    private func dispatchSnippet(_ snippet: Snippet, _ activation: SnippetActivation) {
+        switch activation {
         case .paste: pasteSnippet(snippet)
         case .open:  openSnippet(snippet)
         case .copy:  copySnippet(snippet)
@@ -501,7 +502,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .micToggle:
             return ToolboxCommand(
                 id: id, needsAccessibility: false,
-                title: { [weak self] in L((self?.mic.isMuted ?? false) ? "cmd.mic.unmute" : "cmd.mic.mute") },
+                // Предмет, а не действие: «Микрофон» + статус (как keep-awake), «выключить»
+                // подразумевается кликом. В меню — галка при мьюте.
+                title: { L("cmd.mic") },
                 symbol: { [weak self] in (self?.mic.isMuted ?? false) ? "mic.slash.fill" : "mic.fill" },
                 // «Активное» состояние тумблера = замьючен (привлекает внимание).
                 isOn: { [weak self] in self?.mic.isMuted ?? false },

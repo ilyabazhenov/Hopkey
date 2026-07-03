@@ -153,8 +153,32 @@ private final class NumberBadge: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 }
 
+/// Кнопка-иконка с замыканием — вторичные действия сниппета в строке (открыть/скопировать).
+private final class ClosureButton: NSButton {
+    private let handler: () -> Void
+    init(symbol: String, tooltip: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(frame: .zero)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        imagePosition = .imageOnly
+        isBordered = false
+        bezelStyle = .accessoryBarAction
+        contentTintColor = .secondaryLabelColor
+        toolTip = tooltip
+        setButtonType(.momentaryChange)
+        target = self
+        action = #selector(fire)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 24).isActive = true
+        heightAnchor.constraint(equalToConstant: 24).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+    @objc private func fire() { handler() }
+}
+
 /// Строка (действие / лончер / сниппет): номер + иконка + название + трейлинг (хоткей действия
-/// или тип сниппета). Выделение — нейтральная акцентная заливка, hover — слабая серая.
+/// или тип сниппета). У сниппетов на hover/выборе трейлинг сменяется кнопками действий.
+/// Выделение — нейтральная акцентная заливка, hover — слабая серая.
 private final class CommandRowView: NSView {
     var onClick: (() -> Void)?
     var onHover: ((Bool) -> Void)?
@@ -163,10 +187,12 @@ private final class CommandRowView: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let trailingLabel = NSTextField(labelWithString: "")
+    private let actionsStack = NSStackView()
+    private var hasActions = false
     private var tracking: NSTrackingArea?
 
-    var isSelected = false { didSet { refreshBackground() } }
-    private var isHovered = false { didSet { refreshBackground() } }
+    var isSelected = false { didSet { refreshBackground(); updateActionsVisibility() } }
+    private var isHovered = false { didSet { refreshBackground(); updateActionsVisibility() } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -190,7 +216,13 @@ private final class CommandRowView: NSView {
         trailingLabel.translatesAutoresizingMaskIntoConstraints = false
         trailingLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        addSubview(keycap); addSubview(iconView); addSubview(titleLabel); addSubview(trailingLabel)
+        actionsStack.orientation = .horizontal
+        actionsStack.spacing = 2
+        actionsStack.isHidden = true
+        actionsStack.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(keycap); addSubview(iconView); addSubview(titleLabel)
+        addSubview(trailingLabel); addSubview(actionsStack)
         NSLayoutConstraint.activate([
             keycap.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -205,6 +237,8 @@ private final class CommandRowView: NSView {
             trailingLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             trailingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            actionsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            actionsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -216,6 +250,23 @@ private final class CommandRowView: NSView {
         titleLabel.stringValue = title
         setAccessibilityLabel(title)
         trailingLabel.stringValue = trailing ?? ""
+    }
+
+    /// Вторичные действия строки (кнопки-иконки), показываются на hover/выборе вместо трейлинга.
+    func setActions(_ actions: [(symbol: String, tooltip: String, run: () -> Void)]) {
+        actionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for action in actions {
+            actionsStack.addArrangedSubview(
+                ClosureButton(symbol: action.symbol, tooltip: action.tooltip, handler: action.run))
+        }
+        hasActions = !actions.isEmpty
+        updateActionsVisibility()
+    }
+
+    private func updateActionsVisibility() {
+        let show = hasActions && (isSelected || isHovered)
+        actionsStack.isHidden = !show
+        trailingLabel.isHidden = show
     }
 
     override func updateTrackingAreas() {
@@ -242,8 +293,8 @@ private final class CommandRowView: NSView {
 
 final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
 
-    /// Первичное действие над сниппетом (вставить/перейти/скопировать решает вызывающий).
-    var onSnippet: ((Snippet) -> Void)?
+    /// Действие над сниппетом: первичное (клик/Enter) или вторичное (кнопки в строке).
+    var onSnippetActivation: ((Snippet, SnippetActivation) -> Void)?
     /// Панель закрылась (Esc/выбор/клик мимо) — вызывающий сбрасывает состояние жеста-триггера.
     var onClose: (() -> Void)?
 
@@ -479,6 +530,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let row = CommandRowView()
         row.configure(digit: nextDigit(), symbol: Self.snippetSymbol(snippet.kind),
                       title: snippet.displayName, trailing: Self.snippetTypeLabel(snippet.kind))
+        // Вторичные действия = доступные, кроме первичного (первичное — по клику/Enter).
+        let secondary = snippet.availableActivations.filter { $0 != snippet.primaryActivation }
+        row.setActions(secondary.map { activation in
+            (symbol: Self.activationSymbol(activation),
+             tooltip: Self.activationTooltip(activation),
+             run: { [weak self] in self?.finish { self?.onSnippetActivation?(snippet, activation) } })
+        })
         row.onClick = { [weak self] in self?.runSnippet(snippet) }
         row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
         entries.append(Entry(view: row,
@@ -571,7 +629,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func runSnippet(_ snippet: Snippet) {
-        finish { [weak self] in self?.onSnippet?(snippet) }
+        finish { [weak self] in self?.onSnippetActivation?(snippet, snippet.primaryActivation) }
     }
 
     private func finish(_ action: @escaping () -> Void) {
@@ -621,6 +679,22 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         case .secret: return L("snippet.kind.secret")
         case .text:   return L("snippet.kind.text")
         case .link:   return L("snippet.kind.link")
+        }
+    }
+
+    private static func activationSymbol(_ activation: SnippetActivation) -> String {
+        switch activation {
+        case .paste: return "arrow.down.doc"
+        case .open:  return "arrow.up.right.square"
+        case .copy:  return "doc.on.doc"
+        }
+    }
+
+    private static func activationTooltip(_ activation: SnippetActivation) -> String {
+        switch activation {
+        case .paste: return L("snippet.picker.paste")
+        case .open:  return L("snippet.picker.open")
+        case .copy:  return L("snippet.picker.copy")
         }
     }
 }
