@@ -462,6 +462,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         case .pastePlain:       return "settings.command.pastePlain"
         case .clipboardHistory: return "settings.command.clipboardHistory"
         case .textTransform:    return "settings.command.textTransform"
+        case .audioOutput:      return "settings.command.audioOutput"
+        case .audioInput:       return "settings.command.audioInput"
         }
     }
 

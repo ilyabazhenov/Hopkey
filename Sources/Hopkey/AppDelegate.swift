@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updater = UpdaterController()
     private let mic = MicrophoneController()
     private let keepAwake = KeepAwakeController()
+    private let audio = AudioDeviceController()
     /// История буфера обмена (только в памяти), для быстрой повторной вставки из панели.
     private let clipboardHistory = ClipboardHistory()
     /// Монитор нажатий модификаторов + детектор двойного тапа для вызова панели.
@@ -344,6 +345,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transformWindow.show(source: source)
     }
 
+    /// Окна выбора аудиовыхода и аудиовхода (один класс, разные заголовки/действия).
+    private lazy var audioOutputWindow: AudioDeviceWindowController = {
+        let controller = AudioDeviceWindowController(titleKey: "audio.output.title")
+        controller.onPick = { [weak self] id in self?.audio.setOutput(id) }
+        return controller
+    }()
+    private lazy var audioInputWindow: AudioDeviceWindowController = {
+        let controller = AudioDeviceWindowController(titleKey: "audio.input.title")
+        controller.onPick = { [weak self] id in self?.audio.setInput(id) }
+        return controller
+    }()
+
+    private func openAudioOutput() {
+        audioOutputWindow.show(devices: audio.outputDevices(), currentID: audio.currentOutputDeviceID())
+    }
+    private func openAudioInput() {
+        audioInputWindow.show(devices: audio.inputDevices(), currentID: audio.currentInputDeviceID())
+    }
+
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.
     private func pasteTransform(_ text: String) {
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
@@ -627,6 +647,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: { L("cmd.textTransform") }, symbol: { "textformat" },
                 isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
                 run: { [weak self] in self?.openTextTransforms() })
+        case .audioOutput:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.audioOutput") }, symbol: { "hifispeaker" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openAudioOutput() })
+        case .audioInput:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.audioInput") }, symbol: { "mic" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openAudioInput() })
         }
     }
 

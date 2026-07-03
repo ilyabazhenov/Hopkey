@@ -130,6 +130,14 @@
 "transform.sortLinesDesc" = "Сортировать строки Я→А";
 "transform.dedupeLines" = "Убрать дубли строк";
 "transform.reverseLines" = "Перевернуть порядок строк";
+"cmd.audioOutput" = "Аудиовыход";
+"cmd.audioInput" = "Аудиовход";
+"audio.output.title" = "Аудиовыход";
+"audio.input.title" = "Аудиовход";
+"audio.current" = "текущий";
+"audio.empty" = "Устройства не найдены";
+"settings.command.audioOutput" = "Аудиовыход";
+"settings.command.audioInput" = "Аудиовход";
 
 /* Панель команд */
 "panel.title" = "Команды";

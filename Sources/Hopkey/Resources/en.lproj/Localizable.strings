@@ -130,6 +130,14 @@
 "transform.sortLinesDesc" = "Sort lines Z→A";
 "transform.dedupeLines" = "Remove duplicate lines";
 "transform.reverseLines" = "Reverse line order";
+"cmd.audioOutput" = "Audio output";
+"cmd.audioInput" = "Audio input";
+"audio.output.title" = "Audio output";
+"audio.input.title" = "Audio input";
+"audio.current" = "current";
+"audio.empty" = "No devices found";
+"settings.command.audioOutput" = "Audio output";
+"settings.command.audioInput" = "Audio input";
 
 /* Command panel */
 "panel.title" = "Commands";

@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import HopkeyCore
 
 /// Панель-палитра команд: тумблеры (плитки), разовые действия и сниппеты (строки) на одной
@@ -1193,6 +1194,209 @@ final class TransformPickerWindowController: NSWindowController, NSWindowDelegat
         case .urlEncode, .urlDecode: return "link"
         case .base64Encode, .base64Decode: return "barcode"
         case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return "arrow.up.arrow.down"
+        }
+    }
+}
+
+// MARK: - Окно выбора аудиоустройства (вход/выход)
+
+/// Отдельное стеклянное окно выбора аудиоустройства: список (иконка по типу шины), текущее
+/// отмечено и предвыбрано; клик/Enter/цифра — переключить, Esc — закрыть. Заголовок задаётся
+/// при создании — один класс для входа и выхода.
+final class AudioDeviceWindowController: NSWindowController, NSWindowDelegate {
+
+    var onPick: ((AudioDeviceID) -> Void)?
+
+    private let titleKey: String
+    private struct Entry { let view: NSView; let setSelected: (Bool) -> Void; let run: () -> Void }
+    private var entries: [Entry] = []
+    private var selectedIndex = 0
+    private var finished = false
+
+    private let listView = CommandListView()
+    private let contentStack = NSStackView()
+    private let scroll = NSScrollView()
+    private let emptyLabel = NSTextField(labelWithString: L("audio.empty"))
+
+    private static let width: CGFloat = 460
+    private static let maxHeight: CGFloat = 520
+
+    init(titleKey: String) {
+        self.titleKey = titleKey
+        let panel = CommandPanel(
+            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 260),
+            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.isMovableByWindowBackground = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        super.init(window: panel)
+        panel.delegate = self
+        buildChrome()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    private func buildChrome() {
+        guard let window else { return }
+        let content = NSView()
+        installGlass(in: window, content: content)
+
+        let header = Brand.makeHeaderView(title: L(titleKey))
+        header.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(header)
+
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 4
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.addSubview(contentStack)
+
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.documentView = listView
+        content.addSubview(scroll)
+
+        emptyLabel.font = .systemFont(ofSize: 13)
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(emptyLabel)
+
+        let hint = NSTextField(labelWithString: L("panel.footer"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(hint)
+
+        NSLayoutConstraint.activate([
+            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
+
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+
+            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
+            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
+            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
+            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
+
+            emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+
+            hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
+            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+        ])
+
+        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
+        listView.onRun = { [weak self] index in self?.runIndex(index) }
+        listView.onDigit = { [weak self] digit in self?.runIndex(digit - 1) }
+        listView.onClose = { [weak self] in self?.window?.close() }
+    }
+
+    func show(devices: [AudioDevice], currentID: AudioDeviceID?) {
+        finished = false
+        rebuild(devices, currentID: currentID)
+        sizeToFit()
+        centerOnActiveScreen()
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+        window?.makeFirstResponder(listView)
+    }
+
+    private func rebuild(_ devices: [AudioDevice], currentID: AudioDeviceID?) {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        entries.removeAll()
+        for (i, device) in devices.enumerated() {
+            let isCurrent = device.id == currentID
+            let row = CommandRowView()
+            row.configure(digit: i < 9 ? i + 1 : nil, symbol: Self.symbol(device.transport),
+                          title: device.name, trailing: isCurrent ? L("audio.current") : nil)
+            row.onClick = { [weak self] in self?.run(device.id) }
+            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.heightAnchor.constraint(equalToConstant: 40).isActive = true
+            contentStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            entries.append(Entry(view: row,
+                                 setSelected: { [weak row] in row?.isSelected = $0 },
+                                 run: { [weak self] in self?.run(device.id) }))
+            if isCurrent { selectedIndex = i }
+        }
+        emptyLabel.isHidden = !devices.isEmpty
+        if entries.isEmpty { selectedIndex = -1 }
+        updateSelection()
+    }
+
+    private func run(_ id: AudioDeviceID) {
+        finish { [weak self] in self?.onPick?(id) }
+    }
+    private func moveSelection(by delta: Int) {
+        guard !entries.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
+        updateSelection()
+        entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
+    }
+    private func updateSelection() {
+        for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
+    }
+    private func runIndex(_ index: Int) {
+        let target = index < 0 ? selectedIndex : index
+        guard entries.indices.contains(target) else { NSSound.beep(); return }
+        entries[target].run()
+    }
+    private func finish(_ action: @escaping () -> Void) {
+        guard !finished else { return }
+        finished = true
+        window?.close()
+        action()
+    }
+    func windowWillClose(_ notification: Notification) {}
+
+    private func sizeToFit() {
+        guard let window else { return }
+        contentStack.layoutSubtreeIfNeeded()
+        let inner = entries.isEmpty ? 60 : contentStack.fittingSize.height + 12
+        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
+        let height = min(inner + chrome, Self.maxHeight)
+        window.setContentSize(NSSize(width: Self.width, height: height))
+    }
+    private func centerOnActiveScreen() {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main ?? NSScreen.screens.first
+        guard let area = screen?.visibleFrame else { window.center(); return }
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
+    }
+
+    /// Иконка по типу шины устройства.
+    private static func symbol(_ transport: UInt32) -> String {
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn: return "laptopcomputer"
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
+        case kAudioDeviceTransportTypeUSB: return "headphones"
+        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: return "display"
+        case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
+        default: return "speaker.wave.2.fill"
         }
     }
 }

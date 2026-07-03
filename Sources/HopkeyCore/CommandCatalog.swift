@@ -22,4 +22,8 @@ public enum CommandID: String, CaseIterable, Codable {
     case clipboardHistory
     /// Преобразовать выделенный текст (регистр, JSON, URL, Base64, строки…).
     case textTransform
+    /// Переключить аудиовыход (пикер устройств).
+    case audioOutput
+    /// Переключить аудиовход/микрофон (пикер устройств).
+    case audioInput
 }

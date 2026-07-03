@@ -49,15 +49,20 @@ extension CommandID {
         case .pastePlain:       return 7
         case .clipboardHistory: return 8
         case .textTransform:    return 9
+        case .audioOutput:      return 10
+        case .audioInput:       return 11
         }
     }
 
     /// В какую зону панели попадает команда.
     var section: CommandSection {
         switch self {
-        case .micToggle, .keepAwake:                        return .toggles
-        case .pastePlain, .clipboardHistory, .textTransform: return .actions
-        case .quickInput, .snippets:                        return .launchers
+        case .micToggle, .keepAwake:
+            return .toggles
+        case .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput:
+            return .actions
+        case .quickInput, .snippets:
+            return .launchers
         }
     }
 }
