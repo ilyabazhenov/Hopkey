@@ -169,6 +169,9 @@
 "notes.copied" = "Copied";
 "notes.count" = "%d words · %d chars";
 "notes.dot" = "Note %d";
+"notes.placeholder" = "Empty — start typing";
+"notes.hint" = "⌘1–7 dots · ⌘↩ paste · Esc close";
+"notes.pasted.noTarget" = "Copied — paste manually (⌘V)";
 "panel.notes.hint" = "←→ pick · ↩ open";
 
 /* Command panel */
@@ -187,6 +190,7 @@
 "panel.footer.commands" = "↑↓ move · ←→ volume · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
 "panel.search.placeholder" = "Search apps, commands, calculator…";
 "panel.search.type.command" = "command";
+"panel.search.type.note" = "note";
 "panel.search.type.app" = "app";
 "panel.search.type.calc" = "copy";
 "panel.search.empty" = "Nothing found";

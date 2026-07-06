@@ -169,6 +169,9 @@
 "notes.copied" = "Скопировано";
 "notes.count" = "%d слов · %d знаков";
 "notes.dot" = "Заметка %d";
+"notes.placeholder" = "Пусто — начните печатать";
+"notes.hint" = "⌘1–7 — точки · ⌘↩ — вставить · Esc — закрыть";
+"notes.pasted.noTarget" = "Скопировано — вставьте вручную (⌘V)";
 "panel.notes.hint" = "←→ выбрать · ↩ открыть";
 
 /* Панель команд */
@@ -187,6 +190,7 @@
 "panel.footer.commands" = "↑↓ выбрать · ←→ громкость · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
 "panel.search.placeholder" = "Поиск: приложения, команды, калькулятор…";
 "panel.search.type.command" = "команда";
+"panel.search.type.note" = "заметка";
 "panel.search.type.app" = "программа";
 "panel.search.type.calc" = "копировать";
 "panel.search.empty" = "Ничего не найдено";

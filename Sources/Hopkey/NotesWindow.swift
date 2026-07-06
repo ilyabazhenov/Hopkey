@@ -40,7 +40,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     private let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     private let dotBar = NotesDotBar()
-    private let textView = NSTextView()
+    private let textView = PlaceholderTextView()
     private let scroll = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
     /// Успел ли центрироваться на первом показе (дальше положение окна не трогаем).
@@ -48,8 +48,11 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     /// Дебаунс сброса на диск: правки кэшируются сразу, файл переписываем по паузе в наборе.
     private var saveTimer: Timer?
 
-    private static let width: CGFloat = 440
-    private static let height: CGFloat = 320
+    // Размер сопоставим с палитрой команд (та ~470 шириной) — заметки это рабочая поверхность,
+    // а не крохотный попап. Пользовательский ресайз запоминается (frameAutosaveName ниже).
+    private static let width: CGFloat = 500
+    private static let height: CGFloat = 540
+    private static let frameAutosaveName = "HopkeyNotesWindow"
 
     init(store: NotesStore) {
         self.store = store
@@ -64,7 +67,8 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         panel.titleVisibility = .hidden
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.minSize = NSSize(width: 360, height: 240)
+        panel.minSize = NSSize(width: 400, height: 320)
+        panel.setFrameAutosaveName(Self.frameAutosaveName)  // запоминаем пользовательский размер/позицию
         super.init(window: panel)
         panel.delegate = self
         panel.onSelectDot = { [weak self] index in self?.selectDot(index) }
@@ -119,6 +123,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         textView.allowsUndo = true
         textView.textContainerInset = NSSize(width: 6, height: 8)
         textView.delegate = self
+        textView.placeholder = L("notes.placeholder")
         // Вертикальный рост под длинный текст: без большого maxSize вью зажимается стартовой
         // высотой и длинная заметка не прокручивается.
         textView.minSize = NSSize(width: 0, height: 0)
@@ -152,7 +157,9 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
 
         let pasteButton = NSButton(title: L("notes.paste"), target: self, action: #selector(pasteNote))
         pasteButton.bezelStyle = .rounded
+        // ⌘↩, а не голый Return: Return в редакторе должен вставлять перенос строки, а не «применять».
         pasteButton.keyEquivalent = "\r"
+        pasteButton.keyEquivalentModifierMask = .command
         // Акцентная основная кнопка — единый вид главного действия со всеми окнами приложения.
         pasteButton.bezelColor = Brand.buttonFill
         pasteButton.attributedTitle = NSAttributedString(
@@ -167,6 +174,15 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         footer.spacing = 8
         footer.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(footer)
+
+        // Подсказка хоткеев внизу — как в палитре (приглушённо, по центру).
+        let hint = NSTextField(labelWithString: L("notes.hint"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(hint)
 
         NSLayoutConstraint.activate([
             header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
@@ -191,7 +207,11 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
 
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+            footer.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -6),
+
+            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
         ])
 
         loadDot()  // наполнить активную точку до первого показа
@@ -205,7 +225,8 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         guard let window else { return }
         loadDot()
         if !didCenter {
-            window.center()
+            // Восстанавливаем сохранённое положение; если его нет (первый запуск) — центрируем.
+            if !window.setFrameUsingName(Self.frameAutosaveName) { window.center() }
             didCenter = true
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -250,6 +271,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
                          active: activeDot)
         applyHighlighting()
         updateCount()
+        textView.needsDisplay = true  // обновить плейсхолдер под новую (возможно пустую) точку
     }
 
     /// Сбрасывает текущую точку на диск немедленно (переключение/закрытие). Кэш уже актуален —
@@ -266,6 +288,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         updateCount()
         applyHighlighting()
         dotBar.setEmpty(store.isEmpty(at: activeDot), at: activeDot)  // «пустая» точка бледнеет живьём
+        if textView.string.isEmpty { textView.needsDisplay = true }  // вернуть плейсхолдер при полном стирании
         scheduleSave()  // на диск — по паузе
     }
 
@@ -452,6 +475,23 @@ private final class NotesDotButton: NSView {
             color.setStroke()
             ring.stroke()
         }
+    }
+}
+
+/// `NSTextView` с плейсхолдером: у пустой точки рисуем приглушённую подсказку («начните печатать»)
+/// на месте будущего текста, тем же шрифтом. Пропадает, как только появляется текст.
+private final class PlaceholderTextView: NSTextView {
+    var placeholder: String = "" { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.tertiaryLabelColor,
+            .font: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular),
+        ]
+        placeholder.draw(at: NSPoint(x: textContainerInset.width + 5, y: textContainerInset.height),
+                         withAttributes: attrs)
     }
 }
 

@@ -655,6 +655,8 @@ private final class PaletteDotButton: NSView {
     private let index: Int
     private var color: NSColor = .systemGray
     private var isEmptyNote = true
+    /// Текущая (последняя открытая) точка — тонкое нейтральное кольцо, когда полоса не в фокусе.
+    var isCurrent = false { didSet { needsDisplay = true } }
     var isFocused = false { didSet { needsDisplay = true } }
 
     init(index: Int) {
@@ -682,10 +684,17 @@ private final class PaletteDotButton: NSView {
                           width: diameter, height: diameter)
         (isEmptyNote ? color.withAlphaComponent(0.4) : color).setFill()
         NSBezierPath(ovalIn: rect).fill()
+        // Одно кольцо за раз: акцентное — курсор-фокус (полоса выбрана), иначе нейтральное —
+        // пометка текущей точки.
         if isFocused {
             let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
             ring.lineWidth = 1.5
             NSColor.controlAccentColor.setStroke()
+            ring.stroke()
+        } else if isCurrent {
+            let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1.5, dy: 1.5))
+            ring.lineWidth = 1
+            NSColor.secondaryLabelColor.setStroke()
             ring.stroke()
         }
     }
@@ -725,6 +734,7 @@ private final class NotesStripView: NSView {
         for (index, dot) in dots.enumerated() {
             dot.configure(color: colors[safe: index] ?? .systemGray,
                           isEmpty: emptyFlags[safe: index] ?? true)
+            dot.isCurrent = index == focusedIndex  // стартовый фокус = текущая точка
             dot.isFocused = selected && index == focusedIndex
         }
     }
@@ -891,6 +901,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// (её курсор-фокус подсвечивается по умолчанию) и открытие точки по индексу.
     struct NotesStrip {
         let colors: [NSColor]
+        /// Первая строка каждой точки — показывается в результатах поиска.
+        let previews: [String]
+        /// Полный текст каждой точки — по нему матчит поиск палитры.
+        let contents: [String]
         let emptyFlags: [Bool]
         let activeIndex: Int
         let onOpen: (Int) -> Void
@@ -1415,6 +1429,22 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             })
         }
 
+        // Заметки: матчим по всему тексту точки (лучший скор среди строк — как у приложений),
+        // пустые пропускаем. Результат показывает превью с цветным кружком и открывает точку.
+        if let notes = lastNotes {
+            for index in notes.contents.indices where !(notes.emptyFlags[safe: index] ?? true) {
+                let lines = notes.contents[index].split(whereSeparator: \.isNewline).map(String.init)
+                guard let score = FuzzyMatch.bestScore(query: query, candidates: lines) else { continue }
+                let preview = notes.previews[safe: index] ?? ""
+                let dot = Self.noteDotImage(notes.colors[safe: index] ?? .systemGray)
+                ranked.append(Ranked(score: score) { [weak self] in
+                    self?.addResultRow(symbol: "note.text", title: preview,
+                                       trailing: L("panel.search.type.note"), image: dot,
+                                       run: { self?.finish { self?.lastNotes?.onOpen(index) } })
+                })
+            }
+        }
+
         ranked.sort { $0.score > $1.score }
         for item in ranked.prefix(12) { item.build() }
 
@@ -1784,6 +1814,19 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         case .text:   return "text.alignleft"
         case .link:   return "link"
         }
+    }
+
+    /// Маленький залитый кружок в цвет точки — иконка заметки в результатах поиска (не template,
+    /// поэтому не перекрашивается тинтом строки и остаётся цветным).
+    private static func noteDotImage(_ color: NSColor) -> NSImage {
+        let size = NSSize(width: 12, height: 12)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(origin: .zero, size: size)).fill()
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 
     private static func snippetTypeLabel(_ kind: SnippetKind) -> String {

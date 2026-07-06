@@ -383,9 +383,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Данные инлайн-полосы заметок для панели: цвета семи точек, флаги пустоты (пустые рисуются
     /// приглушённо), текущая точка (её курсор-фокус подсвечен) и открытие точки по индексу.
     private func notesStrip() -> CommandPanelWindowController.NotesStrip {
-        CommandPanelWindowController.NotesStrip(
+        let store = NotesStore.shared
+        return CommandPanelWindowController.NotesStrip(
             colors: NotesWindowController.dotColors,
-            emptyFlags: (0..<NotesStore.count).map { NotesStore.shared.isEmpty(at: $0) },
+            previews: (0..<NotesStore.count).map { store.preview(at: $0) },
+            contents: (0..<NotesStore.count).map { store.text(at: $0) },
+            emptyFlags: (0..<NotesStore.count).map { store.isEmpty(at: $0) },
             activeIndex: NotesWindowController.lastActiveDot,
             onOpen: { [weak self] index in self?.openNote(at: index) })
     }
@@ -838,14 +841,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// раз показываем системный запрос (иначе авто-вставка молча не дойдёт до чужого поля).
     private func pasteText(_ text: String) {
         guard !text.isEmpty else { NSSound.beep(); return }
-        let target = snippetTargetApp
+        // Нет валидной цели (или цель — мы сами, напр. окно заметок открыто «поверх пустоты»):
+        // авто-вставка ушла бы в само окно заметок. Кладём в буфер и подсказываем вставить вручную.
+        guard let target = snippetTargetApp,
+              target.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            URLOpener.copy(text)
+            clipboard.syncChangeCount()
+            hud.show(symbol: "doc.on.clipboard", message: L("notes.pasted.noTarget"))
+            return
+        }
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             URLOpener.copy(text)
             clipboard.syncChangeCount()
             HotKeyManager.ensureAccessibility(prompt: true)
             return
         }
-        target?.activate()
+        target.activate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self else { return }
             self.hotKey.paste(text) { self.clipboard.syncChangeCount() }
