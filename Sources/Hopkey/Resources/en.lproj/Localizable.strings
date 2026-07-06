@@ -169,6 +169,7 @@
 "notes.copied" = "Copied";
 "notes.count" = "%d words · %d chars";
 "notes.dot" = "Note %d";
+"panel.notes.hint" = "←→ pick · ↩ open";
 
 /* Command panel */
 "panel.title" = "Commands";

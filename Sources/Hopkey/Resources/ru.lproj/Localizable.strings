@@ -169,6 +169,7 @@
 "notes.copied" = "Скопировано";
 "notes.count" = "%d слов · %d знаков";
 "notes.dot" = "Заметка %d";
+"panel.notes.hint" = "←→ выбрать · ↩ открыть";
 
 /* Панель команд */
 "panel.title" = "Команды";

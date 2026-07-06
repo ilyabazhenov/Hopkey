@@ -75,7 +75,10 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    /// Последняя активная точка из прошлого сеанса (с обрезкой в валидный диапазон).
+    /// Последняя активная точка из прошлого сеанса (с обрезкой в валидный диапазон). Публично —
+    /// чтобы инлайн-полоса точек в палитре знала, какую точку подсветить как текущую.
+    static var lastActiveDot: Int { clampedLastDot() }
+
     private static func clampedLastDot() -> Int {
         let stored = UserDefaults.standard.integer(forKey: Self.lastDotKey)
         return max(0, min(NotesStore.count - 1, stored))
@@ -210,6 +213,18 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         window.makeFirstResponder(textView)
         // Курсор в конец текста — сразу можно дописывать.
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+    }
+
+    /// Открывает окно сразу на указанной точке (вызов из инлайн-полосы палитры). Если окно уже
+    /// открыто на другой точке — сохраняем её перед переключением.
+    func show(dot index: Int) {
+        let clamped = max(0, min(NotesStore.count - 1, index))
+        if window?.isVisible == true, clamped != activeDot {
+            persistCurrent()
+        }
+        activeDot = clamped
+        UserDefaults.standard.set(clamped, forKey: Self.lastDotKey)
+        show()
     }
 
     // MARK: - Точки

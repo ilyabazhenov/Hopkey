@@ -648,6 +648,103 @@ private final class HistoryRowView: NSView {
 }
 
 
+/// Одна точка-кружок инлайн-полосы заметок: цвет = точка, пустая приглушена, при фокусе (полоса
+/// выбрана и на этой точке стоит курсор ←/→) — акцентное кольцо. Клик открывает точку.
+private final class PaletteDotButton: NSView {
+    var onClick: (() -> Void)?
+    private let index: Int
+    private var color: NSColor = .systemGray
+    private var isEmptyNote = true
+    var isFocused = false { didSet { needsDisplay = true } }
+
+    init(index: Int) {
+        self.index = index
+        super.init(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 20).isActive = true
+        heightAnchor.constraint(equalToConstant: 20).isActive = true
+        setAccessibilityRole(.button)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    func configure(color: NSColor, isEmpty: Bool) {
+        self.color = color
+        self.isEmptyNote = isEmpty
+        setAccessibilityLabel(String(format: L("notes.dot"), index + 1))
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) { onClick?() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let diameter: CGFloat = 12
+        let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2,
+                          width: diameter, height: diameter)
+        (isEmptyNote ? color.withAlphaComponent(0.4) : color).setFill()
+        NSBezierPath(ovalIn: rect).fill()
+        if isFocused {
+            let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
+            ring.lineWidth = 1.5
+            NSColor.controlAccentColor.setStroke()
+            ring.stroke()
+        }
+    }
+}
+
+/// Инлайн-полоса из семи точек-заметок в палитре. Клик по точке открывает её; ←/→ (когда полоса
+/// выделена в списке) двигают курсор-фокус, ↩ открывает точку под фокусом. Цифры не расходуются —
+/// они целиком у сниппетов.
+private final class NotesStripView: NSView {
+    var onOpen: ((Int) -> Void)?
+    private var dots: [PaletteDotButton] = []
+    private(set) var focusedIndex = 0
+    private var selected = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        for index in 0..<NotesStore.count {
+            let dot = PaletteDotButton(index: index)
+            dot.onClick = { [weak self] in self?.onOpen?(index) }
+            dots.append(dot)
+            stack.addArrangedSubview(dot)
+        }
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    func configure(colors: [NSColor], emptyFlags: [Bool], focused: Int) {
+        focusedIndex = max(0, min(NotesStore.count - 1, focused))
+        for (index, dot) in dots.enumerated() {
+            dot.configure(color: colors[safe: index] ?? .systemGray,
+                          isEmpty: emptyFlags[safe: index] ?? true)
+            dot.isFocused = selected && index == focusedIndex
+        }
+    }
+
+    func setSelected(_ value: Bool) {
+        selected = value
+        refreshFocus()
+    }
+
+    /// ←/→ на выделенной полосе: двигаем курсор-фокус в пределах [0…count-1] (без заворота).
+    func moveFocus(_ delta: Int) {
+        focusedIndex = max(0, min(NotesStore.count - 1, focusedIndex + delta))
+        refreshFocus()
+    }
+
+    private func refreshFocus() {
+        for (index, dot) in dots.enumerated() { dot.isFocused = selected && index == focusedIndex }
+    }
+}
+
 /// Плоское поле поиска в идиоме панели: лупа + borderless-текст + кнопка-крестик, тонкий бортик и
 /// лёгкая полупрозрачная заливка вместо стокового безеля `NSSearchField` (тот рвёт «стекло» плотной
 /// белой пилюлей и громким синим кольцом фокуса). Фокус показываем акцентным бортиком — как
@@ -790,6 +887,15 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         }
     }
 
+    /// Данные инлайн-полосы заметок для панели: цвета семи точек, флаги пустоты, текущая точка
+    /// (её курсор-фокус подсвечивается по умолчанию) и открытие точки по индексу.
+    struct NotesStrip {
+        let colors: [NSColor]
+        let emptyFlags: [Bool]
+        let activeIndex: Int
+        let onOpen: (Int) -> Void
+    }
+
     /// Одна выбираемая позиция панели (плитка или строка) в визуальном порядке.
     /// Быстрый выбор разведён на два непересекающихся пула: команды — по букве (`commandKey`,
     /// физический keyCode), сниппеты — по цифре (`digit`, 1–9). `badge` — то, что нарисовано
@@ -837,6 +943,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     private var lastCommands: [ToolboxCommand] = []
     private var lastSnippets: [Snippet] = []
     private var lastSliders: [VolumeSlider] = []
+    /// Инлайн-полоса заметок (nil — не показывать секцию).
+    private var lastNotes: NotesStrip?
     /// Текущий (тримленный) запрос поиска; пустой — обычный режим панели.
     private var currentQuery = ""
     /// Корневой контент-вью панели (внутри «стекла»). Нужен, чтобы замерить фактически требуемую
@@ -1110,11 +1218,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     /// Показывает панель. `commands` — команды тулбокса (без лончера сниппетов; сами сниппеты
     /// идут построчно в `snippets`).
-    func show(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider] = []) {
+    func show(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider] = [],
+              notes: NotesStrip? = nil) {
         finished = false
         lastCommands = commands
         lastSnippets = snippets
         lastSliders = sliders
+        lastNotes = notes
         // Всегда открываемся в корне: сбрасываем возможный застрявший режим модуля прошлого показа.
         mode = .root
         moduleBody.subviews.forEach { $0.removeFromSuperview() }
@@ -1214,6 +1324,28 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
                 if pair.count == 2 { addTwoColumnRow(pair); pair = [] }
             }
             if !pair.isEmpty { addTwoColumnRow(pair) }
+        }
+
+        // Зона «заметки» — инлайн-полоса из семи точек (в идиоме Tot). Одна выделяемая позиция:
+        // ←/→ двигают курсор-фокус по точкам, ↩ открывает точку под фокусом, клик — конкретную.
+        // Цифры не расходуются (они у сниппетов); буква N тоже открывает (последнюю точку).
+        if let notes = lastNotes {
+            addHeader(L("notes.window.title"), trailing: L("panel.notes.hint"))
+            let strip = NotesStripView()
+            strip.configure(colors: notes.colors, emptyFlags: notes.emptyFlags, focused: notes.activeIndex)
+            strip.onOpen = { [weak self] index in self?.finish { self?.lastNotes?.onOpen(index) } }
+            strip.translatesAutoresizingMaskIntoConstraints = false
+            strip.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            contentStack.addArrangedSubview(strip)
+            strip.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            entries.append(Entry(
+                view: strip, badge: nil, digit: nil, commandKey: CommandID.notes.panelKeyCode,
+                setSelected: { [weak strip] in strip?.setSelected($0) },
+                run: { [weak self, weak strip] in
+                    guard let strip else { return }
+                    self?.finish { self?.lastNotes?.onOpen(strip.focusedIndex) }
+                },
+                adjust: { [weak strip] delta in strip?.moveFocus(delta) }))
         }
 
         // Зона «сниппеты» — каждый в один клик.

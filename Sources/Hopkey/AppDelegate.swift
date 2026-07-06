@@ -370,12 +370,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // панели убираем; ⌃⌥V по-прежнему открывает полный пикер. Аудиовыход/вход в панели живут
         // выпадашкой прямо в слайдерах, поэтому одноимённые действия из грида тоже убираем (в
         // меню-баре и по хоткею они остаются).
+        // Заметки в панели живут инлайн-полосой из семи точек (см. notesStrip), поэтому одноимённый
+        // лончер из грида команд убираем; буква N и меню/хоткей открывают заметки по-прежнему.
         let panelCommands = commands.filter {
-            $0.id != .snippets && $0.id != .audioOutput && $0.id != .audioInput
+            $0.id != .snippets && $0.id != .audioOutput && $0.id != .audioInput && $0.id != .notes
         }
         commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets,
-                          sliders: volumeSliders())
+                          sliders: volumeSliders(), notes: notesStrip())
         panelIsOpen = true
+    }
+
+    /// Данные инлайн-полосы заметок для панели: цвета семи точек, флаги пустоты (пустые рисуются
+    /// приглушённо), текущая точка (её курсор-фокус подсвечен) и открытие точки по индексу.
+    private func notesStrip() -> CommandPanelWindowController.NotesStrip {
+        CommandPanelWindowController.NotesStrip(
+            colors: NotesWindowController.dotColors,
+            emptyFlags: (0..<NotesStore.count).map { NotesStore.shared.isEmpty(at: $0) },
+            activeIndex: NotesWindowController.lastActiveDot,
+            onOpen: { [weak self] index in self?.openNote(at: index) })
+    }
+
+    /// Открывает окно заметок сразу на выбранной точке (из инлайн-полосы палитры). Целевое
+    /// приложение для «Вставить» уже запомнено при открытии палитры (`snippetTargetApp`).
+    private func openNote(at index: Int) {
+        notesWindow.show(dot: index)
     }
 
     /// Слайдеры громкости в панели: выход и вход микрофона — только те, что устройство
