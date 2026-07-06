@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hud = HUDWindowController()
     /// История буфера обмена (только в памяти), для быстрой повторной вставки из панели.
     private let clipboardHistory = ClipboardHistory()
+    /// Индекс установленных приложений для строки поиска палитры (сканируется лениво в фоне).
+    private let appIndex = AppSearchIndex()
     /// Монитор нажатий модификаторов + детектор двойного тапа для вызова панели.
     /// Пересоздаются при смене триггера (см. `setupPaletteTrigger`).
     private var flagsMonitor: FlagsChangedMonitor?
@@ -33,6 +35,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onClose = { [weak self] in
             self?.panelIsOpen = false
             self?.flagsMonitor?.resetGesture()
+        }
+        // Строка поиска палитры: приложения ищем через индекс, запуск — NSWorkspace, результат
+        // калькулятора копируем в буфер + историю с HUD-обратной связью.
+        controller.searchApps = { [weak self] query in self?.appIndex.search(query) ?? [] }
+        controller.onLaunchApp = { url in NSWorkspace.shared.open(url) }
+        controller.onCopyValue = { [weak self] value in
+            guard let self else { return }
+            URLOpener.copy(value)
+            self.clipboard.syncChangeCount()
+            self.clipboardHistory.record(value)
+            self.hud.show(symbol: "equal.circle.fill", message: L("panel.search.copied", value))
         }
         return controller
     }()
@@ -295,6 +308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openCommandPanel() {
+        // Прогреваем индекс приложений (однократно, в фоне) — к первому вводу в поиск он готов.
+        appIndex.warmUp()
         // Сбрасываем состояние жеста: нажатие, открывшее панель, оставило правый ⌘ «зажатым»
         // в трекере (отпускание уйдёт уже в ключевую панель, мимо монитора).
         flagsMonitor?.resetGesture()

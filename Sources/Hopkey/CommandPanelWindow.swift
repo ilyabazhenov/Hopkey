@@ -26,11 +26,17 @@ private final class CommandListView: NSView {
     var onHorizontal: ((Int) -> Void)?
     /// Tab — панель вторичных действий текущего выделения (сниппет).
     var onSecondary: (() -> Void)?
+    /// ⌘F — перевести фокус в строку поиска (палитра остаётся открытой).
+    var onFocusSearch: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
 
     override func keyDown(with event: NSEvent) {
+        // ⌘F — фокус в поиск (keyCode 3 = kVK_ANSI_F, матчим по коду ради раскладки).
+        if event.modifierFlags.contains(.command), event.keyCode == 3 {
+            onFocusSearch?(); return
+        }
         switch Int(event.keyCode) {
         case 125: onMove?(1)         // ↓
         case 126: onMove?(-1)        // ↑
@@ -56,7 +62,7 @@ private final class CommandListView: NSView {
 }
 
 /// Крупная плитка-тумблер: иконка + номер + название + статус, цвет фона кодирует состояние
-/// (красный — микрофон замьючен/тревога, янтарный — включённый тумблер, иначе нейтральный).
+/// (красный — микрофон замьючен/тревога, акцент — включённый тумблер, иначе нейтральный).
 private final class CommandTileView: NSView {
     enum State { case inactive, active, attention }
 
@@ -127,10 +133,11 @@ private final class CommandTileView: NSView {
         case .attention:
             fill = NSColor.systemRed.withAlphaComponent(0.14); stroke = .systemRed; fg = .systemRed
         case .active:
-            // Янтарь для включённого тумблера — чтобы не конфликтовать с синей рамкой выделения.
-            fill = NSColor.systemOrange.withAlphaComponent(0.16)
-            stroke = .systemOrange
-            fg = .systemOrange
+            // Включённый тумблер — системный акцент; при выделении рамка толще (2px), так что
+            // выбор различим и на акцентной заливке.
+            fill = NSColor.controlAccentColor.withAlphaComponent(0.16)
+            stroke = .controlAccentColor
+            fg = .controlAccentColor
         case .inactive:
             fill = .clear; stroke = .separatorColor; fg = .secondaryLabelColor
         }
@@ -269,14 +276,22 @@ final class CommandRowView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    func configure(badge: String?, symbol: String, title: String, trailing: String?) {
+    /// `image` (напр. настоящая иконка приложения) перекрывает SF-символ, если задан.
+    /// `attributedTitle` (напр. выражение калькулятора с акцентом на результате) перекрывает `title`.
+    func configure(badge: String?, symbol: String, title: String, trailing: String?,
+                   image: NSImage? = nil, attributedTitle: NSAttributedString? = nil) {
         keycap.value = badge ?? ""
         let hasBadge = !(badge ?? "").isEmpty
         iconLeadingToBadge.isActive = hasBadge
         iconLeadingToEdge.isActive = !hasBadge
-        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-        titleLabel.stringValue = title
-        setAccessibilityLabel(title)
+        iconView.image = image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        if let attributedTitle {
+            titleLabel.attributedStringValue = attributedTitle
+            setAccessibilityLabel(attributedTitle.string)
+        } else {
+            titleLabel.stringValue = title
+            setAccessibilityLabel(title)
+        }
         trailingLabel.stringValue = trailing ?? ""
     }
 
@@ -496,23 +511,12 @@ private final class SliderRowView: NSView {
         applyLevelTint(v)
     }
 
-    /// Цвет заполненной части трека и процента по уровню: низко — красный (тревога), выше —
-    /// оранжевый/жёлтый, норма — зелёный. Процент подсвечиваем только в тревожной зоне, иначе он
-    /// остаётся приглушённым — чтобы «низко» било в глаза, а норма выглядела спокойно.
+    /// Заполненная часть трека — системный акцент, без цветового кодирования уровня (единый
+    /// системный вид со всем приложением). Процент — приглушённый.
     private func applyLevelTint(_ value: Float) {
         guard reflectsLevel else { return }
-        let color = Self.levelColor(value)
-        slider.trackFillColor = color
-        valueLabel.textColor = value < 0.40 ? color : .secondaryLabelColor
-    }
-
-    private static func levelColor(_ v: Float) -> NSColor {
-        switch v {
-        case ..<0.20: return .systemRed
-        case ..<0.40: return .systemOrange
-        case ..<0.60: return .systemYellow
-        default:       return .systemGreen
-        }
+        slider.trackFillColor = .controlAccentColor
+        valueLabel.textColor = .secondaryLabelColor
     }
 
     private func refreshBackground() {
@@ -606,12 +610,114 @@ private final class HistoryRowView: NSView {
 }
 
 
-final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
+/// Плоское поле поиска в идиоме панели: лупа + borderless-текст + кнопка-крестик, тонкий бортик и
+/// лёгкая полупрозрачная заливка вместо стокового безеля `NSSearchField` (тот рвёт «стекло» плотной
+/// белой пилюлей и громким синим кольцом фокуса). Фокус показываем акцентным бортиком — как
+/// выделение строки/плитки. Делегат/ввод вешаются на внутренний `textField`.
+private final class PaletteSearchField: NSView {
+    let textField = NSTextField()
+    private let iconView = NSImageView()
+    private let clearButton = NSButton()
+
+    /// Текст очищен крестиком (фокус остаётся) — контроллер пересобирает список.
+    var onClear: (() -> Void)?
+
+    var stringValue: String {
+        get { textField.stringValue }
+        set { textField.stringValue = newValue; updateClearVisibility() }
+    }
+    var placeholderString: String? {
+        get { textField.placeholderString }
+        set { textField.placeholderString = newValue }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.08).cgColor
+
+        iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.font = .systemFont(ofSize: 13)
+        textField.textColor = .labelColor
+        textField.usesSingleLineMode = true
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.wraps = false
+        textField.cell?.isScrollable = true
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
+        clearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
+        clearButton.contentTintColor = .secondaryLabelColor
+        clearButton.isBordered = false
+        clearButton.imagePosition = .imageOnly
+        clearButton.setButtonType(.momentaryChange)
+        clearButton.target = self
+        clearButton.action = #selector(clear)
+        clearButton.isHidden = true
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(iconView); addSubview(textField); addSubview(clearButton)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
+            textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.leadingAnchor.constraint(equalTo: textField.trailingAnchor, constant: 6),
+            clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.widthAnchor.constraint(equalToConstant: 16),
+            clearButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    override var acceptsFirstResponder: Bool { true }
+    // ⌘F/клик переводят фокус на контейнер — форвардим на текстовое поле (там живёт редактор).
+    override func becomeFirstResponder() -> Bool { window?.makeFirstResponder(textField) ?? false }
+    override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(textField) }
+
+    /// Фокус — акцентный бортик потолще (в тон выделению), потеря фокуса — нейтральный.
+    func setFocused(_ focused: Bool) {
+        layer?.borderColor = (focused ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        layer?.borderWidth = focused ? 2 : 1
+    }
+
+    func updateClearVisibility() {
+        clearButton.isHidden = textField.stringValue.isEmpty
+    }
+
+    @objc private func clear() {
+        textField.stringValue = ""
+        updateClearVisibility()
+        onClear?()
+        window?.makeFirstResponder(textField)
+    }
+}
+
+final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, NSSearchFieldDelegate {
 
     /// Действие над сниппетом: первичное (клик/Enter) или вторичное (кнопки в строке).
     var onSnippetActivation: ((Snippet, SnippetActivation) -> Void)?
     /// Панель закрылась (Esc/выбор/клик мимо) — вызывающий сбрасывает состояние жеста-триггера.
     var onClose: (() -> Void)?
+
+    /// Поиск приложений по запросу (владелец индекса — AppDelegate); nil → приложения не ищем.
+    var searchApps: ((String) -> [AppEntry])?
+    /// Запустить приложение по URL (выбор в результатах поиска).
+    var onLaunchApp: ((URL) -> Void)?
+    /// Скопировать значение (результат калькулятора) — вызывающий даёт обратную связь HUD-тостом.
+    var onCopyValue: ((String) -> Void)?
 
     /// Слайдер громкости в панели: иконка, стартовое значение (0…1), живой колбэк изменения и
     /// опциональное аудиоустройство для встроенной выпадашки выбора.
@@ -669,8 +775,16 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     private var pollTimer: Timer?
 
     private let listView = CommandListView()
+    private let searchField = PaletteSearchField()
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
+
+    /// Последний показанный набор — чтобы возвращаться к обычной панели при очистке поиска.
+    private var lastCommands: [ToolboxCommand] = []
+    private var lastSnippets: [Snippet] = []
+    private var lastSliders: [VolumeSlider] = []
+    /// Текущий (тримленный) запрос поиска; пустой — обычный режим панели.
+    private var currentQuery = ""
     /// Корневой контент-вью панели (внутри «стекла»). Нужен, чтобы замерить фактически требуемую
     /// ширину окна перед центрированием — контент (длинные имена устройств/футер) может распирать
     /// окно шире `Self.width`, и если центрировать по 470, окно потом уезжает вправо.
@@ -708,6 +822,14 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         header.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(header)
 
+        // Строка поиска: приложения + команды + калькулятор. Не в автофокусе — первый респондер
+        // остаётся список (буквы/цифры-шорткаты работают как раньше); в поиск заходят ⌘F или кликом.
+        searchField.placeholderString = L("panel.search.placeholder")
+        searchField.textField.delegate = self
+        searchField.onClear = { [weak self] in self?.applyQuery() }
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(searchField)
+
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
         contentStack.spacing = 4
@@ -735,7 +857,12 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
             header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
 
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
+            searchField.topAnchor.constraint(equalTo: content.topAnchor, constant: 32),
+            searchField.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+            searchField.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            searchField.heightAnchor.constraint(equalToConstant: 28),
+
+            scroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
 
@@ -762,6 +889,64 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         listView.onClose = { [weak self] in self?.window?.close() }
         listView.onHorizontal = { [weak self] delta in self?.horizontalOnSelection(delta) }
         listView.onSecondary = { [weak self] in self?.secondaryOnSelection() }
+        listView.onFocusSearch = { [weak self] in self?.focusSearch() }
+    }
+
+    // MARK: Поиск
+
+    /// ⌘F — перевести фокус в строку поиска (палитра остаётся, обычный режим сохраняется).
+    private func focusSearch() {
+        window?.makeFirstResponder(searchField)
+    }
+
+    /// Живой ввод в строке поиска: пусто → обычная панель (+ опрос громкости), иначе → результаты.
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === searchField.textField else { return }
+        applyQuery()
+    }
+
+    /// Фокус в поле (⌘F/клик/начало правки) — акцентный бортик; потеря фокуса — нейтральный.
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === searchField.textField else { return }
+        searchField.setFocused(true)
+    }
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === searchField.textField else { return }
+        searchField.setFocused(false)
+    }
+
+    /// Пересобрать по текущему тексту поля: пусто → обычная панель, иначе → плоский список.
+    private func applyQuery() {
+        currentQuery = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        searchField.updateClearVisibility()
+        if currentQuery.isEmpty {
+            rebuild(commands: lastCommands, snippets: lastSnippets, sliders: lastSliders)
+            startVolumePolling()
+        } else {
+            stopVolumePolling()
+            rebuildSearch(query: currentQuery)
+        }
+        sizeToFit()
+    }
+
+    /// Навигация из строки поиска: ↑/↓ водят выделение, ↩ запускает, Esc очищает и возвращает
+    /// фокус в список (второй Esc — уже в списке — закрывает панель).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.moveDown(_:)):
+            moveSelection(by: 1); return true
+        case #selector(NSResponder.moveUp(_:)):
+            moveSelection(by: -1); return true
+        case #selector(NSResponder.insertNewline(_:)):
+            runIndex(-1); return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            searchField.stringValue = ""
+            applyQuery()
+            window?.makeFirstResponder(listView)
+            return true
+        default:
+            return false
+        }
     }
 
     /// ←/→ по выделению: слайдер меняет уровень; сниппет (только →) открывает вторичные действия.
@@ -785,6 +970,11 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     /// идут построчно в `snippets`).
     func show(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider] = []) {
         finished = false
+        lastCommands = commands
+        lastSnippets = snippets
+        lastSliders = sliders
+        searchField.stringValue = ""
+        currentQuery = ""
         rebuild(commands: commands, snippets: snippets, sliders: sliders)
         sizeToFit()
         centerOnActiveScreen()
@@ -890,6 +1080,103 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         updateSelection()
     }
 
+    /// Режим поиска: единый плоский список результатов по убыванию оценки совпадения. Калькулятор
+    /// (если запрос вычислим) закреплён сверху; команды/приложения/сниппеты ранжируются вместе.
+    private func rebuildSearch(query: String) {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        entries.removeAll()
+        pollSliders.removeAll()
+        snippetDigitCounter = 0
+
+        if let value = Calculator.evaluate(query) {
+            // Самодостаточная строка «выражение = ответ»: выражение приглушённым моноширинным,
+            // результат — акцентным (жирнее/крупнее), чтобы ответ читался как ответ.
+            let attr = NSMutableAttributedString(
+                string: "\(query) = ",
+                attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                             .foregroundColor: NSColor.secondaryLabelColor])
+            attr.append(NSAttributedString(
+                string: value,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold),
+                             .foregroundColor: NSColor.labelColor]))
+            addResultRow(symbol: "plus.forwardslash.minus", title: "\(query) = \(value)",
+                         trailing: L("panel.search.type.calc"), image: nil, attributedTitle: attr,
+                         run: { [weak self] in self?.finish { self?.onCopyValue?(value) } })
+        }
+
+        struct Ranked { let score: Int; let build: () -> Void }
+        var ranked: [Ranked] = []
+
+        for command in lastCommands {
+            guard let score = FuzzyMatch.score(query: query, candidate: command.title()) else { continue }
+            ranked.append(Ranked(score: score) { [weak self] in
+                self?.addResultRow(symbol: command.symbol(), title: command.title(),
+                                   trailing: L("panel.search.type.command"), image: nil,
+                                   run: { self?.finish { command.run() } })
+            })
+        }
+
+        for app in (searchApps?(query) ?? []) {
+            let score = FuzzyMatch.bestScore(query: query, candidates: app.searchNames) ?? 0
+            ranked.append(Ranked(score: score) { [weak self] in
+                let icon = NSWorkspace.shared.icon(forFile: app.url.path)
+                self?.addResultRow(symbol: "app", title: app.name,
+                                   trailing: L("panel.search.type.app"), image: icon,
+                                   run: { self?.finish { self?.onLaunchApp?(app.url) } })
+            })
+        }
+
+        for snippet in lastSnippets {
+            guard let score = FuzzyMatch.score(query: query, candidate: snippet.displayName) else { continue }
+            ranked.append(Ranked(score: score) { [weak self] in
+                self?.addResultRow(symbol: Self.snippetSymbol(snippet.kind), title: snippet.displayName,
+                                   trailing: Self.snippetTypeLabel(snippet.kind), image: nil,
+                                   run: { self?.runSnippet(snippet) })
+            })
+        }
+
+        ranked.sort { $0.score > $1.score }
+        for item in ranked.prefix(12) { item.build() }
+
+        if entries.isEmpty { addInfoRow(L("panel.search.empty")) }
+        selectedIndex = entries.isEmpty ? -1 : 0
+        updateSelection()
+    }
+
+    /// Строка результата поиска (одна колонка на всю ширину). `image` — настоящая иконка приложения.
+    private func addResultRow(symbol: String, title: String, trailing: String?,
+                              image: NSImage?, attributedTitle: NSAttributedString? = nil,
+                              run: @escaping () -> Void) {
+        let row = CommandRowView()
+        row.configure(badge: nil, symbol: symbol, title: title, trailing: trailing,
+                      image: image, attributedTitle: attributedTitle)
+        row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
+        row.onClick = run
+        entries.append(Entry(view: row, badge: nil, digit: nil, commandKey: nil,
+                             setSelected: { [weak row] in row?.isSelected = $0 },
+                             run: run))
+        addRow(row)
+    }
+
+    /// Пустое состояние поиска — невыбираемая строка по центру (в `entries` не попадает).
+    private func addInfoRow(_ text: String) {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        contentStack.addArrangedSubview(container)
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(equalToConstant: 40),
+            container.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+    }
+
     /// Выдаёт следующую цифру 1–9 сниппету (или nil за пределами девяти). Инструменты цифры не
     /// расходуют — они на буквах, поэтому весь ряд 1–9 достаётся сниппетам.
     private func nextSnippetDigit() -> Int? {
@@ -903,7 +1190,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     private func makeTile(_ command: ToolboxCommand) -> CommandTileView {
         let tile = CommandTileView()
         let on = command.isOn() == true
-        // Микрофон в мьюте — тревожно-красный; остальные включённые тумблеры — янтарные.
+        // Микрофон в мьюте — тревожно-красный; остальные включённые тумблеры — акцентные.
         let state: CommandTileView.State = on
             ? (command.id == .micToggle ? .attention : .active)
             : .inactive
@@ -1140,7 +1427,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         contentStack.layoutSubtreeIfNeeded()
         let content = contentStack.fittingSize.height + 12  // + верх/низ отступы listView
-        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6  // заголовок + зазоры + футер
+        // заголовок+поиск (66) + зазор + футер(11) + низ. 66 = searchTop 32 + height 28 + gap 6.
+        let chrome: CGFloat = 66 + 6 + 11 + 10 + 6
         // Потолок — по высоте активного экрана (минус поля), чтобы фикс-часть + разумный список
         // сниппетов помещались без скролла; `maxHeight` остаётся фолбэком, если экрана нет.
         let ceiling = activeScreen().map { $0.visibleFrame.height - 40 } ?? Self.maxHeight
@@ -1237,6 +1525,9 @@ func installGlass(in window: NSWindow, content: NSView) {
         content.topAnchor.constraint(equalTo: container.topAnchor),
         content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
+    // Нейтральная подложка под стекло (в самом низу `content`, под будущим UI) — гасит
+    // избыточную прозрачность. Прозрачна для мыши, перетаскивание за фон не ломает.
+    Brand.addGlassTint(to: content)
 }
 
 /// Однострочный обрезанный предпросмотр значения из истории буфера.

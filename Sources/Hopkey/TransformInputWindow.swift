@@ -30,20 +30,9 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
     var focusable = false
     var onCommand: ((Selector) -> Bool)?
-    var onFocusChange: ((Bool) -> Void)?
 
     override var acceptsFirstResponder: Bool { focusable }
 
-    override func becomeFirstResponder() -> Bool {
-        let ok = super.becomeFirstResponder()
-        if ok { onFocusChange?(true) }
-        return ok
-    }
-    override func resignFirstResponder() -> Bool {
-        let ok = super.resignFirstResponder()
-        if ok { onFocusChange?(false) }
-        return ok
-    }
     /// Разбираем клавиши сами по keyCode (не зависит от раскладки): у обычной NSView
     /// `interpretKeyEvents` не транслирует события в doCommand (нет NSTextInputClient).
     override func keyDown(with event: NSEvent) {
@@ -134,8 +123,10 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
     /// иначе потерянный `mouseExited` (быстрый проход по списку) оставляет подсветку залипшей.
     private weak var hoveredRow: CommandRowView?
 
-    private static let windowWidth: CGFloat = 500
-    private static let windowHeight: CGFloat = 560
+    // Тот же размер, что у основной панели команд (`CommandPanelWindowController`: 470×620) —
+    // единый габарит окон приложения.
+    private static let windowWidth: CGFloat = 470
+    private static let windowHeight: CGFloat = 620
 
     init() {
         let panel = TransformInputPanel(
@@ -191,19 +182,16 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
 
         listContainer.translatesAutoresizingMaskIntoConstraints = false
         listContainer.addSubview(listStack)
-        // Список — третья остановка Tab-цикла. В фокусе ↑↓/Enter/Esc/Tab обрабатываем сами,
-        // а рамкой показываем, что фокус именно на списке (у него нет своего курсора).
+        // Список — третья остановка Tab-цикла (как основной респондент панели): в фокусе сам
+        // разбирает ↑↓/Enter/Esc/Tab. Признак фокуса — подсветка выбранной строки и отсутствие
+        // текстового курсора (он есть только в полях ввода/фильтра), отдельной рамки не рисуем.
         listContainer.focusable = true
         listContainer.onCommand = { [weak self] selector in self?.handleListCommand(selector) ?? false }
-        listContainer.onFocusChange = { [weak self] focused in self?.setListFocused(focused) }
 
         listScroll.translatesAutoresizingMaskIntoConstraints = false
         listScroll.hasVerticalScroller = true
         listScroll.drawsBackground = false
         listScroll.borderType = .noBorder
-        listScroll.wantsLayer = true
-        listScroll.layer?.cornerRadius = 8
-        listScroll.layer?.borderColor = NSColor.controlAccentColor.cgColor
         listScroll.documentView = listContainer
         content.addSubview(listScroll)
 
@@ -465,15 +453,14 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         updateSelection()
     }
 
-    /// Перемещает выбор по списку на ±1, пропуская недоступные и скрытые фильтром строки. На краю
-    /// остаётся на месте (без заворота) — предсказуемее для клавиатурного перебора.
+    /// Перемещает выбор по списку на ±1, пропуская скрытые фильтром строки, с заворотом на краях —
+    /// как в основной панели команд (мышечная память единая на все списки приложения).
     private func moveSelection(by delta: Int) {
-        guard (0..<transforms.count).contains(where: isSelectable) else { return }
+        let count = transforms.count
+        guard (0..<count).contains(where: isSelectable) else { return }
         var i = selectedIndex
-        while true {
-            let next = i + delta
-            guard results.indices.contains(next) else { return }
-            i = next
+        for _ in 0..<count {
+            i = ((i + delta) % count + count) % count  // заворот в обе стороны
             if isSelectable(i) { selectedIndex = i; updateSelection(); return }
         }
     }
@@ -549,11 +536,6 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         case #selector(NSResponder.insertBacktab(_:)): window?.makeFirstResponder(searchField); return true
         default: return false
         }
-    }
-
-    /// Рамка вокруг списка, когда он в фокусе — единственный видимый признак (у списка нет курсора).
-    private func setListFocused(_ focused: Bool) {
-        listScroll.layer?.borderWidth = focused ? 2 : 0
     }
 
     // MARK: - NSSearchFieldDelegate (поле-фильтр)

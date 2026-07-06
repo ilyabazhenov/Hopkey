@@ -133,7 +133,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         window.backgroundColor = .clear
         let content = backdrop
 
-        // Тёплый кремовый тон поверх стекла — фон теплеет под цвет иконки.
+        // Нейтральная подложка поверх стекла — гасит избыточную прозрачность.
         Brand.addGlassTint(to: content)
 
         // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по
@@ -201,8 +201,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         let openButton = NSButton(title: L("quick.open"), target: self, action: #selector(submitOpen))
         openButton.imagePosition = .imageLeading
         openButton.keyEquivalent = "\r"
-        // Янтарь бренда вместо системно-синей кнопки по умолчанию. Тёмный титул и иконка —
-        // светлый янтарь сам по себе низкоконтрастен с белым.
+        // Системный акцент как основная кнопка; титул и иконка — белые (`onAccentText`).
         openButton.bezelColor = Brand.buttonFill
         openButton.attributedTitle = NSAttributedString(
             string: L("quick.open"),

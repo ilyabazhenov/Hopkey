@@ -1,93 +1,50 @@
 import AppKit
 
-/// Фирменная палитра и мелкие брендовые элементы Hopkey. Один источник правды для
-/// «янтарного» акцента (как кейкап на иконке) и общих деталей оформления окон, чтобы
-/// окно ввода и пикер сниппетов выглядели как одно приложение, а не как системные диалоги.
-///
-/// Все цвета — адаптивные (`NSColor(name:dynamicProvider:)`): стекло окон следует системной
-/// теме, поэтому фиксированный цвет в тёмной теме выжигал бы глаза. В тёмной берём чуть
-/// светлее/мягче янтарь, в светлой — насыщенный, как колпачок клавиши на иконке.
+/// Общие детали оформления окон Hopkey: единый источник цветов и брендовой марки, чтобы все
+/// окна выглядели как одно приложение. Палитра выровнена на системный вид основной панели
+/// команд (`controlAccentColor` + нейтрали) — без фирменного тёплого акцента; сами цвета
+/// системные, поэтому адаптивность к теме/выбранному акценту даёт система.
 enum Brand {
 
-    /// Основной акцент — янтарь логотипа. Заменяет системный синий на выделении строки,
-    /// кнопке «Открыть» и брендовых деталях.
-    static let accent = NSColor(name: "HopkeyAccent") { appearance in
+    // Раньше здесь жил фирменный янтарь. Всё выровнено на системный вид основной панели команд:
+    // имена оставлены (на них завязаны вызовы во всех окнах), но цвета — системные
+    // (`controlAccentColor` и нейтрали), чтобы окна выглядели как одно системное приложение.
+
+    /// Основной акцент — системный (как выделение строки в панели команд).
+    static let accent = NSColor.controlAccentColor
+
+    /// Заливка бейджа быстрого выбора — нейтральный серый (как `NumberBadge` в панели).
+    static let keycapFill = NSColor.secondaryLabelColor.withAlphaComponent(0.14)
+
+    /// Заливка основной кнопки («Вставить»/«Открыть»/«Сохранить») — системный акцент.
+    static let buttonFill = NSColor.controlAccentColor
+
+    /// Контур бейджа больше не рисуем — плоский серый колпачок.
+    static let keycapStroke = NSColor.clear
+
+    /// Цифра/символ на бейдже — приглушённый серый.
+    static let keycapText = NSColor.secondaryLabelColor
+
+    /// Текст/иконка поверх акцентной кнопки — белый, как у системной кнопки по умолчанию.
+    static let onAccentText = NSColor.white
+
+    /// Акцент как ТЕКСТ на нейтральном фоне (выбранная вкладка настроек) — системный.
+    static let accentForeground = NSColor.controlAccentColor
+
+    /// Заливка выделенной строки списка — системный акцент (как в панели команд).
+    static let selectionFill = NSColor.controlAccentColor.withAlphaComponent(0.20)
+
+    /// Заливка строки под курсором (hover) — слабый нейтральный серый (как hover в панели).
+    static let hoverFill = NSColor.secondaryLabelColor.withAlphaComponent(0.10)
+
+    /// Нейтральная полупрозрачная подложка поверх системного стекла: гасит избыточную прозрачность
+    /// (сквозь пустые поля просвечивал рабочий стол), сохраняя стеклянный характер. Не тёплая —
+    /// системно-серая. Адаптивна: в светлой теме подсветляем, в тёмной затемняем.
+    static let glassTint = NSColor(name: "HopkeyGlassBacking") { appearance in
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         return isDark
-            ? NSColor(srgbRed: 1.00, green: 0.78, blue: 0.32, alpha: 1)   // мягче в тёмной теме
-            : NSColor(srgbRed: 0.96, green: 0.66, blue: 0.13, alpha: 1)   // насыщенный янтарь
-    }
-
-    /// Заливка колпачка клавиши (бейдж быстрого выбора) — тот же янтарь, что и акцент.
-    static let keycapFill = accent
-
-    /// Заливка кнопки «Открыть». Глубже и спокойнее яркого `accent`: на большой площади
-    /// сочный янтарь кейкапов «кричит», а у крупной кнопки приятнее приглушённый мёд.
-    static let buttonFill = NSColor(name: "HopkeyButton") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 0.86, green: 0.63, blue: 0.26, alpha: 1)
-            : NSColor(srgbRed: 0.83, green: 0.58, blue: 0.15, alpha: 1)
-    }
-
-    /// Контур колпачка: чуть темнее заливки, придаёт «кейкапу» объём без тяжёлой тени.
-    static let keycapStroke = NSColor(name: "HopkeyKeycapStroke") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 0.80, green: 0.55, blue: 0.10, alpha: 0.9)
-            : NSColor(srgbRed: 0.74, green: 0.48, blue: 0.06, alpha: 0.9)
-    }
-
-    /// Цифра на колпачке — тёмно-коричневая в обеих темах: заливка светлый янтарь и там, и
-    /// там, поэтому тёмный текст читается одинаково.
-    static let keycapText = NSColor(srgbRed: 0.32, green: 0.21, blue: 0.02, alpha: 1)
-
-    /// Текст/иконка поверх янтарной кнопки «Открыть». Адаптивный: в светлой теме тёмно-
-    /// коричневый (контраст на янтаре), в тёмной — тёплый белый. Так читается и на янтаре,
-    /// когда кнопка активна, и на тёмно-сером фоне, когда окно неактивно (иначе коричневый
-    /// текст сливается с тёмным фоном неактивной кнопки).
-    static let onAccentText = NSColor(name: "HopkeyOnAccent") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 1.0, green: 0.96, blue: 0.88, alpha: 1)   // тёплый белый
-            : NSColor(srgbRed: 0.32, green: 0.21, blue: 0.02, alpha: 1)  // тёмно-коричневый
-    }
-
-    /// Янтарь как ТЕКСТ/иконка на нейтральном фоне окна (выбранная вкладка настроек). Глубже
-    /// яркого `accent`: тот хорош заливкой, но светлым текстом на белом фоне читается плохо.
-    /// Адаптивный: в светлой теме тёмное золото для контраста, в тёмной — яркий янтарь.
-    static let accentForeground = NSColor(name: "HopkeyAccentText") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 1.0, green: 0.80, blue: 0.40, alpha: 1)
-            : NSColor(srgbRed: 0.72, green: 0.49, blue: 0.06, alpha: 1)
-    }
-
-    /// Заливка выделенной строки в пикере. НЕ `accent.withAlpha`: над тёмным стеклом слабый
-    /// янтарь даёт грязно-коричневый, поэтому в тёмной теме берём ярче и плотнее.
-    static let selectionFill = NSColor(name: "HopkeySelection") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 1.0, green: 0.80, blue: 0.36, alpha: 0.42)
-            : NSColor(srgbRed: 0.96, green: 0.66, blue: 0.13, alpha: 0.28)
-    }
-
-    /// Заливка строки под курсором (hover) — слабее выделения, та же логика по темам.
-    static let hoverFill = NSColor(name: "HopkeyHover") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 1.0, green: 0.80, blue: 0.36, alpha: 0.18)
-            : NSColor(srgbRed: 0.96, green: 0.66, blue: 0.13, alpha: 0.12)
-    }
-
-    /// Тёплый кремовый оттенок поверх системного стекла — чтобы фон окна перестал быть
-    /// нейтрально-серым и потеплел под цвет иконки. Очень слабый: стекло остаётся стеклом,
-    /// а не превращается в плашку. В тёмной теме греем чуть иначе, чтобы не осветлять фон.
-    static let glassTint = NSColor(name: "HopkeyGlassTint") { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 0.62, green: 0.46, blue: 0.18, alpha: 0.10)
-            : NSColor(srgbRed: 0.96, green: 0.84, blue: 0.55, alpha: 0.12)
+            ? NSColor(white: 0.11, alpha: 0.42)
+            : NSColor(white: 1.00, alpha: 0.42)
     }
 
     /// Брендовая марка для окон — монохромный силуэт из менюбар-иконки (`MenuBarIcon`). Она
@@ -100,8 +57,9 @@ enum Brand {
         return image
     }
 
-    /// Кладёт тёплый кремовый оверлей (`glassTint`) поверх стекла на всю площадь `backdrop`.
-    /// Оверлей не перехватывает события — перетаскивание окна за фон продолжает работать.
+    /// Кладёт нейтральную подложку (`glassTint`) поверх стекла на всю площадь `backdrop` —
+    /// гасит избыточную прозрачность. Оверлей не перехватывает события — перетаскивание за фон
+    /// продолжает работать.
     static func addGlassTint(to backdrop: NSView) {
         let overlay = BrandTintOverlay()
         overlay.translatesAutoresizingMaskIntoConstraints = false
@@ -138,7 +96,7 @@ enum Brand {
     }
 }
 
-/// Тёплый кремовый оверлей поверх стекла. Слой-бэкенд, цвет берёт из `Brand.glassTint` и
+/// Нейтральная подложка поверх стекла. Слой-бэкенд, цвет берёт из `Brand.glassTint` и
 /// обновляет при смене темы (`updateLayer`). `hitTest` → nil: оверлей прозрачен для мыши,
 /// чтобы не ломать перетаскивание окна за фон и клики по списку под ним.
 final class BrandTintOverlay: NSView {
@@ -158,9 +116,9 @@ final class BrandTintOverlay: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// Брендовый бейдж-«кейкап» для номера быстрого выбора (1–9): скруглённый янтарный колпачок
-/// клавиши — прямая отсылка к иконке приложения. Для строк за пределами девяти `value` пустой,
-/// и колпачок не рисуется (остаётся пустое место под выравнивание).
+/// Бейдж номера быстрого выбора (1–9): скруглённый серый колпачок (как `NumberBadge` в панели
+/// команд). Для строк за пределами девяти `value` пустой, и колпачок не рисуется (остаётся
+/// пустое место под выравнивание).
 final class KeycapBadge: NSView {
     private let label = NSTextField(labelWithString: "")
 

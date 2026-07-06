@@ -168,13 +168,13 @@ private final class SnippetRowView: NSView {
 /// Фон строки: мягкое скруглённое выделение с лёгким оттенком акцента вместо тяжёлой
 /// сплошной синей заливки — чтобы вписаться в «стеклянный» вид.
 private final class SnippetRowBackground: NSTableRowView {
-    /// Курсор над строкой — рисуем слабую янтарную подсветку (слабее выделения).
+    /// Курсор над строкой — рисуем слабую нейтральную подсветку (слабее выделения).
     var isHovered = false {
         didSet { if oldValue != isHovered { needsDisplay = true } }
     }
 
-    // Выделение заливаем мягким янтарём (не сплошным синим), поэтому НЕ даём AppKit
-    // перекрашивать текст ячеек в «эмфазный» белый: на светлой заливке он тонет. `.normal`
+    // Выделение — полупрозрачная акцентная заливка (не сплошной эмфазный фон), поэтому НЕ даём
+    // AppKit перекрашивать текст ячеек в «эмфазный» белый: на светлой заливке он тонет. `.normal`
     // оставляет имя сниппета тёмным независимо от выделения.
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
@@ -294,7 +294,7 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         window.isOpaque = false
         window.backgroundColor = .clear
 
-        // Тёплый кремовый тон поверх стекла — фон теплеет под цвет иконки.
+        // Нейтральная подложка поверх стекла — гасит избыточную прозрачность.
         Brand.addGlassTint(to: backdrop)
 
         // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по

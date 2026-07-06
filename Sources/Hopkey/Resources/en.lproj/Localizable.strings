@@ -111,7 +111,7 @@
 "settings.command.textTransform" = "Transform text";
 "transform.input.title" = "Text to transform";
 "transform.input.placeholder" = "Type or paste text…";
-"transform.input.hint" = "↑↓ — pick · ⌘↩ — insert · Esc — cancel";
+"transform.input.hint" = "↑↓ pick · ⌘↩ insert · Esc cancel";
 "transform.input.insert" = "Insert";
 "transform.input.copy" = "Copy";
 "transform.input.copied" = "Copied";
@@ -173,7 +173,13 @@
 "panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
-"panel.footer.commands" = "↑↓ move · ←→ volume · letters — tools · 1–9 — snippets · ↩ · Esc";
+"panel.footer.commands" = "↑↓ move · ←→ volume · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
+"panel.search.placeholder" = "Search apps, commands, calculator…";
+"panel.search.type.command" = "command";
+"panel.search.type.app" = "app";
+"panel.search.type.calc" = "copy";
+"panel.search.empty" = "Nothing found";
+"panel.search.copied" = "Copied: %@";
 "panel.toggle.on" = "on";
 "panel.toggle.off" = "off";
 "status.micMuted" = "Microphone muted";

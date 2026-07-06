@@ -111,7 +111,7 @@
 "settings.command.textTransform" = "Преобразовать текст";
 "transform.input.title" = "Текст для преобразования";
 "transform.input.placeholder" = "Введите или вставьте текст…";
-"transform.input.hint" = "↑↓ — выбор · ⌘↩ — вставить · Esc — отмена";
+"transform.input.hint" = "↑↓ выбор · ⌘↩ вставить · Esc отмена";
 "transform.input.insert" = "Вставить";
 "transform.input.copy" = "Скопировать";
 "transform.input.copied" = "Скопировано";
@@ -173,7 +173,13 @@
 "panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
-"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · буквы — команды · 1–9 — сниппеты · ↩ · Esc";
+"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
+"panel.search.placeholder" = "Поиск: приложения, команды, калькулятор…";
+"panel.search.type.command" = "команда";
+"panel.search.type.app" = "программа";
+"panel.search.type.calc" = "копировать";
+"panel.search.empty" = "Ничего не найдено";
+"panel.search.copied" = "Скопировано: %@";
 "panel.toggle.on" = "вкл";
 "panel.toggle.off" = "выкл";
 "status.micMuted" = "Микрофон выключен";
