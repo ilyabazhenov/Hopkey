@@ -118,6 +118,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return module
     }()
 
+    /// Окно заметок-точек (в идиоме Tot). «Вставить» отдаёт текст в целевое приложение тем же
+    /// путём, что и сниппет; «Скопировать» кладёт в буфер с HUD-подтверждением.
+    private lazy var notesWindow: NotesWindowController = {
+        let controller = NotesWindowController(store: NotesStore.shared)
+        controller.onPaste = { [weak self] text in self?.pasteText(text) }
+        controller.onCopy = { [weak self] text in self?.copyText(text) }
+        return controller
+    }()
+
     /// Приложение, которое было активным до показа пикера сниппетов — ему возвращаем
     /// фокус перед синтетическим Cmd+V (наш `NSApp.activate` крадёт фокус у него).
     private weak var snippetTargetApp: NSRunningApplication?
@@ -786,7 +795,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: { L("cmd.ocr") }, symbol: { "text.viewfinder" },
                 isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
                 run: { [weak self] in self?.runOCR() })
+        case .notes:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.notes") }, symbol: { "note.text" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.openNotes() })
         }
+    }
+
+    /// Открывает окно заметок. Целевое приложение для «Вставить» запоминаем: при вызове из палитры
+    /// оно уже сохранено (палитра открывалась над ним); при вызове из меню/хоткея — это активное
+    /// сейчас приложение (кроме нас самих — тогда сохранённое значение не перетираем).
+    private func openNotes() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            snippetTargetApp = front
+        }
+        notesWindow.show()
+    }
+
+    /// Вставляет произвольный текст (заметку) в целевое приложение: тот же путь, что `pasteSnippet`
+    /// — вернуть фокус цели и синтезировать ⌘V. Без Универсального доступа кладём в буфер и один
+    /// раз показываем системный запрос (иначе авто-вставка молча не дойдёт до чужого поля).
+    private func pasteText(_ text: String) {
+        guard !text.isEmpty else { NSSound.beep(); return }
+        let target = snippetTargetApp
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            URLOpener.copy(text)
+            clipboard.syncChangeCount()
+            HotKeyManager.ensureAccessibility(prompt: true)
+            return
+        }
+        target?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self else { return }
+            self.hotKey.paste(text) { self.clipboard.syncChangeCount() }
+        }
+    }
+
+    /// Копирует текст заметки в буфер (без вставки) с коротким HUD-подтверждением: копирование не
+    /// видно глазу, в отличие от вставки. Наблюдателя буфера глушим — наша запись не пользовательская.
+    private func copyText(_ text: String) {
+        guard !text.isEmpty else { NSSound.beep(); return }
+        URLOpener.copy(text)
+        clipboard.syncChangeCount()
+        hud.show(symbol: "doc.on.doc", message: L("notes.copied"))
     }
 
     /// Команда OCR: захватывает область экрана, распознаёт текст (Vision, на устройстве) и кладёт

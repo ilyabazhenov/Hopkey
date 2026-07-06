@@ -159,6 +159,16 @@
 "settings.command.audioOutput" = "Аудиовыход";
 "settings.command.audioInput" = "Аудиовход";
 "settings.command.ocr" = "Распознать текст с экрана";
+"cmd.notes" = "Заметки";
+"settings.command.notes" = "Заметки";
+
+/* Окно заметок (семь точек-черновиков) */
+"notes.window.title" = "Заметки";
+"notes.paste" = "Вставить";
+"notes.copy" = "Скопировать";
+"notes.copied" = "Скопировано";
+"notes.count" = "%d слов · %d знаков";
+"notes.dot" = "Заметка %d";
 
 /* Панель команд */
 "panel.title" = "Команды";

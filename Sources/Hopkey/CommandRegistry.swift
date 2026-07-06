@@ -52,6 +52,7 @@ extension CommandID {
         case .audioOutput:      return 10
         case .audioInput:       return 11
         case .ocr:              return 12
+        case .notes:            return 13
         }
     }
 
@@ -62,7 +63,7 @@ extension CommandID {
             return .toggles
         case .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr:
             return .actions
-        case .quickInput, .snippets:
+        case .quickInput, .snippets, .notes:
             return .launchers
         }
     }

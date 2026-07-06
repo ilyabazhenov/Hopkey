@@ -466,6 +466,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         case .audioOutput:      return "settings.command.audioOutput"
         case .audioInput:       return "settings.command.audioInput"
         case .ocr:              return "settings.command.ocr"
+        case .notes:            return "settings.command.notes"
         }
     }
 

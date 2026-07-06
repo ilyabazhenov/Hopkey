@@ -159,6 +159,16 @@
 "settings.command.audioOutput" = "Audio output";
 "settings.command.audioInput" = "Audio input";
 "settings.command.ocr" = "Recognize text on screen";
+"cmd.notes" = "Notes";
+"settings.command.notes" = "Notes";
+
+/* Notes window (seven scratchpad dots) */
+"notes.window.title" = "Notes";
+"notes.paste" = "Paste";
+"notes.copy" = "Copy";
+"notes.copied" = "Copied";
+"notes.count" = "%d words · %d chars";
+"notes.dot" = "Note %d";
 
 /* Command panel */
 "panel.title" = "Commands";

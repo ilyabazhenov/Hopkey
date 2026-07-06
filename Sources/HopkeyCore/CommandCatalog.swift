@@ -28,6 +28,8 @@ public enum CommandID: String, CaseIterable, Codable {
     case audioInput
     /// Распознать текст с области экрана (screencapture -i + Vision) и скопировать в буфер.
     case ocr
+    /// Семь постоянных заметок-точек (в идиоме Tot) — отдельное окно-редактор.
+    case notes
 }
 
 extension CommandID {
@@ -52,6 +54,7 @@ extension CommandID {
         case .ocr:              return UInt16(kVK_ANSI_R)  // Recognize
         case .quickInput:       return UInt16(kVK_ANSI_Q)  // Quick input
         case .snippets:         return UInt16(kVK_ANSI_S)  // Snippets
+        case .notes:            return UInt16(kVK_ANSI_N)  // Notes
         }
     }
 }

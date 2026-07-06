@@ -199,7 +199,7 @@ public final class JiraConfig {
         case .micToggle:
             return HotKeyBinding(enabled: true, keyCode: 46,
                                  modifiers: CarbonModifier.shift | CarbonModifier.command)
-        case .keepAwake, .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr:
+        case .keepAwake, .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr, .notes:
             return HotKeyBinding(enabled: false, keyCode: 0, modifiers: 0)
         }
     }
