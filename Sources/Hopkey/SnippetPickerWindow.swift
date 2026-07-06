@@ -1,15 +1,6 @@
 import AppKit
 import HopkeyCore
 
-/// Панель пикера: ловит Esc на уровне окна (закрытие работает независимо от фокуса).
-/// Неактивирующая — становится ключевой для клавиатуры/кликов, НЕ активируя наше
-/// `.accessory`-приложение. Так прежнее приложение не теряет фокус, и синтетический
-/// Cmd+V после выбора попадает прямо в поле, где стоял курсор.
-private final class SnippetPickerPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override func cancelOperation(_ sender: Any?) { close() }
-}
-
 /// Таблица сниппетов: ↩/Enter подтверждают выбранную строку, цифра 1–9 — быстрый выбор
 /// соответствующего сниппета, Esc отдаём панели (закрытие).
 private final class SnippetTableView: NSTableView {
@@ -199,19 +190,16 @@ private final class SnippetRowBackground: NSTableRowView {
     }
 }
 
-/// Окно-пикер сниппетов: по хоткею показывает список заранее заданных значений.
+/// Пикер сниппетов как **модуль палитры** (⌃⌥V): таблица со всеми сниппетами, быстрый выбор
+/// 1–9, кнопки всех доступных действий на активной строке. Живёт внутри окна палитры команд
+/// (см. `PaletteModule`) — своего окна не имеет.
 ///
-/// Клик по строке / ↩ / цифра 1–9 выполняют ОСНОВНОЕ действие сниппета
-/// (`Snippet.primaryActivation`): секрет и текст вставляются (`onPick`), ссылка — её
-/// действие по умолчанию (вставить/перейти `onOpen`/скопировать `onCopy`). В строке есть
-/// явные кнопки всех доступных действий (вставить/скопировать у всех, открыть — у ссылок),
-/// видимые только на активной строке. ⌘↩ открывает выделенную ссылку. Esc закрывает.
-/// Окно можно ресайзить, размер запоминается.
-///
-/// Само действие (Keychain → буфер → Cmd+V / открытие URL) делает AppDelegate — окно лишь
-/// показывает имена и сообщает выбранное действие.
-final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
-                                           NSTableViewDataSource, NSTableViewDelegate {
+/// Клик по строке / ↩ / цифра 1–9 выполняют ОСНОВНОЕ действие (`Snippet.primaryActivation`):
+/// секрет и текст вставляются, ссылка — её действие по умолчанию. ⌘↩ открывает выделенную
+/// ссылку. Esc возвращает в корень палитры. Само действие (Keychain → буфер → Cmd+V / открытие
+/// URL) делает AppDelegate через колбэки — модуль лишь показывает имена и сообщает выбор.
+final class SnippetPickerModule: NSObject, PaletteModule,
+                                 NSTableViewDataSource, NSTableViewDelegate {
 
     private let store: SnippetStore
     /// Выбран сниппет для вставки.
@@ -238,74 +226,66 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
     private var lastSelectedRow = -1
     /// Защита от двойного действия за один показ (клик по кнопке и по строке и т.п.).
     private var finished = false
+    private weak var host: PaletteHost?
+
+    private var window: NSWindow? { contentView.window }
 
     private static let rowID = NSUserInterfaceItemIdentifier("snippetRow")
-    private static let defaultWidth: CGFloat = 360
     private static let rowHeight: CGFloat = 36
     /// Сколько строк показываем без прокрутки при авторазмере — дальше скролл.
     private static let maxVisibleRows = 8
-    /// Ключ для запоминания ширины окна (высота всегда под содержимое).
-    private static let sizeKeyW = "snippetPicker.width"
 
     init(store: SnippetStore) {
         self.store = store
-        let panel = SnippetPickerPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.defaultWidth, height: 200),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = L("snippet.picker.title")
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        // «Жидкое стекло»: матовый фон занимает всю площадь окна, заголовок — прозрачный
-        // поверх него (без отдельной непрозрачной полосы). Тему НЕ фиксируем — стекло
-        // следует системной (светлеет в светлой теме, темнеет в тёмной), иначе тёмное
-        // окно выглядит чужеродным пятном на светлом фоне.
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .visible
-        panel.isMovableByWindowBackground = true
-        // Лёгкая прозрачность всего окна поверх размытия — «жидкое стекло» становится
-        // чуть более сквозным. Ниже ~0.85 текст начинает блёкнуть.
-        panel.alphaValue = 1.0
-        panel.minSize = NSSize(width: 260, height: 110)
-        // Те же причины, что и у окна ввода: показываем панель на активном Space
-        // (в т.ч. фуллскрин) поверх чужого полноэкранного окна, не выкидывая из него.
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        buildUI()
+        super.init()
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+    // MARK: - PaletteModule
 
-    private func buildUI() {
-        guard let window else { return }
+    let titleKey = "snippet.picker.title"
 
-        // Полупрозрачный фон с размытием — как у Spotlight: панель «вписывается» поверх
-        // того, что под ней. `.menu` — translucent и АДАПТИВНЫЙ (в отличие от вечно
-        // тёмного `.hudWindow`): в светлой теме фон светлый, в тёмной — тёмный.
-        let backdrop = NSVisualEffectView()
-        backdrop.material = .windowBackground
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
-        window.contentView = backdrop
-        window.isOpaque = false
-        window.backgroundColor = .clear
+    private(set) lazy var contentView: NSView = buildContent()
 
-        // Нейтральная подложка поверх стекла — гасит избыточную прозрачность.
-        Brand.addGlassTint(to: backdrop)
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        tableView.layoutSubtreeIfNeeded()
+        // Высота списка — по фактической геометрии строк (учитывает rowHeight + межстрочный
+        // зазор), а не по формуле: иначе последняя строка подрезается.
+        let visible = min(max(snippets.count, 1), Self.maxVisibleRows)
+        let listHeight = snippets.isEmpty ? Self.rowHeight
+                                          : ceil(tableView.rect(ofRow: visible - 1).maxY)
+        // верхний паддинг + список + сепаратор + подсказка + низ (полосу заголовка даёт палитра).
+        return 6 + listHeight + 6 + 1 + 6 + 16 + 10
+    }
 
-        // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по
-        // центру полосы заголовка — окно узнаётся как Hopkey.
-        window.titleVisibility = .hidden
-        let header = Brand.makeHeaderView(title: L("snippet.picker.title"))
-        backdrop.addSubview(header)
-        NSLayoutConstraint.activate([
-            header.centerXAnchor.constraint(equalTo: backdrop.centerXAnchor),
-            header.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 9),
-        ])
+    /// Вход в режим: фокус в таблицу (там ↑↓/Enter/1–9/Esc). Приложение не активируем — палитра
+    /// уже ключевая, прежнее приложение остаётся активным (для авто-вставки Cmd+V).
+    func moduleWillAppear(host: PaletteHost) {
+        self.host = host
+        window?.makeFirstResponder(tableView)
+    }
+
+    /// ⌘↩ — открыть выделенную ссылку (перехватывается окном палитры раньше клавиш таблицы).
+    func handleCommandReturn() -> Bool { openSelection(); return true }
+
+    /// Снимок сниппетов + сброс состояния перед показом. Форсит ленивую сборку вьюхи, чтобы
+    /// таблица уже существовала к моменту reloadData/выделения.
+    func reload() {
+        _ = contentView
+        finished = false
+        hoveredRow = -1
+        lastSelectedRow = -1
+        snippets = store.snippets
+        tableView.reloadData()
+        emptyStack.isHidden = !snippets.isEmpty
+        hintLabel.isHidden = snippets.isEmpty
+        if !snippets.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            lastSelectedRow = 0
+        }
+    }
+
+    private func buildContent() -> NSView {
+        let content = NSView()
 
         let column = NSTableColumn(identifier: Self.rowID)
         tableView.addTableColumn(column)
@@ -315,11 +295,11 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = false
         tableView.rowHeight = Self.rowHeight
-        // `.plain` (не `.inset`): без скрытых вертикальных отступов стиля — высоту окна
-        // считаем точно. Скруглённое выделение рисуем сами (см. `SnippetRowBackground`).
+        // `.plain` (не `.inset`): без скрытых вертикальных отступов стиля — высоту считаем точно.
+        // Скруглённое выделение рисуем сами (см. `SnippetRowBackground`).
         tableView.style = .plain
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle  // колонка во всю ширину
-        tableView.backgroundColor = .clear  // показываем размытие сквозь таблицу
+        tableView.backgroundColor = .clear  // показываем стекло сквозь таблицу
         tableView.selectionHighlightStyle = .regular
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.gridStyleMask = []
@@ -337,19 +317,19 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         scroll.drawsBackground = false
         scroll.documentView = tableView
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(scroll)
+        content.addSubview(scroll)
 
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(separator)
+        content.addSubview(separator)
 
         hintLabel.textColor = .tertiaryLabelColor
         hintLabel.font = .systemFont(ofSize: 11)
         hintLabel.alignment = .center
         hintLabel.lineBreakMode = .byTruncatingTail
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(hintLabel)
+        content.addSubview(hintLabel)
 
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.font = .systemFont(ofSize: 12)
@@ -370,88 +350,27 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         emptyStack.spacing = 8
         emptyStack.setViews([emptyIcon, emptyLabel], in: .center)
         emptyStack.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(emptyStack)
+        content.addSubview(emptyStack)
 
         NSLayoutConstraint.activate([
-            // Отступ сверху освобождает прозрачную полосу заголовка (с кнопками окна).
-            scroll.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 36),
-            scroll.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 10),
-            scroll.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -10),
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
 
             separator.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
-            separator.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 12),
-            separator.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -12),
+            separator.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            separator.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
 
             hintLabel.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 6),
-            hintLabel.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 12),
-            hintLabel.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -12),
-            hintLabel.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -10),
+            hintLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hintLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            hintLabel.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
 
             emptyStack.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             emptyStack.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             emptyStack.widthAnchor.constraint(lessThanOrEqualTo: scroll.widthAnchor, constant: -16),
         ])
-    }
-
-    /// Показывает пикер поверх остальных и ставит фокус в список.
-    func show() {
-        finished = false
-        hoveredRow = -1
-        lastSelectedRow = -1
-        snippets = store.snippets
-        tableView.reloadData()
-        emptyStack.isHidden = !snippets.isEmpty
-        hintLabel.isHidden = snippets.isEmpty
-        if !snippets.isEmpty {
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-            lastSelectedRow = 0
-        }
-        fitWindow()
-
-        // Не активируем приложение (нужно для авто-вставки — см. `SnippetPickerPanel`):
-        // неактивирующая панель становится ключевой сама, прежнее приложение остаётся активным.
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
-        window?.makeFirstResponder(tableView)
-    }
-
-    /// Высота — всегда под число строк (без пустоты под коротким списком), ширину берём
-    /// запомненную (её можно тянуть). Позицию центрируем на активном экране.
-    private func fitWindow() {
-        guard let window else { return }
-        tableView.layoutSubtreeIfNeeded()
-        // Высота списка — по фактической геометрии строк (учитывает rowHeight + межстрочный
-        // зазор), а не по формуле: иначе последняя строка подрезается.
-        let visible = min(max(snippets.count, 1), Self.maxVisibleRows)
-        let listHeight = snippets.isEmpty ? Self.rowHeight
-                                          : ceil(tableView.rect(ofRow: visible - 1).maxY)
-        // полоса заголовка + список + сепаратор + подсказка + поля
-        let height = 36 + listHeight + 6 + 1 + 6 + 16 + 10
-        let savedW = UserDefaults.standard.double(forKey: Self.sizeKeyW)
-        let width = savedW >= 260 ? savedW : Self.defaultWidth
-        window.setContentSize(NSSize(width: width, height: height))
-        centerOnActiveScreen()
-    }
-
-    func windowDidResize(_ notification: Notification) {
-        // Запоминаем только ширину — высота каждый раз подгоняется под содержимое.
-        guard let width = window?.contentView?.frame.size.width else { return }
-        UserDefaults.standard.set(Double(width), forKey: Self.sizeKeyW)
-    }
-
-    /// Центрирует окно на экране, где сейчас курсор.
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(
-            x: area.midX - size.width / 2,
-            y: area.midY - size.height / 2))
+        return content
     }
 
     /// Обновляет hover-подсветку: гасим прежнюю строку, подсвечиваем новую под курсором.
@@ -549,12 +468,12 @@ final class SnippetPickerWindowController: NSWindowController, NSWindowDelegate,
         finish { self.dispatch(.open, self.snippets[row]) }
     }
 
-    /// Закрывает окно и выполняет действие (порядок важен: закрытие вернёт ключевое окно
+    /// Закрывает палитру и выполняет действие (порядок важен: закрытие вернёт ключевое окно
     /// прежнему приложению до синтетического Cmd+V во вставке).
     private func finish(_ action: @escaping () -> Void) {
         guard !finished else { return }
         finished = true
-        window?.close()
+        host?.closePalette()
         action()
     }
 

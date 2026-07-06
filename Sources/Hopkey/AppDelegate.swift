@@ -110,12 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
         return controller
     }()
-    private lazy var snippetPicker: SnippetPickerWindowController = {
-        let controller = SnippetPickerWindowController(store: snippetStore)
-        controller.onPick = { [weak self] snippet in self?.pasteSnippet(snippet) }
-        controller.onCopy = { [weak self] snippet in self?.copySnippet(snippet) }
-        controller.onOpen = { [weak self] snippet in self?.openSnippet(snippet) }
-        return controller
+    private lazy var snippetPickerModule: SnippetPickerModule = {
+        let module = SnippetPickerModule(store: snippetStore)
+        module.onPick = { [weak self] snippet in self?.pasteSnippet(snippet) }
+        module.onCopy = { [weak self] snippet in self?.copySnippet(snippet) }
+        module.onOpen = { [weak self] snippet in self?.openSnippet(snippet) }
+        return module
     }()
 
     /// Приложение, которое было активным до показа пикера сниппетов — ему возвращаем
@@ -539,11 +539,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         perform(action, on: matches)
     }
 
-    /// Показывает окно-пикер сниппетов, запомнив активное приложение — чтобы после
-    /// выбора вернуть ему фокус и вставить значение туда, где стоял курсор.
+    /// Прямой вызов (⌃⌥V / меню): открываем палитру и разворачиваем модуль пикера сниппетов.
     private func showSnippetPicker() {
+        if !panelIsOpen { openCommandPanel() }
+        presentSnippetPicker()
+    }
+
+    /// Разворачивает пикер сниппетов внутри палитры, запомнив активное приложение — чтобы после
+    /// выбора вставить значение туда, где стоял курсор (палитра неактивирующая, фокус не крадёт).
+    private func presentSnippetPicker() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
-        snippetPicker.show()
+        snippetPickerModule.reload()
+        commandPanel.enterModule(snippetPickerModule)
     }
 
     /// Вставляет выбранный сниппет в активное приложение: читает значение из Keychain
