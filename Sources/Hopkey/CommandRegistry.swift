@@ -51,6 +51,7 @@ extension CommandID {
         case .textTransform:    return 9
         case .audioOutput:      return 10
         case .audioInput:       return 11
+        case .ocr:              return 12
         }
     }
 
@@ -59,7 +60,7 @@ extension CommandID {
         switch self {
         case .micToggle, .keepAwake:
             return .toggles
-        case .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput:
+        case .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr:
             return .actions
         case .quickInput, .snippets:
             return .launchers

@@ -140,12 +140,14 @@
 "transform.appendSemicolon" = "Add semicolon at line ends";
 "cmd.audioOutput" = "Audio output";
 "cmd.audioInput" = "Audio input";
+"cmd.ocr" = "Recognize text on screen";
 "audio.output.title" = "Audio output";
 "audio.input.title" = "Audio input";
 "audio.current" = "current";
 "audio.empty" = "No devices found";
 "settings.command.audioOutput" = "Audio output";
 "settings.command.audioInput" = "Audio input";
+"settings.command.ocr" = "Recognize text on screen";
 
 /* Command panel */
 "panel.title" = "Commands";
@@ -274,6 +276,8 @@
 "notif.copied.one" = "Link copied";
 "notif.copied.many" = "Links copied (%@)";
 "notif.snippet.copied" = "Snippet copied";
+"ocr.hud.copied" = "Copied";
+"ocr.hud.empty" = "No text found";
 "notif.denied.title" = "Notifications are off";
 "notif.denied.body" = "Hopkey found a ticket key in the clipboard but can’t show a banner to open it — notifications for the app are disabled.\n\nEnable them in System Settings, or choose “Open right away” in the Hopkey menu.";
 "notif.denied.openSettings" = "Open notification settings";

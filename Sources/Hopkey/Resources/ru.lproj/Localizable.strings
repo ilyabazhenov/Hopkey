@@ -140,12 +140,14 @@
 "transform.appendSemicolon" = "Добавить точку с запятой в конце строк";
 "cmd.audioOutput" = "Аудиовыход";
 "cmd.audioInput" = "Аудиовход";
+"cmd.ocr" = "Распознать текст с экрана";
 "audio.output.title" = "Аудиовыход";
 "audio.input.title" = "Аудиовход";
 "audio.current" = "текущий";
 "audio.empty" = "Устройства не найдены";
 "settings.command.audioOutput" = "Аудиовыход";
 "settings.command.audioInput" = "Аудиовход";
+"settings.command.ocr" = "Распознать текст с экрана";
 
 /* Панель команд */
 "panel.title" = "Команды";
@@ -274,6 +276,8 @@
 "notif.copied.one" = "Ссылка скопирована";
 "notif.copied.many" = "Ссылки скопированы (%@)";
 "notif.snippet.copied" = "Сниппет скопирован";
+"ocr.hud.copied" = "Скопировано";
+"ocr.hud.empty" = "Текст не распознан";
 "notif.denied.title" = "Уведомления выключены";
 "notif.denied.body" = "Hopkey нашёл ключ тикета в буфере, но не может показать баннер для открытия — уведомления для приложения отключены.\n\nВключите их в Системных настройках, либо выберите «Открывать сразу» в меню Hopkey.";
 "notif.denied.openSettings" = "Открыть настройки уведомлений";

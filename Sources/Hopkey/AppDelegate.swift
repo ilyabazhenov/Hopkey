@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let mic = MicrophoneController()
     private let keepAwake = KeepAwakeController()
     private let audio = AudioDeviceController()
+    private let ocr = OCRController()
+    private let hud = HUDWindowController()
     /// История буфера обмена (только в памяти), для быстрой повторной вставки из панели.
     private let clipboardHistory = ClipboardHistory()
     /// Монитор нажатий модификаторов + детектор двойного тапа для вызова панели.
@@ -735,6 +737,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: { L("cmd.audioInput") }, symbol: { "mic" },
                 isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
                 run: { [weak self] in self?.openAudioInput() })
+        case .ocr:
+            return ToolboxCommand(
+                id: id, needsAccessibility: false,
+                title: { L("cmd.ocr") }, symbol: { "text.viewfinder" },
+                isOn: { nil }, trailing: { [weak self] in self?.hotKeyHint(for: id) },
+                run: { [weak self] in self?.runOCR() })
+        }
+    }
+
+    /// Команда OCR: захватывает область экрана, распознаёт текст (Vision, на устройстве) и кладёт
+    /// в буфер + историю. Обратную связь даём HUD-тостом (не зависит от разрешения на уведомления).
+    /// Копирование не требует Accessibility, а интерактивный screencapture — Screen Recording,
+    /// поэтому команда беспермишенная. Наблюдателя буфера глушим, чтобы наша запись не запускала
+    /// тикет-матчинг/авто-открытие.
+    private func runOCR() {
+        ocr.capture { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .cancelled:
+                break  // пользователь отменил выделение — молчим
+            case .empty:
+                NSSound.beep()
+                self.hud.show(symbol: "text.viewfinder", message: L("ocr.hud.empty"))
+            case .text(let text):
+                URLOpener.copy(text)
+                self.clipboard.syncChangeCount()
+                self.clipboardHistory.record(text)
+                self.hud.show(symbol: "checkmark.circle.fill", message: L("ocr.hud.copied"))
+            }
         }
     }
 
