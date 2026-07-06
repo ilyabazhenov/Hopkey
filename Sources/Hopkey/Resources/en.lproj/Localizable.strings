@@ -87,7 +87,9 @@
 "settings.command.keepAwake" = "Keep awake";
 "settings.command.pastePlain" = "Paste without formatting";
 "settings.palette.trigger" = "Summon command panel:";
+"settings.palette.leftCommand" = "Double left ⌘";
 "settings.palette.rightCommand" = "Double right ⌘";
+"settings.palette.leftOption" = "Double left ⌥";
 "settings.palette.rightOption" = "Double right ⌥";
 "settings.palette.disabled" = "Off";
 
@@ -162,7 +164,7 @@
 "panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
-"panel.footer.commands" = "↑↓ move · ←→ volume · → more · 1–9 · ↩ run · Esc";
+"panel.footer.commands" = "↑↓ move · ←→ volume · letters — tools · 1–9 — snippets · ↩ · Esc";
 "panel.toggle.on" = "on";
 "panel.toggle.off" = "off";
 "status.micMuted" = "Microphone muted";

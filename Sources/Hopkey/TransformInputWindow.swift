@@ -247,7 +247,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         for (index, transform) in transforms.enumerated() {
             let digit = index < 9 ? index + 1 : nil
             let row = CommandRowView()
-            row.configure(digit: digit, symbol: GlassListWindowController.transformSymbol(transform),
+            row.configure(badge: digit.map(String.init), symbol: GlassListWindowController.transformSymbol(transform),
                           title: L(transform.titleKey), trailing: nil)
             row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
             row.onClick = { [weak self] in self?.select(index) }

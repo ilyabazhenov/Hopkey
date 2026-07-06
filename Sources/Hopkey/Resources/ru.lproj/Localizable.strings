@@ -87,7 +87,9 @@
 "settings.command.keepAwake" = "Не давать засыпать";
 "settings.command.pastePlain" = "Вставить без форматирования";
 "settings.palette.trigger" = "Вызов панели команд:";
+"settings.palette.leftCommand" = "Двойной левый ⌘";
 "settings.palette.rightCommand" = "Двойной правый ⌘";
+"settings.palette.leftOption" = "Двойной левый ⌥";
 "settings.palette.rightOption" = "Двойной правый ⌥";
 "settings.palette.disabled" = "Выключено";
 
@@ -162,7 +164,7 @@
 "panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
-"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · → ещё · 1–9 · ↩ выполнить · Esc";
+"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · буквы — команды · 1–9 — сниппеты · ↩ · Esc";
 "panel.toggle.on" = "вкл";
 "panel.toggle.off" = "выкл";
 "status.micMuted" = "Микрофон выключен";

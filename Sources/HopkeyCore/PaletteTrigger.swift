@@ -1,28 +1,34 @@
 import Foundation
 
-/// Правый или левый вариант модификатора важно различать для двойного тапа: вешаем жест на
-/// «простаивающий» правый модификатор (им не жмут шорткаты) — ложных срабатываний нет.
+/// Левый или правый вариант модификатора важно различать для двойного тапа: жест вешается на
+/// конкретную физическую клавишу. Правые модификаторы «простаивают» (ими редко жмут шорткаты) —
+/// меньше ложных срабатываний; левый ⌘ удобнее дотянуться, но участвует в ⌘C/⌘V и т.п. (детектор
+/// срывает жест на любой другой клавише, так что настоящий ⌘C триггером не станет).
 /// `keyCode` — код конкретной физической клавиши в событии `.flagsChanged` (левый/правый
 /// различаются именно по keyCode, не по флагу).
 public enum ModifierSide: String, CaseIterable {
+    case leftCommand
     case rightCommand
+    case leftOption
     case rightOption
 
     public var keyCode: Int {
         switch self {
+        case .leftCommand:  return 55  // kVK_Command
         case .rightCommand: return 54  // kVK_RightCommand
-        case .rightOption: return 61   // kVK_RightOption
+        case .leftOption:   return 58  // kVK_Option
+        case .rightOption:  return 61  // kVK_RightOption
         }
     }
 }
 
-/// Как вызывается панель команд. По умолчанию — двойной тап правого ⌘.
+/// Как вызывается панель команд. По умолчанию — двойной тап левого ⌘.
 /// Хранится в `UserDefaults` строкой (`rawValue`), как `TicketAction`.
 public enum PaletteTrigger: Equatable {
     case doubleTap(ModifierSide)
     case disabled
 
-    public static let `default`: PaletteTrigger = .doubleTap(.rightCommand)
+    public static let `default`: PaletteTrigger = .doubleTap(.leftCommand)
 }
 
 extension PaletteTrigger: RawRepresentable {

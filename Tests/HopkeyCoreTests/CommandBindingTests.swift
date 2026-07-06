@@ -100,7 +100,7 @@ final class CommandBindingTests: XCTestCase {
 
     func testPaletteTriggerDefaultAndRoundTrip() {
         let config = makeConfig()
-        XCTAssertEqual(config.paletteTrigger, .doubleTap(.rightCommand))
+        XCTAssertEqual(config.paletteTrigger, .doubleTap(.leftCommand))
 
         config.paletteTrigger = .doubleTap(.rightOption)
         XCTAssertEqual(makeConfig().paletteTrigger, .doubleTap(.rightOption))
@@ -121,8 +121,30 @@ final class CommandBindingTests: XCTestCase {
     }
 
     func testModifierSideKeyCodes() {
+        XCTAssertEqual(ModifierSide.leftCommand.keyCode, 55)
         XCTAssertEqual(ModifierSide.rightCommand.keyCode, 54)
+        XCTAssertEqual(ModifierSide.leftOption.keyCode, 58)
         XCTAssertEqual(ModifierSide.rightOption.keyCode, 61)
+    }
+
+    // MARK: Буквенные хоткеи команд в панели
+
+    func testPanelKeyCodesAreUniqueAndAvoidReservedKeys() {
+        // Служебные клавиши панели, которые нельзя занимать буквой команды.
+        let reserved: Set<UInt16> = [36, 76, 53, 48, 123, 124, 125, 126]  // ↩/↩(num) Esc Tab ←→↑↓
+        var seen: Set<UInt16> = []
+        for id in CommandID.allCases {
+            let code = id.panelKeyCode
+            XCTAssertFalse(reserved.contains(code), "\(id) сидит на служебной клавише \(code)")
+            XCTAssertTrue(seen.insert(code).inserted, "keyCode \(code) уже занят другой командой (коллизия у \(id))")
+        }
+    }
+
+    func testPanelKeyCodeBadgeLetters() {
+        // Бейдж и матч идут от одного физического кода → буква на плитке = клавиша нажатия.
+        XCTAssertEqual(keyName(forKeyCode: UInt32(CommandID.micToggle.panelKeyCode)), "M")
+        XCTAssertEqual(keyName(forKeyCode: UInt32(CommandID.snippets.panelKeyCode)), "S")
+        XCTAssertEqual(keyName(forKeyCode: UInt32(CommandID.pastePlain.panelKeyCode)), "V")
     }
 
     // MARK: Сброс
@@ -136,6 +158,6 @@ final class CommandBindingTests: XCTestCase {
         config.resetToDefaults()
 
         XCTAssertEqual(config.binding(for: .micToggle), JiraConfig.defaultBinding(for: .micToggle))
-        XCTAssertEqual(config.paletteTrigger, .doubleTap(.rightCommand))
+        XCTAssertEqual(config.paletteTrigger, .doubleTap(.leftCommand))
     }
 }

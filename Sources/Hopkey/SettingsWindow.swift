@@ -104,7 +104,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     /// Выбор триггера панели команд (двойной тап правого ⌘/⌥ или выкл).
     private let paletteTriggerPopup = NSPopUpButton()
     private let paletteTriggerOptions: [PaletteTrigger] = [
-        .doubleTap(.rightCommand), .doubleTap(.rightOption), .disabled,
+        .doubleTap(.leftCommand), .doubleTap(.rightCommand),
+        .doubleTap(.leftOption), .doubleTap(.rightOption), .disabled,
     ]
     private let hotKeySoundsCheck = NSButton(checkboxWithTitle: L("settings.hotkey.sounds"), target: nil, action: nil)
     private let hotKeySoundPopup = NSPopUpButton()
@@ -479,7 +480,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
     private func paletteTriggerTitle(_ trigger: PaletteTrigger) -> String {
         switch trigger {
+        case .doubleTap(.leftCommand):  return L("settings.palette.leftCommand")
         case .doubleTap(.rightCommand): return L("settings.palette.rightCommand")
+        case .doubleTap(.leftOption):   return L("settings.palette.leftOption")
         case .doubleTap(.rightOption):  return L("settings.palette.rightOption")
         case .disabled:                 return L("settings.palette.disabled")
         }
