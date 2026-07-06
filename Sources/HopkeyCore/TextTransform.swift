@@ -9,7 +9,7 @@ public enum TextTransform: String, CaseIterable {
     // Чистка
     case trim, collapseSpaces, removeEmptyLines, joinLines
     // Кодирование
-    case jsonPretty, jsonMinify, urlEncode, urlDecode, base64Encode, base64Decode
+    case jsonPretty, jsonMinify, urlEncode, urlDecode, base64Encode, base64Decode, jwtDecode
     // Строки
     case sortLines, sortLinesDesc, dedupeLines, reverseLines
     // Пунктуация: добавить символ в конец каждой строки
@@ -17,6 +17,33 @@ public enum TextTransform: String, CaseIterable {
 
     /// Ключ локализации отображаемого имени.
     public var titleKey: String { "transform.\(rawValue)" }
+
+    /// Категория для группировки в UI (заголовки-секции). Порядок `allCases` совпадает с
+    /// группировкой, так что секции идут: регистр → чистка → кодирование → строки → пунктуация.
+    public enum Category: String, CaseIterable {
+        case caseType, cleanup, encoding, lines, punctuation
+        public var titleKey: String { "transform.category.\(rawValue)" }
+    }
+
+    public var category: Category {
+        switch self {
+        case .upper, .lower, .title, .camel, .snake, .kebab, .constant, .slug: return .caseType
+        case .trim, .collapseSpaces, .removeEmptyLines, .joinLines: return .cleanup
+        case .jsonPretty, .jsonMinify, .urlEncode, .urlDecode, .base64Encode, .base64Decode, .jwtDecode:
+            return .encoding
+        case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return .lines
+        case .appendPeriod, .appendComma, .appendSemicolon: return .punctuation
+        }
+    }
+
+    /// Подходит ли способ под строку поиска. Матчим и по локализованному названию (передаётся
+    /// из UI-слоя), и по `rawValue` — чтобы английские термины (`jwt`, `base64`, `json`, `url`,
+    /// `sort`) находились даже когда интерфейс на русском. Пустой запрос — совпадает всё.
+    public func matches(query: String, localizedTitle: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return true }
+        return localizedTitle.lowercased().contains(q) || rawValue.lowercased().contains(q)
+    }
 
     /// Применяет преобразование. nil — вход не подходит (напр. невалидный JSON).
     public func apply(to text: String) -> String? {
@@ -41,6 +68,7 @@ public enum TextTransform: String, CaseIterable {
         case .urlDecode: return text.removingPercentEncoding
         case .base64Encode: return Data(text.utf8).base64EncodedString()
         case .base64Decode: return Self.base64Decode(text)
+        case .jwtDecode: return Self.jwtDecode(text)
 
         case .sortLines: return Self.sortLines(text, ascending: true)
         case .sortLinesDesc: return Self.sortLines(text, ascending: false)
@@ -178,5 +206,35 @@ public enum TextTransform: String, CaseIterable {
         guard let data = Data(base64Encoded: trimmed),
               let string = String(data: data, encoding: .utf8) else { return nil }
         return string
+    }
+
+    /// Раскодирует JWT (`header.payload.signature`): base64url-декодирует header и payload и
+    /// красиво форматирует их JSON. Подпись бинарна и не декодируется — показываем как есть.
+    /// nil — вход не похож на JWT (меньше двух сегментов или сегмент не base64url-JSON).
+    static func jwtDecode(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.components(separatedBy: ".")
+        guard parts.count >= 2,
+              let header = decodeJWTSegment(parts[0]),
+              let payload = decodeJWTSegment(parts[1])
+        else { return nil }
+        var out = "// header\n\(header)\n\n// payload\n\(payload)"
+        if parts.count >= 3, !parts[2].isEmpty {
+            out += "\n\n// signature\n\(parts[2])"
+        }
+        return out
+    }
+
+    /// base64url-декодирует один сегмент JWT (`-`/`_` вместо `+`/`/`, без паддинга) и красиво
+    /// форматирует его как JSON; при неудаче форматирования возвращает сырую строку.
+    static func decodeJWTSegment(_ segment: String) -> String? {
+        var s = segment
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = s.count % 4
+        if remainder > 0 { s += String(repeating: "=", count: 4 - remainder) }
+        guard let data = Data(base64Encoded: s),
+              let raw = String(data: data, encoding: .utf8) else { return nil }
+        return json(raw, pretty: true) ?? raw
     }
 }

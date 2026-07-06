@@ -209,6 +209,10 @@ final class CommandRowView: NSView {
     private var hasActions = false
     private var actionsData: [(symbol: String, tooltip: String, run: () -> Void)] = []
     private var tracking: NSTrackingArea?
+    /// Привязка иконки: к бейджу (когда номер есть) либо к левому краю (когда бейджа нет —
+    /// не резервируем пустую колонку под номер).
+    private var iconLeadingToBadge: NSLayoutConstraint!
+    private var iconLeadingToEdge: NSLayoutConstraint!
 
     var isSelected = false { didSet { refreshBackground(); updateActionsVisibility() } }
     private var isHovered = false { didSet { refreshBackground(); updateActionsVisibility() } }
@@ -242,12 +246,14 @@ final class CommandRowView: NSView {
 
         addSubview(keycap); addSubview(iconView); addSubview(titleLabel)
         addSubview(trailingLabel); addSubview(actionsStack)
+        iconLeadingToBadge = iconView.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10)
+        iconLeadingToEdge = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14)
         NSLayoutConstraint.activate([
             keycap.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
             keycap.widthAnchor.constraint(equalToConstant: 20),
             keycap.heightAnchor.constraint(equalToConstant: 20),
-            iconView.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10),
+            iconLeadingToBadge,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
@@ -265,6 +271,9 @@ final class CommandRowView: NSView {
 
     func configure(badge: String?, symbol: String, title: String, trailing: String?) {
         keycap.value = badge ?? ""
+        let hasBadge = !(badge ?? "").isEmpty
+        iconLeadingToBadge.isActive = hasBadge
+        iconLeadingToEdge.isActive = !hasBadge
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         titleLabel.stringValue = title
         setAccessibilityLabel(title)
@@ -662,6 +671,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     private let listView = CommandListView()
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
+    /// Корневой контент-вью панели (внутри «стекла»). Нужен, чтобы замерить фактически требуемую
+    /// ширину окна перед центрированием — контент (длинные имена устройств/футер) может распирать
+    /// окно шире `Self.width`, и если центрировать по 470, окно потом уезжает вправо.
+    private let panelContent = NSView()
 
     private static let width: CGFloat = 470
     private static let maxHeight: CGFloat = 620
@@ -688,7 +701,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     private func buildChrome() {
         guard let window else { return }
         // Весь контент панели живёт в одном контейнере, который кладётся внутрь стекла.
-        let content = NSView()
+        let content = panelContent
         installGlass(in: window, content: content)
 
         let header = Brand.makeHeaderView(title: L("panel.title"))
@@ -1132,9 +1145,15 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         // сниппетов помещались без скролла; `maxHeight` остаётся фолбэком, если экрана нет.
         let ceiling = activeScreen().map { $0.visibleFrame.height - 40 } ?? Self.maxHeight
         let height = min(content + chrome, ceiling)
+        // Ширина: контент может требовать больше `Self.width` (длинные имена устройств, длинный
+        // футер-подсказка). Берём фактически необходимую ширину, иначе `centerOnActiveScreen`
+        // посчитает центр по 470, а Auto Layout затем дорастит окно вправо → съезд от центра.
+        panelContent.layoutSubtreeIfNeeded()
+        let widthCeiling = activeScreen().map { $0.visibleFrame.width - 40 } ?? Self.width
+        let width = min(max(Self.width, panelContent.fittingSize.width), widthCeiling)
         // Сохраняем верхнюю кромку окна — при разворачивании секции панель растёт вниз, не «прыгает».
         let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
-        window.setContentSize(NSSize(width: Self.width, height: height))
+        window.setContentSize(NSSize(width: width, height: height))
         window.setFrameTopLeftPoint(topLeft)
     }
 
@@ -1461,21 +1480,6 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    static func transformItems(source: String, onApply: @escaping (String) -> Void) -> [Item] {
-        TextTransform.allCases.enumerated().map { index, transform in
-            let digit = index < 9 ? index + 1 : nil
-            let result = transform.apply(to: source)
-            let row = CommandRowView()
-            row.configure(badge: digit.map(String.init), symbol: transformSymbol(transform),
-                          title: L(transform.titleKey), trailing: result.map(historyPreview) ?? "—")
-            row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-            return Item(view: row, digit: digit, enabled: result != nil,
-                        setSelected: { [weak row] in row?.isSelected = $0 },
-                        setOnClick: { [weak row] handler in row?.onClick = handler },
-                        run: { if let result { onApply(result) } })
-        }
-    }
-
     static func audioItems(_ devices: [AudioDevice], currentID: AudioDeviceID?,
                            onPick: @escaping (AudioDeviceID) -> Void) -> (items: [Item], preselect: Int) {
         var preselect = 0
@@ -1502,6 +1506,7 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         case .jsonPretty, .jsonMinify: return "curlybraces"
         case .urlEncode, .urlDecode: return "link"
         case .base64Encode, .base64Decode: return "barcode"
+        case .jwtDecode: return "key.horizontal"
         case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return "arrow.up.arrow.down"
         case .appendPeriod, .appendComma, .appendSemicolon: return "text.append"
         }

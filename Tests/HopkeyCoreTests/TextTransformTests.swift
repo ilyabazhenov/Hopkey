@@ -67,6 +67,22 @@ final class TextTransformTests: XCTestCase {
         XCTAssertNil(apply(.base64Decode, "!!!not base64!!!"))
     }
 
+    func testJWTDecode() {
+        // Классический пример с jwt.io (HS256): header.payload.signature.
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+            + ".eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ"
+            + ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        let decoded = apply(.jwtDecode, token)
+        XCTAssertNotNil(decoded)
+        XCTAssertEqual(decoded?.contains("HS256"), true)     // из header
+        XCTAssertEqual(decoded?.contains("John Doe"), true)  // из payload
+        XCTAssertEqual(decoded?.contains("1234567890"), true)
+        XCTAssertEqual(decoded?.contains("// signature"), true)
+        // Обычный текст и мусор — не JWT.
+        XCTAssertNil(apply(.jwtDecode, "hello world"))
+        XCTAssertNil(apply(.jwtDecode, "not.a.jwt"))
+    }
+
     // MARK: Строки
 
     func testLineOps() {
@@ -74,6 +90,31 @@ final class TextTransformTests: XCTestCase {
         XCTAssertEqual(apply(.sortLinesDesc, "a\nb\nc"), "c\nb\na")
         XCTAssertEqual(apply(.dedupeLines, "a\nb\na\nc\nb"), "a\nb\nc")
         XCTAssertEqual(apply(.reverseLines, "a\nb\nc"), "c\nb\na")
+    }
+
+    // MARK: Категории и поиск
+
+    func testCategories() {
+        XCTAssertEqual(TextTransform.upper.category, .caseType)
+        XCTAssertEqual(TextTransform.trim.category, .cleanup)
+        XCTAssertEqual(TextTransform.jwtDecode.category, .encoding)
+        XCTAssertEqual(TextTransform.sortLines.category, .lines)
+        XCTAssertEqual(TextTransform.appendComma.category, .punctuation)
+        // Каждый способ отнесён к какой-то категории (switch исчерпывающий — просто прогон).
+        for t in TextTransform.allCases { _ = t.category }
+    }
+
+    func testMatches() {
+        // Пустой запрос совпадает со всем.
+        XCTAssertTrue(TextTransform.upper.matches(query: "  ", localizedTitle: "ВЕРХНИЙ РЕГИСТР"))
+        // По rawValue — английский термин ловится и при русском названии.
+        XCTAssertTrue(TextTransform.jwtDecode.matches(query: "jwt", localizedTitle: "JWT-раскодировать"))
+        XCTAssertTrue(TextTransform.base64Decode.matches(query: "base64", localizedTitle: "Base64-раскодировать"))
+        XCTAssertTrue(TextTransform.jsonPretty.matches(query: "JSON", localizedTitle: "JSON: форматировать"))
+        // По локализованному названию.
+        XCTAssertTrue(TextTransform.upper.matches(query: "регистр", localizedTitle: "ВЕРХНИЙ РЕГИСТР"))
+        // Не совпадает.
+        XCTAssertFalse(TextTransform.upper.matches(query: "jwt", localizedTitle: "ВЕРХНИЙ РЕГИСТР"))
     }
 
     // MARK: Разбор слов

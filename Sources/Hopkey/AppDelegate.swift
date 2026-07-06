@@ -369,50 +369,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardHistoryWindow.show(items: items)
     }
 
-    /// Окно преобразований выделенного текста.
-    private lazy var transformWindow = GlassListWindowController(titleKey: "transform.window.title",
-                                                                 width: 500, maxHeight: 600)
-    /// Окно ручного преобразования (поле ввода + список преобразований с превью + «Вставить»),
-    /// когда в момент вызова команды ничего не выделено.
+    /// Окно преобразования текста: поле ввода сверху, список способов, поле результата и «Вставить».
+    /// Открывается всегда — выделение (если есть) просто префиллит поле ввода.
     private lazy var transformInputWindow: TransformInputWindowController = {
         let controller = TransformInputWindowController()
         controller.onApply = { [weak self] result in self?.pasteTransform(result) }
         return controller
     }()
 
-    /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C), открывает пикер с превью.
-    /// Если ничего не выделено (и буфер пуст) — открываем поле ручного ввода вместо «бип».
+    /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C) и открывает окно преобразования,
+    /// префилля поле ввода выделенным текстом (если он есть — иначе поле пустое, набираешь вручную).
     /// Без Accessibility снять выделение нельзя — источником берём буфер.
     private func openTextTransforms() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
-            let clip = NSPasteboard.general.string(forType: .string) ?? ""
-            clip.isEmpty ? promptTransformInput() : showTransforms(source: clip)
+            transformInputWindow.show(prefill: NSPasteboard.general.string(forType: .string) ?? "")
             HotKeyManager.ensureAccessibility(prompt: true)
             return
         }
         hotKey.captureSelection { [weak self] selection in
             guard let self else { return }
             self.clipboard.syncChangeCount()
-            if let selection, !selection.isEmpty {
-                self.showTransforms(source: selection)
-            } else {
-                self.promptTransformInput()
-            }
+            self.transformInputWindow.show(prefill: selection ?? "")
         }
-    }
-
-    /// Открывает окно ручного ввода: пользователь сам набирает текст для преобразования.
-    private func promptTransformInput() {
-        transformInputWindow.show()
-    }
-
-    private func showTransforms(source: String) {
-        guard !source.isEmpty else { promptTransformInput(); return }
-        let items = GlassListWindowController.transformItems(source: source) { [weak self] result in
-            self?.pasteTransform(result)
-        }
-        transformWindow.show(items: items)
     }
 
     /// Окна выбора аудиовыхода и аудиовхода (один класс, разные заголовки/действия).
