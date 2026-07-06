@@ -22,13 +22,13 @@ public enum ModifierSide: String, CaseIterable {
     }
 }
 
-/// Как вызывается панель команд. По умолчанию — двойной тап левого ⌘.
+/// Как вызывается панель команд. По умолчанию — двойной тап правого ⌘.
 /// Хранится в `UserDefaults` строкой (`rawValue`), как `TicketAction`.
 public enum PaletteTrigger: Equatable {
     case doubleTap(ModifierSide)
     case disabled
 
-    public static let `default`: PaletteTrigger = .doubleTap(.leftCommand)
+    public static let `default`: PaletteTrigger = .doubleTap(.rightCommand)
 }
 
 extension PaletteTrigger: RawRepresentable {

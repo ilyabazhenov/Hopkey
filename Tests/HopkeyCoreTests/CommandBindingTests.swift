@@ -100,7 +100,7 @@ final class CommandBindingTests: XCTestCase {
 
     func testPaletteTriggerDefaultAndRoundTrip() {
         let config = makeConfig()
-        XCTAssertEqual(config.paletteTrigger, .doubleTap(.leftCommand))
+        XCTAssertEqual(config.paletteTrigger, .doubleTap(.rightCommand))
 
         config.paletteTrigger = .doubleTap(.rightOption)
         XCTAssertEqual(makeConfig().paletteTrigger, .doubleTap(.rightOption))
@@ -158,6 +158,6 @@ final class CommandBindingTests: XCTestCase {
         config.resetToDefaults()
 
         XCTAssertEqual(config.binding(for: .micToggle), JiraConfig.defaultBinding(for: .micToggle))
-        XCTAssertEqual(config.paletteTrigger, .doubleTap(.leftCommand))
+        XCTAssertEqual(config.paletteTrigger, .doubleTap(.rightCommand))
     }
 }
