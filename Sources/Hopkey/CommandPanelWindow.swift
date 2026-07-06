@@ -1433,9 +1433,11 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         // пустые пропускаем. Результат показывает превью с цветным кружком и открывает точку.
         if let notes = lastNotes {
             for index in notes.contents.indices where !(notes.emptyFlags[safe: index] ?? true) {
-                let lines = notes.contents[index].split(whereSeparator: \.isNewline).map(String.init)
-                guard let score = FuzzyMatch.bestScore(query: query, candidates: lines) else { continue }
                 let preview = notes.previews[safe: index] ?? ""
+                // Матчим по строкам текста + имени/превью (имя точки участвует в поиске).
+                var candidates = notes.contents[index].split(whereSeparator: \.isNewline).map(String.init)
+                candidates.append(preview)
+                guard let score = FuzzyMatch.bestScore(query: query, candidates: candidates) else { continue }
                 let dot = Self.noteDotImage(notes.colors[safe: index] ?? .systemGray)
                 ranked.append(Ranked(score: score) { [weak self] in
                     self?.addResultRow(symbol: "note.text", title: preview,

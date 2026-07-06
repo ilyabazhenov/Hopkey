@@ -167,8 +167,15 @@
 "notes.paste" = "Вставить";
 "notes.copy" = "Скопировать";
 "notes.copied" = "Скопировано";
-"notes.count" = "%d слов · %d знаков";
+"notes.count.words" = "слово|слова|слов";
+"notes.count.chars" = "знак|знака|знаков";
 "notes.dot" = "Заметка %d";
+"notes.name.placeholder" = "Имя точки (необязательно)";
+"notes.format" = "Формат";
+"notes.format.tooltip" = "Показывать Markdown-разметку (заголовки, **жирный**, *курсив*, `код`)";
+"notes.clear" = "Очистить";
+"notes.clear.confirm.title" = "Очистить точку?";
+"notes.clear.confirm.body" = "Текст и имя точки будут удалены. Действие нельзя отменить.";
 "notes.placeholder" = "Пусто — начните печатать";
 "notes.hint" = "⌘1–7 — точки · ⌘↩ — вставить · Esc — закрыть";
 "notes.pasted.noTarget" = "Скопировано — вставьте вручную (⌘V)";

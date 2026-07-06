@@ -167,8 +167,15 @@
 "notes.paste" = "Paste";
 "notes.copy" = "Copy";
 "notes.copied" = "Copied";
-"notes.count" = "%d words · %d chars";
+"notes.count.words" = "word|words|words";
+"notes.count.chars" = "char|chars|chars";
 "notes.dot" = "Note %d";
+"notes.name.placeholder" = "Note name (optional)";
+"notes.format" = "Format";
+"notes.format.tooltip" = "Render Markdown (headings, **bold**, *italic*, `code`)";
+"notes.clear" = "Clear";
+"notes.clear.confirm.title" = "Clear this note?";
+"notes.clear.confirm.body" = "The note's text and name will be removed. This can't be undone.";
 "notes.placeholder" = "Empty — start typing";
 "notes.hint" = "⌘1–7 dots · ⌘↩ paste · Esc close";
 "notes.pasted.noTarget" = "Copied — paste manually (⌘V)";

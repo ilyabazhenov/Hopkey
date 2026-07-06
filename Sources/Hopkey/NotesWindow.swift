@@ -10,7 +10,8 @@ import HopkeyCore
 /// Переключение точек: клик по точке, ⌘1…⌘7 (цифры без модификатора заняты набором текста).
 /// Автосохранение: правки кэшируются в `NotesStore` на каждое нажатие, на диск сбрасываются по
 /// паузе в наборе, при переключении точки и закрытии окна.
-final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
+final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate,
+                                   NSTextFieldDelegate {
 
     /// «Вставить» содержимое (или выделение) текущей точки в целевое приложение.
     var onPaste: ((String) -> Void)?
@@ -35,14 +36,20 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     private var activeDot = 0
     private static let lastDotKey = "notes.lastActiveDot"
 
-    /// Моноширинный шрифт редактора — заметки часто содержат токены/команды. Переустанавливаем
-    /// после подмены `.string` (setter сбрасывает атрибуты к дефолтным).
+    /// Стартовый шрифт редактора (моно) — highlighter переопределяет под режим точки.
     private let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     private let dotBar = NotesDotBar()
     private let textView = PlaceholderTextView()
     private let scroll = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
+    /// Имя активной точки (необязательное).
+    private let nameField = NSTextField()
+    /// Тумблер «Формат» (Markdown-рендер) активной точки.
+    private let formatToggle = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    /// Подсветка/рендер Markdown — как делегат textStorage (перекрашивает по правкам, без мусора
+    /// в undo). Режим (plain/rich) переключается на точку.
+    private let highlighter = MarkdownHighlighter()
     /// Успел ли центрироваться на первом показе (дальше положение окна не трогаем).
     private var didCenter = false
     /// Дебаунс сброса на диск: правки кэшируются сразу, файл переписываем по паузе в наборе.
@@ -73,6 +80,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         panel.delegate = self
         panel.onSelectDot = { [weak self] index in self?.selectDot(index) }
         panel.onClose = { [weak self] in self?.window?.close() }
+        panel.onWrap = { [weak self] marker in self?.wrapSelection(with: marker) }
         activeDot = Self.clampedLastDot()
         buildChrome()
     }
@@ -103,15 +111,51 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         dotBar.onSelect = { [weak self] index in self?.selectDot(index) }
         content.addSubview(dotBar)
 
+        // Тулбар точки: имя (необязательное) + тумблер «Формат» + очистка.
+        nameField.placeholderString = L("notes.name.placeholder")
+        nameField.font = .systemFont(ofSize: 13, weight: .medium)
+        nameField.isBordered = false
+        nameField.drawsBackground = false
+        nameField.focusRingType = .none
+        nameField.lineBreakMode = .byTruncatingTail
+        nameField.usesSingleLineMode = true
+        nameField.delegate = self
+        nameField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        nameField.translatesAutoresizingMaskIntoConstraints = false
+
+        formatToggle.title = L("notes.format")
+        formatToggle.target = self
+        formatToggle.action = #selector(toggleFormat)
+        formatToggle.toolTip = L("notes.format.tooltip")
+        formatToggle.translatesAutoresizingMaskIntoConstraints = false
+
+        let clearButton = NSButton(image: NSImage(systemSymbolName: "trash",
+                                                  accessibilityDescription: L("notes.clear")) ?? NSImage(),
+                                   target: self, action: #selector(clearDot))
+        clearButton.isBordered = false
+        clearButton.bezelStyle = .accessoryBarAction
+        clearButton.contentTintColor = .secondaryLabelColor
+        clearButton.toolTip = L("notes.clear")
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let toolbar = NSStackView(views: [nameField, formatToggle, clearButton])
+        toolbar.orientation = .horizontal
+        toolbar.alignment = .centerY
+        toolbar.spacing = 10
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(toolbar)
+
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(separator)
 
-        // Текст точки — plain-редактор моноширинным (заметки часто содержат токены/команды).
-        // Rich-текст выключен намеренно (Markdown-режим Tot оставлен на потом); подсветку
-        // заголовков/разделителей рисуем display-only временными атрибутами (см. applyHighlighting).
-        textView.isRichText = false
+        // Текст точки. Хранится всегда как plain-Markdown (мы сохраняем `.string`); отображение
+        // задаёт highlighter — делегат textStorage: в plain-режиме моноширинный однородно, в
+        // rich-режиме рендерит Markdown (заголовки/жирный/курсив/код/списки). isRichText=true, чтобы
+        // реальные атрибуты (жирный шрифт и пр.) отображались; наружу всё равно уходит `.string`.
+        textView.isRichText = true
+        textView.textStorage?.delegate = highlighter
         textView.font = editorFont
         textView.textColor = .labelColor
         textView.backgroundColor = .clear
@@ -192,7 +236,11 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
             dotBar.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             dotBar.heightAnchor.constraint(equalToConstant: 24),
 
-            separator.topAnchor.constraint(equalTo: dotBar.bottomAnchor, constant: 10),
+            toolbar.topAnchor.constraint(equalTo: dotBar.bottomAnchor, constant: 10),
+            toolbar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
+            toolbar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+
+            separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
             separator.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             separator.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
 
@@ -264,12 +312,15 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     /// Наполняет редактор текстом активной точки и синхронизирует всё зависимое (бар точек,
     /// счётчик, подсветку).
     private func loadDot() {
-        textView.string = store.text(at: activeDot)
-        textView.font = editorFont  // setter `.string` сбрасывает шрифт к дефолту — возвращаем
+        highlighter.formatted = store.isFormatted(at: activeDot)  // режим — до подмены текста
+        formatToggle.state = highlighter.formatted ? .on : .off
+        nameField.stringValue = store.name(at: activeDot)
+        textView.font = editorFont
+        textView.string = store.text(at: activeDot)  // подмена текста триггерит highlighter
+        if let storage = textView.textStorage { highlighter.rehighlight(storage) }  // на случай, если делегат не сработал
         dotBar.configure(colors: Self.dotColors,
                          emptyFlags: (0..<NotesStore.count).map { store.isEmpty(at: $0) },
                          active: activeDot)
-        applyHighlighting()
         updateCount()
         textView.needsDisplay = true  // обновить плейсхолдер под новую (возможно пустую) точку
     }
@@ -284,12 +335,17 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     // MARK: - Редактирование
 
     func textDidChange(_ notification: Notification) {
-        store.update(textView.string, at: activeDot)  // кэш — сразу
+        store.update(textView.string, at: activeDot)  // кэш — сразу (highlighter красит через делегат)
         updateCount()
-        applyHighlighting()
         dotBar.setEmpty(store.isEmpty(at: activeDot), at: activeDot)  // «пустая» точка бледнеет живьём
         if textView.string.isEmpty { textView.needsDisplay = true }  // вернуть плейсхолдер при полном стирании
         scheduleSave()  // на диск — по паузе
+    }
+
+    /// Правка имени точки (поле имени) — сохраняем сразу (meta мал, дебаунс не нужен).
+    func controlTextDidChange(_ notification: Notification) {
+        guard (notification.object as? NSTextField) === nameField else { return }
+        store.setName(nameField.stringValue, at: activeDot)
     }
 
     /// Переписывает файл активной точки через ~0.6с после последнего нажатия (частые правки не
@@ -302,32 +358,80 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         }
     }
 
-    /// Обновляет счётчик слов/знаков под текущий текст.
+    /// Обновляет счётчик слов/знаков под текущий текст (с плюрализацией под язык интерфейса).
     private func updateCount() {
         let text = textView.string
         let words = text.split { $0.isWhitespace || $0.isNewline }.count
         let chars = (text as NSString).length
-        countLabel.stringValue = String(format: L("notes.count"), words, chars)
+        countLabel.stringValue =
+            "\(words) \(Self.plural(words, "notes.count.words")) · \(chars) \(Self.plural(chars, "notes.count.chars"))"
     }
 
-    /// Лёгкая Markdown-подсветка (display-only, через временные атрибуты — не трогает сам текст и
-    /// undo): строки-заголовки (`#…`) красим системным акцентом, строки-разделители (`---`/`***`/
-    /// `___`) — приглушённо. Полный rich-режим Tot оставлен на будущее.
-    private func applyHighlighting() {
-        guard let layoutManager = textView.layoutManager, let storage = textView.textStorage else { return }
-        let full = NSRange(location: 0, length: storage.length)
-        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: full)
-        let nsText = storage.string as NSString
-        nsText.enumerateSubstrings(in: full, options: .byLines) { substring, range, _, _ in
-            guard let line = substring else { return }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#") {
-                layoutManager.addTemporaryAttributes(
-                    [.foregroundColor: NSColor.controlAccentColor], forCharacterRange: range)
-            } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-                layoutManager.addTemporaryAttributes(
-                    [.foregroundColor: NSColor.tertiaryLabelColor], forCharacterRange: range)
-            }
+    /// Выбирает форму слова под число и язык интерфейса. Формы берём из локализации (три через `|`:
+    /// одна/несколько/много), правило — русское для ru, простое one/other для остальных.
+    private static func plural(_ n: Int, _ formsKey: String) -> String {
+        let forms = L(formsKey).split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard forms.count == 3 else { return forms.first ?? "" }
+        let lang = Bundle.main.preferredLocalizations.first ?? "en"
+        let index: Int
+        if lang.hasPrefix("ru") {
+            let mod100 = n % 100, mod10 = n % 10
+            if (11...14).contains(mod100) { index = 2 }
+            else if mod10 == 1 { index = 0 }
+            else if (2...4).contains(mod10) { index = 1 }
+            else { index = 2 }
+        } else {
+            index = (n == 1) ? 0 : 2
+        }
+        return forms[index]
+    }
+
+    // MARK: - Формат / очистка / Markdown-обёртки
+
+    /// Переключает режим отображения активной точки (plain ↔ Markdown-рендер), сохраняет и
+    /// перекрашивает текущий текст.
+    @objc private func toggleFormat() {
+        let formatted = formatToggle.state == .on
+        store.setFormatted(formatted, at: activeDot)
+        highlighter.formatted = formatted
+        if let storage = textView.textStorage { highlighter.rehighlight(storage) }
+        window?.makeFirstResponder(textView)
+    }
+
+    /// Очищает активную точку (текст + имя + режим) после подтверждения.
+    @objc private func clearDot() {
+        guard !store.isEmpty(at: activeDot) || !store.name(at: activeDot).isEmpty else { NSSound.beep(); return }
+        let alert = NSAlert()
+        alert.messageText = L("notes.clear.confirm.title")
+        alert.informativeText = L("notes.clear.confirm.body")
+        alert.addButton(withTitle: L("notes.clear"))
+        alert.addButton(withTitle: L("common.cancel"))
+        guard let window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            self.store.clear(at: self.activeDot)
+            self.loadDot()
+            self.window?.makeFirstResponder(self.textView)
+        }
+    }
+
+    /// ⌘B/⌘I: оборачивает выделение (или ставит пару маркеров у курсора) в Markdown-маркер.
+    /// Работает в любом режиме — это просто вставка Markdown; undo штатный.
+    func wrapSelection(with marker: String) {
+        // Только когда правится сам текст точки (а не поле имени) — иначе ⌘B из имени залезет в текст.
+        guard textView.window?.firstResponder === textView else { return }
+        let range = textView.selectedRange()
+        let ns = textView.string as NSString
+        let selected = ns.substring(with: range)
+        let replacement = marker + selected + marker
+        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+        textView.replaceCharacters(in: range, with: replacement)
+        textView.didChangeText()
+        // Пустое выделение — курсор между маркерами; иначе выделяем обёрнутое.
+        if selected.isEmpty {
+            textView.setSelectedRange(NSRange(location: range.location + (marker as NSString).length, length: 0))
+        } else {
+            textView.setSelectedRange(NSRange(location: range.location, length: (replacement as NSString).length))
         }
     }
 
@@ -374,6 +478,8 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
 private final class NotesPanel: NSPanel {
     var onSelectDot: ((Int) -> Void)?
     var onClose: (() -> Void)?
+    /// ⌘B/⌘I — обернуть выделение Markdown-маркером (`**`/`*`).
+    var onWrap: ((String) -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -383,11 +489,15 @@ private final class NotesPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let onlyCommand = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask) == .command
-        // ⌘1…⌘7 — переключить точку (по символу: цифры не зависят от раскладки).
-        if onlyCommand, let chars = event.charactersIgnoringModifiers, let digit = Int(chars),
-           digit >= 1, digit <= NotesStore.count {
-            onSelectDot?(digit - 1)
-            return true
+        if onlyCommand, let chars = event.charactersIgnoringModifiers {
+            // ⌘1…⌘7 — переключить точку (по символу: цифры не зависят от раскладки).
+            if let digit = Int(chars), digit >= 1, digit <= NotesStore.count {
+                onSelectDot?(digit - 1)
+                return true
+            }
+            // ⌘B/⌘I — обернуть выделение в жирный/курсив Markdown.
+            if chars == "b" { onWrap?("**"); return true }
+            if chars == "i" { onWrap?("*"); return true }
         }
         return super.performKeyEquivalent(with: event)
     }
@@ -492,6 +602,84 @@ private final class PlaceholderTextView: NSTextView {
         ]
         placeholder.draw(at: NSPoint(x: textContainerInset.width + 5, y: textContainerInset.height),
                          withAttributes: attrs)
+    }
+}
+
+/// Рендер Markdown как делегат `NSTextStorage`: перекрашивает текст по каждой правке (в
+/// `didProcessEditing`, поэтому не мусорит в undo). `formatted=false` — однородный моноширинный
+/// (исходник); `formatted=true` — Markdown-вид: заголовки/жирный/курсив/код/разделители. Меняет
+/// только атрибуты — сам текст (то, что сохраняется) остаётся plain-Markdown.
+private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
+    var formatted = false
+    private var isHighlighting = false
+
+    private let bodyFont = NSFont.systemFont(ofSize: 14)
+    private let monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    private lazy var boldBody = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
+    private lazy var italicBody = NSFontManager.shared.convert(bodyFont, toHaveTrait: .italicFontMask)
+
+    // `**жирный**`, `*курсив*` (не задевая `**`), `` `код` ``.
+    private static let boldRE = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*")
+    private static let italicRE = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)([^*\\n]+?)\\*(?!\\*)")
+    private static let codeRE = try? NSRegularExpression(pattern: "`([^`\\n]+)`")
+
+    func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                     range editedRange: NSRange, changeInLength delta: Int) {
+        guard editedMask.contains(.editedCharacters), !isHighlighting else { return }
+        highlight(textStorage)
+    }
+
+    /// Полная перекраска без правки текста (при переключении режима).
+    func rehighlight(_ textStorage: NSTextStorage) { highlight(textStorage) }
+
+    private func highlight(_ ts: NSTextStorage) {
+        isHighlighting = true
+        defer { isHighlighting = false }
+        let full = NSRange(location: 0, length: ts.length)
+        // База: моно (исходник) либо пропорциональный (rich). Меняем только атрибуты.
+        ts.setAttributes([.font: formatted ? bodyFont : monoFont,
+                          .foregroundColor: NSColor.labelColor], range: full)
+        guard formatted, full.length > 0 else { return }
+
+        // Строчные конструкции: заголовки (жирнее/крупнее), разделители (приглушённо).
+        let text = ts.string as NSString
+        text.enumerateSubstrings(in: full, options: .byLines) { line, lineRange, _, _ in
+            guard let line else { return }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let level = Self.headingLevel(trimmed) {
+                let size: CGFloat = level == 1 ? 19 : (level == 2 ? 16 : 14)
+                ts.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: size), range: lineRange)
+            } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                ts.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: lineRange)
+            }
+        }
+
+        // Инлайн: жирный, курсив, код.
+        apply(Self.boldRE, to: ts, in: full) { [.font: self.boldBody] }
+        apply(Self.italicRE, to: ts, in: full) { [.font: self.italicBody] }
+        apply(Self.codeRE, to: ts, in: full) {
+            [.font: self.monoFont,
+             .backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12)]
+        }
+    }
+
+    private func apply(_ regex: NSRegularExpression?, to ts: NSTextStorage, in range: NSRange,
+                       _ attrs: () -> [NSAttributedString.Key: Any]) {
+        guard let regex else { return }
+        let resolved = attrs()
+        regex.enumerateMatches(in: ts.string, options: [], range: range) { match, _, _ in
+            guard let match else { return }
+            ts.addAttributes(resolved, range: match.range)
+        }
+    }
+
+    /// Уровень Markdown-заголовка (1…6) или nil. «#tag» без пробела после решёток — не заголовок.
+    private static func headingLevel(_ trimmed: String) -> Int? {
+        guard trimmed.hasPrefix("#") else { return nil }
+        let hashes = trimmed.prefix { $0 == "#" }.count
+        guard (1...6).contains(hashes) else { return nil }
+        let after = trimmed.dropFirst(hashes)
+        return (after.isEmpty || after.first == " ") ? hashes : nil
     }
 }
 

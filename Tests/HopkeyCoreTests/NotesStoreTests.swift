@@ -65,6 +65,46 @@ final class NotesStoreTests: XCTestCase {
         XCTAssertTrue(store.isEmpty(at: 4))
     }
 
+    func testNameAndFormatDefaultsAndRoundTrip() {
+        let store = NotesStore(directory: directory)
+        XCTAssertEqual(store.name(at: 0), "")
+        XCTAssertFalse(store.isFormatted(at: 0))
+
+        store.setName("Дежурство", at: 0)
+        store.setFormatted(true, at: 2)
+
+        // Метаданные читаются новым экземпляром из meta.json (persist немедленный).
+        let reopened = NotesStore(directory: directory)
+        XCTAssertEqual(reopened.name(at: 0), "Дежурство")
+        XCTAssertTrue(reopened.isFormatted(at: 2))
+        XCTAssertFalse(reopened.isFormatted(at: 0))
+    }
+
+    func testDisplayTitlePrefersNameThenPreview() {
+        let store = NotesStore(directory: directory)
+        store.update("# Дежурство\nбла", at: 0)
+        XCTAssertEqual(store.displayTitle(at: 0), "# Дежурство")  // имени нет — превью
+        store.setName("Смена", at: 0)
+        XCTAssertEqual(store.displayTitle(at: 0), "Смена")        // имя перекрывает превью
+    }
+
+    func testClearResetsTextNameAndFormat() {
+        let store = NotesStore(directory: directory)
+        store.update("текст", at: 3)
+        store.setName("имя", at: 3)
+        store.setFormatted(true, at: 3)
+        store.persist(at: 3)
+
+        store.clear(at: 3)
+        XCTAssertEqual(store.text(at: 3), "")
+        XCTAssertEqual(store.name(at: 3), "")
+        XCTAssertFalse(store.isFormatted(at: 3))
+
+        let reopened = NotesStore(directory: directory)  // очистка сохранена на диск
+        XCTAssertTrue(reopened.isEmpty(at: 3))
+        XCTAssertEqual(reopened.name(at: 3), "")
+    }
+
     func testOutOfRangeIndexIsSafe() {
         let store = NotesStore(directory: directory)
         store.update("ignored", at: NotesStore.count)   // за пределами — без эффекта, без краша

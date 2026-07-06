@@ -386,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = NotesStore.shared
         return CommandPanelWindowController.NotesStrip(
             colors: NotesWindowController.dotColors,
-            previews: (0..<NotesStore.count).map { store.preview(at: $0) },
+            previews: (0..<NotesStore.count).map { store.displayTitle(at: $0) },
             contents: (0..<NotesStore.count).map { store.text(at: $0) },
             emptyFlags: (0..<NotesStore.count).map { store.isEmpty(at: $0) },
             activeIndex: NotesWindowController.lastActiveDot,
@@ -396,7 +396,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Открывает окно заметок сразу на выбранной точке (из инлайн-полосы палитры). Целевое
     /// приложение для «Вставить» уже запомнено при открытии палитры (`snippetTargetApp`).
     private func openNote(at index: Int) {
+        notesTouched = true
         notesWindow.show(dot: index)
+    }
+
+    /// Страховка от потери последних правок: при выходе сбрасываем заметки на диск (кэш всегда
+    /// актуален — правки кладутся в него на каждое нажатие). Только если заметки в этом сеансе
+    /// открывались — иначе не трогаем файлы вовсе.
+    func applicationWillTerminate(_ notification: Notification) {
+        if notesTouched { NotesStore.shared.persistAll() }
     }
 
     /// Слайдеры громкости в панели: выход и вход микрофона — только те, что устройство
@@ -825,6 +833,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Заметки использовались в этом сеансе — чтобы сбрасывать их на диск при выходе только когда
+    /// это осмысленно (не трогать файлы, если пользователь заметки не открывал).
+    private var notesTouched = false
+
     /// Открывает окно заметок. Целевое приложение для «Вставить» запоминаем: при вызове из палитры
     /// оно уже сохранено (палитра открывалась над ним); при вызове из меню/хоткея — это активное
     /// сейчас приложение (кроме нас самих — тогда сохранённое значение не перетираем).
@@ -833,6 +845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             snippetTargetApp = front
         }
+        notesTouched = true
         notesWindow.show()
     }
 

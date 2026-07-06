@@ -21,14 +21,28 @@ public final class NotesStore {
     private let directory: URL
     /// Текст каждой точки в памяти (индексы 0…count-1). Правки UI идут сюда, на диск — по `persist`.
     private var texts: [String]
+    /// Имя каждой точки (необязательное) — показывается в полосе/поиске вместо превью «по первой
+    /// строке». Хранится в `meta.json` рядом с файлами (ездит с папкой при синке).
+    private var names: [String]
+    /// Флаг «форматированный вид» (Markdown-рендер) на точку — тоже в `meta.json`.
+    private var formattedFlags: [Bool]
     /// Правки идут с главного потока (UI), но замок дёшев и убирает класс гонок на будущее.
     private let lock = NSLock()
+
+    /// Метаданные точек (имена + режим отображения) — сериализуются в `meta.json`.
+    private struct Meta: Codable {
+        var names: [String]
+        var formatted: [Bool]
+    }
 
     /// - Parameter directory: каталог файлов точек; `nil` — стандартный Application Support/Hopkey/notes.
     public init(directory: URL? = nil) {
         self.directory = directory ?? Self.defaultDirectory()
         self.texts = Array(repeating: "", count: Self.count)
+        self.names = Array(repeating: "", count: Self.count)
+        self.formattedFlags = Array(repeating: false, count: Self.count)
         loadAll()
+        loadMeta()
     }
 
     /// `Application Support/Hopkey/notes` в домашней директории пользователя. Fallback на temp —
@@ -45,6 +59,11 @@ public final class NotesStore {
         directory.appendingPathComponent("dot\(index + 1).md", isDirectory: false)
     }
 
+    /// Сайдкар с метаданными точек (имена + режимы) рядом с файлами.
+    private var metaURL: URL {
+        directory.appendingPathComponent("meta.json", isDirectory: false)
+    }
+
     /// Валиден ли индекс точки.
     private func isValid(_ index: Int) -> Bool { index >= 0 && index < Self.count }
 
@@ -54,6 +73,30 @@ public final class NotesStore {
             if let text = try? String(contentsOf: fileURL(for: index), encoding: .utf8) {
                 texts[index] = text
             }
+        }
+    }
+
+    /// Читает метаданные точек (имена/режимы) из `meta.json`. Отсутствие/битый файл — дефолты.
+    /// Массивы из файла обрезаем/дополняем до `count`, чтобы старый meta с другим числом точек
+    /// не выходил за границы.
+    private func loadMeta() {
+        guard let data = try? Data(contentsOf: metaURL),
+              let meta = try? JSONDecoder().decode(Meta.self, from: data) else { return }
+        for index in 0..<Self.count {
+            if index < meta.names.count { names[index] = meta.names[index] }
+            if index < meta.formatted.count { formattedFlags[index] = meta.formatted[index] }
+        }
+    }
+
+    /// Пишет метаданные точек на диск (создавая каталог при необходимости). Ошибки глушим.
+    private func persistMeta() {
+        let meta = Meta(names: names, formatted: formattedFlags)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(meta)
+            try data.write(to: metaURL, options: .atomic)
+        } catch {
+            // метаданные не критичны — не падаем
         }
     }
 
@@ -84,6 +127,58 @@ public final class NotesStore {
         let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
         return trimmed.count > maxLength ? String(trimmed.prefix(maxLength)) + "…" : trimmed
+    }
+
+    /// Название для показа: заданное имя, иначе превью по первой строке (может быть пустым).
+    public func displayTitle(at index: Int) -> String {
+        let name = self.name(at: index).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? preview(at: index) : name
+    }
+
+    // MARK: - Имя и режим отображения (meta.json)
+
+    /// Имя точки (пусто — не задано).
+    public func name(at index: Int) -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard isValid(index) else { return "" }
+        return names[index]
+    }
+
+    /// Задаёт имя точки и сразу сбрасывает метаданные на диск (имена малы, дебаунс не нужен).
+    public func setName(_ name: String, at index: Int) {
+        lock.lock()
+        guard isValid(index) else { lock.unlock(); return }
+        names[index] = name
+        lock.unlock()
+        persistMeta()
+    }
+
+    /// Форматированный (Markdown-рендер) ли вид у точки.
+    public func isFormatted(at index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard isValid(index) else { return false }
+        return formattedFlags[index]
+    }
+
+    /// Переключает режим отображения точки и сохраняет метаданные.
+    public func setFormatted(_ formatted: Bool, at index: Int) {
+        lock.lock()
+        guard isValid(index) else { lock.unlock(); return }
+        formattedFlags[index] = formatted
+        lock.unlock()
+        persistMeta()
+    }
+
+    /// Очищает точку: текст (файл), имя и режим — как будто её никогда не трогали.
+    public func clear(at index: Int) {
+        lock.lock()
+        guard isValid(index) else { lock.unlock(); return }
+        texts[index] = ""
+        names[index] = ""
+        formattedFlags[index] = false
+        lock.unlock()
+        persist(at: index)
+        persistMeta()
     }
 
     /// Сбрасывает текст точки на диск (создавая каталог при необходимости). Ошибки записи глушим:
