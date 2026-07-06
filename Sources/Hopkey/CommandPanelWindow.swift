@@ -16,6 +16,9 @@ private final class CommandPanel: NSPanel {
 private final class CommandListView: NSView {
     var onRun: ((Int) -> Void)?
     var onDigit: ((Int) -> Void)?
+    /// Буква-команда по физическому keyCode (US-ANSI): true — команда найдена и запущена, иначе
+    /// событие уходит в `super`. По коду, а не по символу — иначе матч ломается под кириллицей.
+    var onCommandKey: ((UInt16) -> Bool)?
     var onClose: (() -> Void)?
     var onMove: ((Int) -> Void)?
     /// ←/→ по текущему выделению: слайдер меняет уровень, сниппет с несколькими действиями —
@@ -38,9 +41,13 @@ private final class CommandListView: NSView {
         case 53: onClose?()      // Esc
         default:
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Цифра 1–9 — сниппет (по символу: цифры не зависят от раскладки). Иначе — буква-
+            // команда по физическому keyCode. Оба пула — только без модификаторов.
             if mods.isEmpty, let chars = event.charactersIgnoringModifiers,
                let digit = Int(chars), digit >= 1, digit <= 9 {
                 onDigit?(digit)
+            } else if mods.isEmpty, onCommandKey?(event.keyCode) == true {
+                // команда найдена и запущена
             } else {
                 super.keyDown(with: event)
             }
@@ -102,10 +109,10 @@ private final class CommandTileView: NSView {
 
     override func mouseUp(with event: NSEvent) { onClick?() }
 
-    func configure(digit: Int?, symbol: String, title: String, status: String, state: State) {
+    func configure(badge: String?, symbol: String, title: String, status: String, state: State) {
         self.state = state
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-        numberLabel.stringValue = digit.map(String.init) ?? ""
+        numberLabel.stringValue = badge ?? ""
         titleLabel.stringValue = title
         statusLabel.stringValue = status
         setAccessibilityLabel("\(title). \(status)")
@@ -256,8 +263,8 @@ final class CommandRowView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    func configure(digit: Int?, symbol: String, title: String, trailing: String?) {
-        keycap.value = digit.map(String.init) ?? ""
+    func configure(badge: String?, symbol: String, title: String, trailing: String?) {
+        keycap.value = badge ?? ""
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         titleLabel.stringValue = title
         setAccessibilityLabel(title)
@@ -337,7 +344,7 @@ struct SliderDevice {
 }
 
 /// Кнопка-выпадашка выбора устройства: текущее имя + шеврон, клик — нативное меню со списком
-/// (галочка на текущем). Живёт в заголовке направления справа («выход»/«вход» слева).
+/// (галочка на текущем). Живёт в строке устройств над ползунками (колонка выхода/входа).
 private final class DeviceMenuButton: NSButton {
     private var options: [SliderDevice.Option] = []
     private var onPick: ((AudioDeviceID) -> Void)?
@@ -384,15 +391,30 @@ private final class DeviceMenuButton: NSButton {
     }
 }
 
-/// Строка-слайдер (одна на направление): иконка + ползунок (0…1) во всю ширину с живым процентом.
-/// Устройство живёт в заголовке над строкой (см. `makeDeviceHeader`). Панель не закрывается.
+/// NSSlider, помнящий, что его сейчас тащат мышью: во время трекинга внешний опрос громкости не
+/// должен перебивать позицию ползунка (иначе он дёргается под курсором). `mouseDown` у NSSlider
+/// крутит собственный цикл трекинга до отпускания — флаг живёт весь перетаск.
+private final class TrackingSlider: NSSlider {
+    private(set) var isTracking = false
+    override func mouseDown(with event: NSEvent) {
+        isTracking = true
+        defer { isTracking = false }
+        super.mouseDown(with: event)
+    }
+}
+
+/// Строка-слайдер (одна на направление): иконка + ползунок (0…1) с живым процентом. Живёт в
+/// половине ширины (две колонки в ряд — выход/вход), поэтому отступы компактные; выбор устройства
+/// вынесен в отдельную строку над ползунками (см. `rebuild`). Панель не закрывается.
 /// Выделяется стрелками (фон-подсветка), ←/→ меняют уровень (`nudge`).
 private final class SliderRowView: NSView {
     var onChange: ((Float) -> Void)?
 
     private let iconView = NSImageView()
-    private let slider = NSSlider()
+    private let slider = TrackingSlider()
     private let valueLabel = NSTextField(labelWithString: "")
+    /// Красить трек и процент по уровню (см. `VolumeSlider.reflectsLevel`).
+    private var reflectsLevel = false
 
     var isSelected = false { didSet { refreshBackground() } }
 
@@ -416,27 +438,30 @@ private final class SliderRowView: NSView {
         valueLabel.isEditable = false; valueLabel.isBordered = false; valueLabel.drawsBackground = false
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
         valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         addSubview(iconView); addSubview(slider); addSubview(valueLabel)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
-            slider.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
+            slider.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             slider.centerYAnchor.constraint(equalTo: centerYAnchor),
-            slider.trailingAnchor.constraint(equalTo: valueLabel.leadingAnchor, constant: -10),
-            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            slider.trailingAnchor.constraint(equalTo: valueLabel.leadingAnchor, constant: -8),
+            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             valueLabel.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
             valueLabel.widthAnchor.constraint(equalToConstant: 34),
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    func configure(symbol: String, value: Float) {
+    func configure(symbol: String, value: Float, reflectsLevel: Bool = false) {
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        self.reflectsLevel = reflectsLevel
         slider.floatValue = value
         valueLabel.stringValue = Self.percent(value)
+        applyLevelTint(value)
     }
 
     /// ←/→ на выделенной строке: шаг 5 %, с обрезкой в [0…1] и живым колбэком.
@@ -445,7 +470,40 @@ private final class SliderRowView: NSView {
         let value = max(0, min(1, slider.floatValue + Float(delta) * step))
         slider.floatValue = value
         valueLabel.stringValue = Self.percent(value)
+        applyLevelTint(value)
         onChange?(value)
+    }
+
+    /// Внешнее обновление уровня (опрос системной громкости): двигаем ползунок, процент и цвет.
+    /// НЕ во время перетаскивания мышью — иначе ползунок прыгает под курсором. `onChange` не
+    /// дёргаем: значение и так пришло от системы, писать его обратно незачем.
+    func externalUpdate(_ value: Float) {
+        guard !slider.isTracking else { return }
+        let v = max(0, min(1, value))
+        // Микродрожание округления игнорируем — иначе перерисовка на ровном месте.
+        guard abs(v - slider.floatValue) > 0.001 else { return }
+        slider.floatValue = v
+        valueLabel.stringValue = Self.percent(v)
+        applyLevelTint(v)
+    }
+
+    /// Цвет заполненной части трека и процента по уровню: низко — красный (тревога), выше —
+    /// оранжевый/жёлтый, норма — зелёный. Процент подсвечиваем только в тревожной зоне, иначе он
+    /// остаётся приглушённым — чтобы «низко» било в глаза, а норма выглядела спокойно.
+    private func applyLevelTint(_ value: Float) {
+        guard reflectsLevel else { return }
+        let color = Self.levelColor(value)
+        slider.trackFillColor = color
+        valueLabel.textColor = value < 0.40 ? color : .secondaryLabelColor
+    }
+
+    private static func levelColor(_ v: Float) -> NSColor {
+        switch v {
+        case ..<0.20: return .systemRed
+        case ..<0.40: return .systemOrange
+        case ..<0.60: return .systemYellow
+        default:       return .systemGreen
+        }
     }
 
     private func refreshBackground() {
@@ -455,6 +513,7 @@ private final class SliderRowView: NSView {
 
     @objc private func changed() {
         valueLabel.stringValue = Self.percent(slider.floatValue)
+        applyLevelTint(slider.floatValue)
         onChange?(slider.floatValue)
     }
 
@@ -552,22 +611,37 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let symbol: String
         let value: Float
         let device: SliderDevice?
+        /// Красить заполненную часть трека по уровню (низко — красный … норма — зелёный). Включаем
+        /// для входа: низкая чувствительность = «меня не слышно», это надо ловить глазом сразу.
+        let reflectsLevel: Bool
+        /// Опрос текущей системной громкости, пока панель открыта (nil — не опрашивать). Позволяет
+        /// подхватывать изменения громкости извне (клавиши, Системные настройки).
+        let readValue: (() -> Float?)?
         let onChange: (Float) -> Void
         init(title: String, symbol: String, value: Float, device: SliderDevice? = nil,
+             reflectsLevel: Bool = false, readValue: (() -> Float?)? = nil,
              onChange: @escaping (Float) -> Void) {
             self.title = title
             self.symbol = symbol
             self.value = value
             self.device = device
+            self.reflectsLevel = reflectsLevel
+            self.readValue = readValue
             self.onChange = onChange
         }
     }
 
     /// Одна выбираемая позиция панели (плитка или строка) в визуальном порядке.
-    /// `digit` — номер быстрого выбора 1–9 (nil у истории: она номера не расходует).
+    /// Быстрый выбор разведён на два непересекающихся пула: команды — по букве (`commandKey`,
+    /// физический keyCode), сниппеты — по цифре (`digit`, 1–9). `badge` — то, что нарисовано
+    /// на плитке/строке (буква или цифра); nil у слайдеров/истории — они номера не расходуют.
     private struct Entry {
         let view: NSView
+        let badge: String?
+        /// Цифра быстрого выбора сниппета (1–9); nil у команд и слайдеров.
         let digit: Int?
+        /// Физический keyCode буквы команды; nil у сниппетов и слайдеров.
+        let commandKey: UInt16?
         let setSelected: (Bool) -> Void
         let run: () -> Void
         /// ←/→ на выделении (слайдер меняет уровень); nil у обычных строк.
@@ -578,8 +652,12 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     private var entries: [Entry] = []
     private var selectedIndex = 0
     private var finished = false
-    /// Счётчик присвоенных номеров 1–9.
-    private var digitCounter = 0
+    /// Счётчик присвоенных сниппетам цифр 1–9.
+    private var snippetDigitCounter = 0
+
+    /// Опрос системной громкости, пока панель открыта: ряды слайдеров с их геттером уровня.
+    private var pollSliders: [(row: SliderRowView, read: () -> Float?)] = []
+    private var pollTimer: Timer?
 
     private let listView = CommandListView()
     private let contentStack = NSStackView()
@@ -667,6 +745,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
         listView.onRun = { [weak self] index in self?.runIndex(index) }
         listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
+        listView.onCommandKey = { [weak self] keyCode in self?.runCommandKey(keyCode) ?? false }
         listView.onClose = { [weak self] in self?.window?.close() }
         listView.onHorizontal = { [weak self] delta in self?.horizontalOnSelection(delta) }
         listView.onSecondary = { [weak self] in self?.secondaryOnSelection() }
@@ -700,12 +779,35 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
         window?.makeFirstResponder(listView)
+        startVolumePolling()
+    }
+
+    /// Пока панель открыта — раз в ~0.3с читаем системную громкость и подтягиваем ползунки, чтобы
+    /// подхватить изменения извне (клавиши, Системные настройки). `.common` — чтобы тикало и во
+    /// время модального цикла трекинга ползунка (там `externalUpdate` сам себя пропустит по флагу).
+    private func startVolumePolling() {
+        stopVolumePolling()
+        guard !pollSliders.isEmpty else { return }
+        let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            for item in self.pollSliders {
+                if let value = item.read() { item.row.externalUpdate(value) }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+    }
+
+    private func stopVolumePolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     private func rebuild(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider]) {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         entries.removeAll()
-        digitCounter = 0
+        pollSliders.removeAll()
+        snippetDigitCounter = 0
 
         let toggles = commands.filter { $0.id.section == .toggles }
         let actions = commands.filter { $0.id.section == .actions || $0.id.section == .launchers }
@@ -722,25 +824,29 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
             if !pair.isEmpty { addTileRow(pair) }
         }
 
-        // Громкость: каждое направление — свой заголовок («выход»/«вход») с выпадашкой устройства
-        // справа, под ним слайдер во всю ширину. Слайдеры выбираются стрелками (без номера 1–9),
-        // ←/→ на выделении меняют уровень.
-        for spec in sliders {
-            let header = makeDeviceHeader(spec.title, device: spec.device)
-            contentStack.addArrangedSubview(header)
-            header.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-
-            let row = SliderRowView()
-            row.configure(symbol: spec.symbol, value: spec.value)
-            row.onChange = spec.onChange
-            row.translatesAutoresizingMaskIntoConstraints = false
-            row.heightAnchor.constraint(equalToConstant: 30).isActive = true
-            contentStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-            entries.append(Entry(view: row, digit: nil,
-                                 setSelected: { [weak row] in row?.isSelected = $0 },
-                                 run: {},
-                                 adjust: { [weak row] delta in row?.nudge(delta) }))
+        // Громкость: обе направления в одном ряду двумя колонками (выход | вход). Сверху — строка
+        // выбора устройства (по колонке на направление), под ней — ползунки. Иконка (динамик/
+        // микрофон) задаёт направление, ползунок с живым процентом. Выбор устройства вынесен
+        // наверх, чтобы в узкой колонке хватило места ползунку. Слайдеры выбираются стрелками
+        // (без номера 1–9), ←/→ на выделении меняют уровень.
+        if !sliders.isEmpty {
+            addHeader(L("panel.section.volume"), trailing: nil)
+            addTwoColumnRow(sliders.map { makeDeviceCell($0.device) })
+            var sliderRows: [NSView] = []
+            for spec in sliders {
+                let row = SliderRowView()
+                row.configure(symbol: spec.symbol, value: spec.value, reflectsLevel: spec.reflectsLevel)
+                row.onChange = spec.onChange
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.heightAnchor.constraint(equalToConstant: 30).isActive = true
+                sliderRows.append(row)
+                if let read = spec.readValue { pollSliders.append((row, read)) }
+                entries.append(Entry(view: row, badge: nil, digit: nil, commandKey: nil,
+                                     setSelected: { [weak row] in row?.isSelected = $0 },
+                                     run: {},
+                                     adjust: { [weak row] delta in row?.nudge(delta) }))
+            }
+            addTwoColumnRow(sliderRows)
         }
 
         // Зона «действия» — компактные строки по две в ряд. Колонки делим по центральной оси
@@ -765,16 +871,18 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
             for snippet in snippets { addRow(makeSnippetRow(snippet)) }
         }
 
-        // Нумерация 1–9 проставлена при создании строк/плиток (см. nextDigit).
+        // Команды помечены буквами (см. makeTile/makeCommandRow), сниппеты — цифрами 1–9
+        // (см. nextSnippetDigit); слайдеры/история номера не расходуют.
         selectedIndex = entries.isEmpty ? -1 : 0
         updateSelection()
     }
 
-    /// Выдаёт следующий номер 1–9 (или nil за пределами девяти). Историю НЕ нумеруем.
-    private func nextDigit() -> Int? {
-        guard digitCounter < 9 else { return nil }
-        digitCounter += 1
-        return digitCounter
+    /// Выдаёт следующую цифру 1–9 сниппету (или nil за пределами девяти). Инструменты цифры не
+    /// расходуют — они на буквах, поэтому весь ряд 1–9 достаётся сниппетам.
+    private func nextSnippetDigit() -> Int? {
+        guard snippetDigitCounter < 9 else { return nil }
+        snippetDigitCounter += 1
+        return snippetDigitCounter
     }
 
     // MARK: Плитки-тумблеры
@@ -786,12 +894,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let state: CommandTileView.State = on
             ? (command.id == .micToggle ? .attention : .active)
             : .inactive
-        let digit = nextDigit()
-        tile.configure(digit: digit, symbol: command.symbol(), title: command.title(),
+        let key = command.id.panelKeyCode
+        let badge = keyName(forKeyCode: UInt32(key))
+        tile.configure(badge: badge, symbol: command.symbol(), title: command.title(),
                        status: command.trailing() ?? "", state: state)
         let idx = entries.count
         tile.onClick = { [weak self] in self?.runCommand(command, at: idx) }
-        entries.append(Entry(view: tile, digit: digit,
+        entries.append(Entry(view: tile, badge: badge, digit: nil, commandKey: key,
                              setSelected: { [weak tile] in tile?.isSelected = $0 },
                              run: { [weak self] in self?.runCommand(command, at: idx) }))
         return tile
@@ -840,17 +949,37 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Колонка строки устройств над ползунками: выпадашка текущего устройства, выровненная влево
+    /// (имя стоит над иконкой ползунка, усекается с хвоста при нехватке ширины). Пустая колонка,
+    /// если направление без выбора устройства.
+    private func makeDeviceCell(_ device: SliderDevice?) -> NSView {
+        let cell = NSView()
+        cell.translatesAutoresizingMaskIntoConstraints = false
+        cell.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        guard let device else { return cell }
+        let button = DeviceMenuButton(device: device)
+        button.alignment = .left
+        cell.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 12),
+            button.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -12),
+            button.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
+    }
+
     // MARK: Строки
 
     private func makeCommandRow(_ command: ToolboxCommand) -> CommandRowView {
         let row = CommandRowView()
-        let digit = nextDigit()
-        row.configure(digit: digit, symbol: command.symbol(), title: command.title(),
+        let key = command.id.panelKeyCode
+        let badge = keyName(forKeyCode: UInt32(key))
+        row.configure(badge: badge, symbol: command.symbol(), title: command.title(),
                       trailing: command.trailing())
         let idx = entries.count
         row.onClick = { [weak self] in self?.runCommand(command, at: idx) }
         row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-        entries.append(Entry(view: row, digit: digit,
+        entries.append(Entry(view: row, badge: badge, digit: nil, commandKey: key,
                              setSelected: { [weak row] in row?.isSelected = $0 },
                              run: { [weak self] in self?.runCommand(command, at: idx) }))
         return row
@@ -858,8 +987,9 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
 
     private func makeSnippetRow(_ snippet: Snippet) -> CommandRowView {
         let row = CommandRowView()
-        let digit = nextDigit()
-        row.configure(digit: digit, symbol: Self.snippetSymbol(snippet.kind),
+        let digit = nextSnippetDigit()
+        let badge = digit.map(String.init)
+        row.configure(badge: badge, symbol: Self.snippetSymbol(snippet.kind),
                       title: snippet.displayName, trailing: Self.snippetTypeLabel(snippet.kind))
         // Вторичные действия = доступные, кроме первичного (первичное — по клику/Enter).
         let secondary = snippet.availableActivations.filter { $0 != snippet.primaryActivation }
@@ -870,7 +1000,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         })
         row.onClick = { [weak self] in self?.runSnippet(snippet) }
         row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
-        entries.append(Entry(view: row, digit: digit,
+        entries.append(Entry(view: row, badge: badge, digit: digit, commandKey: nil,
                              setSelected: { [weak row] in row?.isSelected = $0 },
                              run: { [weak self] in self?.runSnippet(snippet) },
                              secondary: row.hasSecondaryActions ? { [weak row] in row?.triggerActionPanel() } : nil))
@@ -890,36 +1020,6 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let header = makeHeader(text, trailing: trailing)
         contentStack.addArrangedSubview(header)
         header.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-    }
-
-    /// Заголовок аудионаправления: «выход»/«вход» слева, выпадашка текущего устройства справа
-    /// (усекается по ширине панели, но имя видно целиком в самом меню). Клик по имени не закрывает
-    /// панель.
-    private func makeDeviceHeader(_ text: String, device: SliderDevice?) -> NSView {
-        let left = NSTextField(labelWithString: text.lowercased())
-        left.font = .systemFont(ofSize: 11); left.textColor = .secondaryLabelColor
-        left.isEditable = false; left.isBordered = false; left.drawsBackground = false
-        left.translatesAutoresizingMaskIntoConstraints = false
-        left.setContentHuggingPriority(.required, for: .horizontal)
-        left.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(left)
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(equalToConstant: 26),
-            left.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            left.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
-        ])
-        if let device {
-            let button = DeviceMenuButton(device: device)
-            container.addSubview(button)
-            NSLayoutConstraint.activate([
-                button.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-                button.firstBaselineAnchor.constraint(equalTo: left.firstBaselineAnchor),
-                button.leadingAnchor.constraint(greaterThanOrEqualTo: left.trailingAnchor, constant: 8),
-            ])
-        }
-        return container
     }
 
     private func makeHeader(_ text: String, trailing: String?) -> NSView {
@@ -969,10 +1069,19 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         entries[target].run()
     }
 
-    /// Быстрый выбор цифрой 1–9: запускаем entry с этим номером (история номеров не имеет).
+    /// Быстрый выбор цифрой 1–9: запускаем сниппет с этим номером (команды на буквах, история
+    /// номеров не имеет).
     private func runDigit(_ digit: Int) {
         guard let entry = entries.first(where: { $0.digit == digit }) else { NSSound.beep(); return }
         entry.run()
+    }
+
+    /// Быстрый выбор буквой команды по физическому keyCode. Возвращает true, если команда с таким
+    /// кодом есть (тогда событие поглощено); иначе false — незанятая буква уходит в `super`.
+    private func runCommandKey(_ keyCode: UInt16) -> Bool {
+        guard let entry = entries.first(where: { $0.commandKey == keyCode }) else { return false }
+        entry.run()
+        return true
     }
 
     /// Тумблер остаётся в панели (обновляет плитку), лончеры/действия закрывают её.
@@ -991,7 +1100,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let state: CommandTileView.State = on
             ? (command.id == .micToggle ? .attention : .active)
             : .inactive
-        tile.configure(digit: entries[safe: index]?.digit, symbol: command.symbol(),
+        tile.configure(badge: entries[safe: index]?.badge, symbol: command.symbol(),
                        title: command.title(), status: command.trailing() ?? "", state: state)
         tile.isSelected = (index == selectedIndex)
     }
@@ -1008,6 +1117,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        stopVolumePolling()
         onClose?()
     }
 
@@ -1356,7 +1466,7 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
             let digit = index < 9 ? index + 1 : nil
             let result = transform.apply(to: source)
             let row = CommandRowView()
-            row.configure(digit: digit, symbol: transformSymbol(transform),
+            row.configure(badge: digit.map(String.init), symbol: transformSymbol(transform),
                           title: L(transform.titleKey), trailing: result.map(historyPreview) ?? "—")
             row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
             return Item(view: row, digit: digit, enabled: result != nil,
@@ -1374,7 +1484,7 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
             let isCurrent = device.id == currentID
             if isCurrent { preselect = index }
             let row = CommandRowView()
-            row.configure(digit: digit, symbol: audioSymbol(device.transport),
+            row.configure(badge: digit.map(String.init), symbol: audioSymbol(device.transport),
                           title: device.name, trailing: isCurrent ? L("audio.current") : nil)
             row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
             return Item(view: row, digit: digit, enabled: true,

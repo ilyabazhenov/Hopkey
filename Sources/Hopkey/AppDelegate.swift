@@ -321,7 +321,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 [weak self] id in self?.audio.setOutput(id)
             }
             result.append(.init(title: L("panel.section.output"), symbol: "speaker.wave.2.fill",
-                                value: out, device: device) { [weak self] v in
+                                value: out, device: device, reflectsLevel: true,
+                                readValue: { [weak self] in self?.audio.outputVolume() }) { [weak self] v in
                 self?.audio.setOutputVolume(v)
             })
         }
@@ -330,7 +331,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 [weak self] id in self?.audio.setInput(id)
             }
             result.append(.init(title: L("panel.section.input"), symbol: "mic.fill",
-                                value: input, device: device) { [weak self] v in
+                                value: input, device: device, reflectsLevel: true,
+                                readValue: { [weak self] in self?.audio.inputVolume() }) { [weak self] v in
                 self?.audio.setInputVolume(v)
             })
         }
