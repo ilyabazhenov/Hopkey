@@ -105,10 +105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.hotKeyStatus = { [weak self] in self?.failedCommandHotKeys ?? [] }
         return controller
     }()
-    private lazy var quickTicket: QuickTicketWindowController = {
-        let controller = QuickTicketWindowController(config: config)
-        controller.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
-        return controller
+    private lazy var quickTicketModule: QuickTicketModule = {
+        let module = QuickTicketModule(config: config)
+        module.onSubmit = { [weak self] matches, action in self?.perform(action, on: matches) }
+        return module
     }()
     private lazy var snippetPickerModule: SnippetPickerModule = {
         let module = SnippetPickerModule(store: snippetStore)
@@ -618,7 +618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // доступа Cmd+C ничего не даст, только лишняя пауза.
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             showSelectionAccessibilityHintIfNeeded()
-            quickTicket.showWindow(prefill: clipboardBareNumber())
+            presentQuickTicket(prefill: clipboardBareNumber())
             return
         }
         // Доступ есть — «перевзводим» подсказку: если позже он слетит (типичный случай —
@@ -631,8 +631,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let prefill = selection.flatMap(self.prefillToken) ?? self.clipboardBareNumber()
             // Наши манипуляции с буфером (Cmd+C + восстановление) не должны будить наблюдателя.
             self.clipboard.syncChangeCount()
-            self.quickTicket.showWindow(prefill: prefill)
+            self.presentQuickTicket(prefill: prefill)
         }
+    }
+
+    /// Разворачивает форму быстрого ввода тикета внутри палитры (открывая её при необходимости).
+    private func presentQuickTicket(prefill: String?) {
+        if !panelIsOpen { openCommandPanel() }
+        quickTicketModule.prefill(prefill)
+        commandPanel.enterModule(quickTicketModule)
     }
 
     /// Флаг «подсказку про Accessibility для подстановки выделения уже показывали».

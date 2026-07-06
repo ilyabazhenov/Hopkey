@@ -1,29 +1,10 @@
 import AppKit
 import HopkeyCore
 
-/// Панель окна ввода: ловит Esc на уровне окна, чтобы закрытие работало независимо
-/// от того, где сейчас фокус (поле ввода, радио-кнопка или сама панель). Также ловит
-/// ⌘↩ для «скопировать» — так кнопка остаётся обычной (серой), а не второй синей.
-private final class QuickTicketPanel: NSPanel {
-    var onCommandReturn: (() -> Void)?
-
-    override func cancelOperation(_ sender: Any?) { close() }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let onlyCommand = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask) == .command
-        if onlyCommand, event.charactersIgnoringModifiers == "\r" {
-            onCommandReturn?()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 /// Ячейка поля ввода с отступом слева — освобождает место под иконку-ключ внутри поля, не
 /// давая тексту (и при наборе, и при выделении) налезать на неё.
 private final class IconTextFieldCell: NSTextFieldCell {
-    /// Левый отступ под иконку. Совпадает с местом, куда кладём `keyIcon` в `buildUI`.
+    /// Левый отступ под иконку. Совпадает с местом, куда кладём `keyIcon` в `buildContent`.
     var leftInset: CGFloat = 26
 
     private func inset(_ rect: NSRect) -> NSRect {
@@ -56,15 +37,16 @@ private final class IconTextField: NSTextField {
     }
 }
 
-/// Окно быстрого ручного ввода тикета.
+/// Быстрый ручной ввод тикета как **модуль палитры**.
 ///
 /// Пользователь вводит ключ целиком (`PROJ-123`, `#42`) или только номер (`123`):
-/// `↩` открывает тикет, `⌘↩` копирует ссылку, `Esc` закрывает. Если введён один
-/// номер, а заполнимых шаблонов несколько — появляется выбор шаблона.
+/// `↩` открывает тикет, `⌘↩` копирует ссылку, `Esc` возвращает в корень палитры. Если введён
+/// один номер, а заполнимых шаблонов несколько — появляется выбор шаблона. Живёт внутри окна
+/// палитры (см. `PaletteModule`) — своего окна не имеет; высоту меняет через `host.setNeedsResize`.
 ///
 /// Само действие (открыть/скопировать) выполняет AppDelegate через `onSubmit`,
 /// переиспользуя общий путь `perform(_:on:)`.
-final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
+final class QuickTicketModule: NSObject, PaletteModule, NSTextFieldDelegate {
 
     private let config: JiraConfig
     /// Найденные тикеты и выбранное действие — отдаём наружу.
@@ -82,69 +64,57 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
     private let previewLabel = NSTextField(labelWithString: "")
     private let messageLabel = NSTextField(labelWithString: "")
 
-    /// Содержимое (поле + список + подсказка) и ряд кнопок — нужны для расчёта высоты окна.
+    /// Содержимое (поле + список + подсказка) и ряд кнопок — нужны для расчёта высоты.
     private let contentStack = NSStackView()
     private let buttonRow = NSStackView()
 
     /// Заполнимые числом шаблоны для текущего выбора, в порядке конфига.
     private var fillableTemplates: [LinkTemplate] = []
+    /// Текст префилла на входе — определяет, выделять ли его при фокусе (↩ откроет сразу).
+    private var prefillText = ""
+    private weak var host: PaletteHost?
+
+    private var window: NSWindow? { contentView.window }
 
     init(config: JiraConfig) {
         self.config = config
-        let panel = QuickTicketPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 132),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = L("quick.window.title")
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        // «Жидкое стекло» — единый стиль с пикером сниппетов: матовый фон на всю площадь
-        // окна, прозрачный бесшовный заголовок. Тему не фиксируем — стекло адаптивное.
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .visible
-        panel.isMovableByWindowBackground = true
-        panel.alphaValue = 1.0
-        // Без этого панель «принадлежит» Space рабочего стола: при хоткее из чужого
-        // фуллскрина macOS выкинула бы пользователя из полноэкранного режима, чтобы
-        // показать окно. `.canJoinAllSpaces` показывает панель на активном Space (в т.ч.
-        // фуллскрин-Space), `.fullScreenAuxiliary` разрешает рисоваться поверх фуллскрина.
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        panel.onCommandReturn = { [weak self] in self?.submit(action: .copyURL) }
-        buildUI()
+        super.init()
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+    // MARK: - PaletteModule
 
-    private func buildUI() {
-        guard let window else { return }
-        // Матовый фон-стекло на всю площадь окна — тот же приём, что в пикере сниппетов.
-        // `.menu` — адаптивный материал (следует светлой/тёмной теме).
-        let backdrop = NSVisualEffectView()
-        backdrop.material = .windowBackground
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
-        window.contentView = backdrop
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        let content = backdrop
+    let titleKey = "quick.window.title"
 
-        // Нейтральная подложка поверх стекла — гасит избыточную прозрачность.
-        Brand.addGlassTint(to: content)
+    private(set) lazy var contentView: NSView = buildContent()
 
-        // Свой брендовый заголовок: прячем системный текст и рисуем «иконка + название» по
-        // центру полосы заголовка — окно узнаётся как Hopkey.
-        window.titleVisibility = .hidden
-        let header = Brand.makeHeaderView(title: L("quick.window.title"))
-        content.addSubview(header)
-        NSLayoutConstraint.activate([
-            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
-        ])
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        contentView.layoutSubtreeIfNeeded()
+        // список (поле + превью + шаблоны + подсказка) + зазор + кнопки + низ (полосу заголовка
+        // даёт палитра, поэтому её высоту тут НЕ добавляем — в отличие от прежнего окна).
+        return 6 + contentStack.fittingSize.height + 12 + buttonRow.fittingSize.height + 16
+    }
+
+    /// Вход в режим: фокус в поле; префилл выделяем (↩ откроет сразу, ввод цифр заменит).
+    /// Приложение не активируем — палитра уже ключевая.
+    func moduleWillAppear(host: PaletteHost) {
+        self.host = host
+        window?.makeFirstResponder(input)
+        if !prefillText.isEmpty { input.selectText(nil) }
+    }
+
+    /// ⌘↩ — скопировать ссылку (перехватывается окном палитры раньше клавиш поля).
+    func handleCommandReturn() -> Bool { submit(action: .copyURL); return true }
+
+    /// Подставляет текст и готовит выбор шаблона перед `enterModule`. Форсит ленивую сборку вьюхи.
+    func prefill(_ text: String?) {
+        _ = contentView
+        prefillText = text ?? ""
+        input.stringValue = prefillText
+        preparePicker()
+    }
+
+    private func buildContent() -> NSView {
+        let content = NSView()
 
         input.placeholderString = L("quick.placeholder")
         input.font = .systemFont(ofSize: 14)
@@ -190,8 +160,8 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         messageLabel.maximumNumberOfLines = 0
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // «Скопировать» — обычная серая кнопка. Шорткат ⌘↩ ловит сама панель
-        // (см. `performKeyEquivalent`), чтобы кнопка не стала второй синей «по умолчанию».
+        // «Скопировать» — обычная серая кнопка. Шорткат ⌘↩ ловит окно палитры
+        // (см. `handleCommandReturn`), чтобы кнопка не стала второй синей «по умолчанию».
         let copyButton = NSButton(title: L("quick.copy"), target: self, action: #selector(submitCopy))
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L("quick.copy"))
         copyButton.imagePosition = .imageLeading
@@ -232,8 +202,8 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         NSLayoutConstraint.activate([
             contentStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             contentStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            // Отступ сверху освобождает прозрачную полосу заголовка (с кнопками окна).
-            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
+            // Небольшой верхний отступ (полосу заголовка рисует палитра над телом модуля).
+            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
             input.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             previewLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             messageLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
@@ -241,34 +211,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
             buttonRow.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
             buttonRow.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: 12),
         ])
-    }
-
-    /// Показывает окно поверх остальных и ставит фокус в поле ввода.
-    /// Приложение работает как `.accessory`, поэтому без `NSApp.activate` панель
-    /// не получит клавиатурный фокус (тот же приём, что и в окне настроек).
-    /// - Parameter prefill: текст для подстановки в поле при открытии (например, голое число
-    ///   из выделения/буфера).
-    ///
-    /// Свежий непустой префилл подставляем всегда — в том числе когда окно уже открыто
-    /// (пользователь выделил другой текст и повторил хоткей: ожидается, что в поле окажется
-    /// новое выделение, а не старое). Если же окно уже открыто, а нового префилла нет
-    /// (пустой/nil) — сохраняем то, что пользователь успел ввести вручную, и не сбрасываем.
-    func showWindow(prefill: String? = nil) {
-        let wasVisible = window?.isVisible ?? false
-        let hasPrefill = !(prefill ?? "").isEmpty
-        let applyPrefill = !wasVisible || hasPrefill
-        if applyPrefill {
-            input.stringValue = prefill ?? ""
-            preparePicker()
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        if applyPrefill {
-            window?.makeFirstResponder(input)
-            // Подставленное выделяем: ↩ откроет сразу, а ввод цифр заменит его.
-            if hasPrefill { input.selectText(nil) }
-        }
+        return content
     }
 
     // MARK: - Submit
@@ -310,9 +253,10 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         finish(match, action: action)
     }
 
+    /// Отдаём результат наружу и закрываем палитру (порядок как в прежнем окне: сперва действие).
     private func finish(_ match: TicketMatch, action: TicketAction) {
         onSubmit?([match], action)
-        window?.close()
+        host?.closePalette()
     }
 
     // MARK: - Превью ссылки
@@ -332,9 +276,9 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
             previewLabel.toolTip = nil
             previewLabel.isHidden = true
         }
-        // Появление/исчезновение строки меняет высоту окна. Когда строка уже видна
-        // и меняется лишь её текст, высота прежняя — не дёргаем размер на каждом нажатии.
-        if previewLabel.isHidden != wasHidden { sizeWindowToFit() }
+        // Появление/исчезновение строки меняет высоту. Когда строка уже видна и меняется лишь её
+        // текст, высота прежняя — не дёргаем размер на каждом нажатии.
+        if previewLabel.isHidden != wasHidden { host?.setNeedsResize() }
     }
 
     /// Итоговая ссылка для текущего состояния поля и выбора шаблона, или `nil`,
@@ -356,9 +300,9 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
 
     // MARK: - Выбор шаблона
 
-    /// Готовит выбор шаблона при открытии окна. Если заполнимых числом шаблонов
-    /// больше одного, список показывается сразу — чтобы ввод номера и выбор были рядом
-    /// и хватало одного ↩. При одном шаблоне (или вводе полного ключа) список не нужен.
+    /// Готовит выбор шаблона при открытии. Если заполнимых числом шаблонов больше одного,
+    /// список показывается сразу — чтобы ввод номера и выбор были рядом и хватало одного ↩.
+    /// При одном шаблоне (или вводе полного ключа) список не нужен.
     private func preparePicker() {
         fillableTemplates = QuickTicketInput.fillableTemplates(in: config.templates)
 
@@ -396,33 +340,7 @@ final class QuickTicketWindowController: NSWindowController, NSWindowDelegate, N
         showMessage(ambiguous ? L("quick.hint.ambiguous")
                               : L("quick.hint.simple"), isError: false)
         updatePreview()
-        sizeWindowToFit()
-    }
-
-    /// Высота окна — под фактический контент (поле + список + подсказка + кнопки),
-    /// чтобы не подгонять магические числа под метрики контролов вручную.
-    private func sizeWindowToFit() {
-        guard let window, let content = window.contentView else { return }
-        content.layoutSubtreeIfNeeded()
-        let height = 36 + contentStack.fittingSize.height + 12 + buttonRow.fittingSize.height + 16
-        window.setContentSize(NSSize(width: 380, height: height))
-        centerOnActiveScreen()
-    }
-
-    /// Центрирует окно на экране, где сейчас курсор, — там внимание пользователя.
-    /// `window.center()` всегда брал бы `NSScreen.main` (экран с меню-баром), из-за чего
-    /// при мультимониторе/фуллскрине на втором дисплее окно появлялось не на том экране.
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(
-            x: area.midX - size.width / 2,
-            y: area.midY - size.height / 2))
+        host?.setNeedsResize()
     }
 
     /// Выбор шаблона — только запоминаем. Открытие/копирование делается кнопками
