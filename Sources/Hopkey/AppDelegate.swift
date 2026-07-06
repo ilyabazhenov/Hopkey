@@ -47,8 +47,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.clipboardHistory.record(value)
             self.hud.show(symbol: "equal.circle.fill", message: L("panel.search.copied", value))
         }
+        // Команды-инструменты, разворачивающиеся внутри палитры (transform и др.) — панель остаётся.
+        controller.onPresentCommandModule = { [weak self] command in
+            self?.presentCommandModule(command) ?? false
+        }
         return controller
     }()
+
+    /// Модуль преобразования текста внутри палитры (см. `presentTransformModule`). Тот же результат
+    /// вставляет `pasteTransform`, что и у fallback-окна.
+    private lazy var transformModule: TransformModule = {
+        let module = TransformModule()
+        module.onApply = { [weak self] result in self?.pasteTransform(result) }
+        return module
+    }()
+
+    /// Разворачивает инструмент команды прямо в палитре. Возвращает true, если команда — модульная.
+    private func presentCommandModule(_ command: ToolboxCommand) -> Bool {
+        switch command.id {
+        case .textTransform:    presentTransformModule(); return true
+        case .clipboardHistory: presentClipboardHistory(); return true
+        case .audioOutput:      presentAudioOutput(); return true
+        case .audioInput:       presentAudioInput(); return true
+        default: return false
+        }
+    }
+
+    /// Показывает transform как модуль палитры (палитра уже открыта и ключевая). Захват выделения —
+    /// как в `openTextTransforms`: палитра неактивирующая, фронтовым остаётся целевое приложение,
+    /// поэтому синтетический Cmd+C уходит туда. Приложение НЕ активируем — фокус уже у палитры.
+    private func presentTransformModule() {
+        snippetTargetApp = NSWorkspace.shared.frontmostApplication
+        guard HotKeyManager.ensureAccessibility(prompt: false) else {
+            transformModule.prefill(NSPasteboard.general.string(forType: .string) ?? "")
+            commandPanel.enterModule(transformModule)
+            HotKeyManager.ensureAccessibility(prompt: true)
+            return
+        }
+        hotKey.captureSelection { [weak self] selection in
+            guard let self else { return }
+            self.clipboard.syncChangeCount()
+            self.transformModule.prefill(selection ?? "")
+            self.commandPanel.enterModule(self.transformModule)
+        }
+    }
     /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
     private lazy var commands: [ToolboxCommand] = buildCommands()
     /// Команды, чью прямую комбинацию не удалось зарегистрировать (занята).
@@ -365,69 +407,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return SliderDevice(currentName: currentName, options: options, onPick: onPick)
     }
 
-    // Четыре пикера на одном обобщённом окне-списке (GlassListWindowController); специфику строк
-    // дают статические билдеры Item.
-
-    /// Окно истории буфера (команда «История буфера»).
-    private lazy var clipboardHistoryWindow: GlassListWindowController = {
-        let window = GlassListWindowController(titleKey: "clipboard.title", emptyKey: "clipboard.empty",
-                                               rowHeight: 34)
-        window.enableClearButton { [weak self] in self?.clipboardHistory.clear() }
-        return window
-    }()
+    // Прямой вызов команды (меню/глобальный хоткей, вне палитры): открываем палитру и разворачиваем
+    // соответствующий модуль — тот же единый вид, что при выборе команды внутри палитры. Отдельных
+    // окон (transform/буфер/аудио) больше нет — всё живёт в одном окне палитры.
 
     private func openClipboardHistory() {
+        if !panelIsOpen { openCommandPanel() }
+        presentClipboardHistory()
+    }
+    private func openTextTransforms() {
+        if !panelIsOpen { openCommandPanel() }
+        presentTransformModule()
+    }
+    private func openAudioOutput() {
+        if !panelIsOpen { openCommandPanel() }
+        presentAudioOutput()
+    }
+    private func openAudioInput() {
+        if !panelIsOpen { openCommandPanel() }
+        presentAudioInput()
+    }
+
+    // MARK: Списки как модули палитры (билдеры строк — статические в GlassListWindowController)
+
+    private lazy var clipboardHistoryModule: GlassListModule = {
+        let module = GlassListModule(titleKey: "clipboard.title", emptyKey: "clipboard.empty", rowHeight: 34)
+        module.enableClearButton { [weak self] in self?.clipboardHistory.clear() }
+        return module
+    }()
+    private lazy var audioOutputModule = GlassListModule(titleKey: "audio.output.title", emptyKey: "audio.empty")
+    private lazy var audioInputModule = GlassListModule(titleKey: "audio.input.title", emptyKey: "audio.empty")
+
+    private func presentClipboardHistory() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         let items = GlassListWindowController.historyItems(clipboardHistory.entries) { [weak self] text in
             self?.pasteHistory(text)
         }
-        clipboardHistoryWindow.show(items: items)
+        clipboardHistoryModule.configure(items: items)
+        commandPanel.enterModule(clipboardHistoryModule)
     }
-
-    /// Окно преобразования текста: поле ввода сверху, список способов, поле результата и «Вставить».
-    /// Открывается всегда — выделение (если есть) просто префиллит поле ввода.
-    private lazy var transformInputWindow: TransformInputWindowController = {
-        let controller = TransformInputWindowController()
-        controller.onApply = { [weak self] result in self?.pasteTransform(result) }
-        return controller
-    }()
-
-    /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C) и открывает окно преобразования,
-    /// префилля поле ввода выделенным текстом (если он есть — иначе поле пустое, набираешь вручную).
-    /// Без Accessibility снять выделение нельзя — источником берём буфер.
-    private func openTextTransforms() {
-        snippetTargetApp = NSWorkspace.shared.frontmostApplication
-        guard HotKeyManager.ensureAccessibility(prompt: false) else {
-            transformInputWindow.show(prefill: NSPasteboard.general.string(forType: .string) ?? "")
-            HotKeyManager.ensureAccessibility(prompt: true)
-            return
-        }
-        hotKey.captureSelection { [weak self] selection in
-            guard let self else { return }
-            self.clipboard.syncChangeCount()
-            self.transformInputWindow.show(prefill: selection ?? "")
-        }
-    }
-
-    /// Окна выбора аудиовыхода и аудиовхода (один класс, разные заголовки/действия).
-    private lazy var audioOutputWindow = GlassListWindowController(titleKey: "audio.output.title",
-                                                                   emptyKey: "audio.empty", maxHeight: 520)
-    private lazy var audioInputWindow = GlassListWindowController(titleKey: "audio.input.title",
-                                                                  emptyKey: "audio.empty", maxHeight: 520)
-
-    private func openAudioOutput() {
+    private func presentAudioOutput() {
         let (items, preselect) = GlassListWindowController.audioItems(
             audio.outputDevices(), currentID: audio.currentOutputDeviceID()) { [weak self] id in
             self?.audio.setOutput(id)
         }
-        audioOutputWindow.show(items: items, preselect: preselect)
+        audioOutputModule.configure(items: items, preselect: preselect)
+        commandPanel.enterModule(audioOutputModule)
     }
-    private func openAudioInput() {
+    private func presentAudioInput() {
         let (items, preselect) = GlassListWindowController.audioItems(
             audio.inputDevices(), currentID: audio.currentInputDeviceID()) { [weak self] id in
             self?.audio.setInput(id)
         }
-        audioInputWindow.show(items: items, preselect: preselect)
+        audioInputModule.configure(items: items, preselect: preselect)
+        commandPanel.enterModule(audioInputModule)
     }
 
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.

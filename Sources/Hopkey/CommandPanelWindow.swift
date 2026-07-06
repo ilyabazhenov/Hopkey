@@ -7,8 +7,46 @@ import HopkeyCore
 /// стеклянная панель в идиоме пикера сниппетов — фокус целевого приложения не теряется, поэтому
 /// вставка сниппета/paste попадает туда, где стоял курсор.
 private final class CommandPanel: NSPanel {
+    /// Esc: контроллер решает — выйти из модуля/поиска в корень или закрыть панель.
+    var onCancel: (() -> Void)?
+    /// ⌘↩ на уровне окна — форвардим активному модулю (напр. transform «применить»), независимо
+    /// от того, где сейчас фокус (поле ввода модуля или его список).
+    var onCommandReturn: (() -> Bool)?
+
     override var canBecomeKey: Bool { true }
-    override func cancelOperation(_ sender: Any?) { close() }
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let onlyCommand = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask) == .command
+        if onlyCommand, event.charactersIgnoringModifiers == "\r", onCommandReturn?() == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+/// Самодостаточный контент, который палитра показывает вместо корневого списка (преобразование
+/// текста, история буфера, аудио…). Модуль не владеет окном — только вьюхой; окно (размер, фокус,
+/// навигация назад) держит палитра-хозяин. Так все инструменты живут в одном окне палитры.
+protocol PaletteModule: AnyObject {
+    /// Корневая вьюха модуля — палитра кладёт её в тело окна на всю доступную область под хедером.
+    var contentView: NSView { get }
+    /// Заголовок в общий хедер палитры, пока модуль открыт.
+    var titleKey: String { get }
+    /// Желаемая высота контента под ширину окна — палитра подгоняет окно (см. `sizeToFit`).
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat
+    /// Вызывается при входе в режим: поставить фокус, пересчитать состояние.
+    func moduleWillAppear(host: PaletteHost)
+    /// Модуль сам разбирает командную клавишу (⌘↩ «применить» и т.п.); true — обработано.
+    func handleCommandReturn() -> Bool
+}
+
+/// Палитра как хозяин модуля: вернуться в корень, закрыть окно, переразмерить под изменившийся контент.
+protocol PaletteHost: AnyObject {
+    func dismissModule()   // Esc внутри модуля → корневой список палитры
+    func closePalette()    // закрыть окно палитры целиком
+    func setNeedsResize()  // контент модуля изменил высоту
 }
 
 /// Контейнер списка: держит фокус клавиатуры, водит выделение (стрелки), выполняет по Enter /
@@ -705,7 +743,8 @@ private final class PaletteSearchField: NSView {
     }
 }
 
-final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, NSSearchFieldDelegate {
+final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, NSSearchFieldDelegate,
+                                          PaletteHost {
 
     /// Действие над сниппетом: первичное (клик/Enter) или вторичное (кнопки в строке).
     var onSnippetActivation: ((Snippet, SnippetActivation) -> Void)?
@@ -718,6 +757,11 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     var onLaunchApp: ((URL) -> Void)?
     /// Скопировать значение (результат калькулятора) — вызывающий даёт обратную связь HUD-тостом.
     var onCopyValue: ((String) -> Void)?
+
+    /// Команда просит показать свой инструмент внутри палитры (модуль), а не закрывать её. Вернуть
+    /// true, если команда обработана как модуль (вызывающий сам сделал `enterModule`, возможно
+    /// асинхронно после захвата выделения); иначе false — команда исполняется обычным путём.
+    var onPresentCommandModule: ((ToolboxCommand) -> Bool)?
 
     /// Слайдер громкости в панели: иконка, стартовое значение (0…1), живой колбэк изменения и
     /// опциональное аудиоустройство для встроенной выпадашки выбора.
@@ -779,6 +823,16 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
 
+    /// Текущий режим окна. `.root` — корневой список (в т.ч. живой поиск внутри него, см.
+    /// `currentQuery`); `.module` — инструмент, показанный на месте списка (transform и пр.).
+    private enum Mode { case root, module(PaletteModule) }
+    private var mode: Mode = .root
+    /// Тело корневого режима (поиск + список + футер) и тело модуля — свапаем видимость между ними.
+    private let rootBody = NSView()
+    private let moduleBody = NSView()
+    /// Общий хедер: заголовок обновляется под активный модуль, в корне — «panel.title».
+    private var headerLabel: NSTextField?
+
     /// Последний показанный набор — чтобы возвращаться к обычной панели при очистке поиска.
     private var lastCommands: [ToolboxCommand] = []
     private var lastSnippets: [Snippet] = []
@@ -807,6 +861,11 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         super.init(window: panel)
         panel.delegate = self
+        panel.onCancel = { [weak self] in self?.handleCancel() }
+        panel.onCommandReturn = { [weak self] in
+            guard let self, case .module(let module) = self.mode else { return false }
+            return module.handleCommandReturn()
+        }
         buildChrome()
     }
 
@@ -818,9 +877,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         let content = panelContent
         installGlass(in: window, content: content)
 
-        let header = Brand.makeHeaderView(title: L("panel.title"))
-        header.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header)
+        // Тело корневого режима (поиск + список + футер) заполняет весь контент; тело модуля живёт
+        // под хедером и по умолчанию скрыто — режимы свапаются видимостью этих двух контейнеров.
+        rootBody.translatesAutoresizingMaskIntoConstraints = false
+        moduleBody.translatesAutoresizingMaskIntoConstraints = false
+        moduleBody.isHidden = true
+        content.addSubview(rootBody)
+        content.addSubview(moduleBody)
 
         // Строка поиска: приложения + команды + калькулятор. Не в автофокусе — первый респондер
         // остаётся список (буквы/цифры-шорткаты работают как раньше); в поиск заходят ⌘F или кликом.
@@ -828,7 +891,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         searchField.textField.delegate = self
         searchField.onClear = { [weak self] in self?.applyQuery() }
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(searchField)
+        rootBody.addSubview(searchField)
 
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
@@ -843,7 +906,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
         scroll.documentView = listView
-        content.addSubview(scroll)
+        rootBody.addSubview(scroll)
 
         let hint = NSTextField(labelWithString: L("panel.footer.commands"))
         hint.font = .systemFont(ofSize: 11)
@@ -851,20 +914,39 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         hint.alignment = .center
         hint.lineBreakMode = .byTruncatingTail
         hint.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(hint)
+        rootBody.addSubview(hint)
+
+        // Хедер добавляем последним — поверх тел (в корне его перекрывать нечему, у модуля тело
+        // начинается ниже). Label держим, чтобы менять заголовок под активный модуль.
+        let (header, label) = Brand.makeHeader(title: L("panel.title"))
+        header.translatesAutoresizingMaskIntoConstraints = false
+        headerLabel = label
+        content.addSubview(header)
 
         NSLayoutConstraint.activate([
             header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
 
-            searchField.topAnchor.constraint(equalTo: content.topAnchor, constant: 32),
-            searchField.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
-            searchField.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            // rootBody совпадает с контентом — отступы поиска/списка/футера остаются прежними.
+            rootBody.topAnchor.constraint(equalTo: content.topAnchor),
+            rootBody.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            rootBody.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            rootBody.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            // moduleBody — под хедером на всю оставшуюся область.
+            moduleBody.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            moduleBody.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            moduleBody.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            moduleBody.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            searchField.topAnchor.constraint(equalTo: rootBody.topAnchor, constant: 32),
+            searchField.leadingAnchor.constraint(equalTo: rootBody.leadingAnchor, constant: 10),
+            searchField.trailingAnchor.constraint(equalTo: rootBody.trailingAnchor, constant: -10),
             searchField.heightAnchor.constraint(equalToConstant: 28),
 
             scroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            scroll.leadingAnchor.constraint(equalTo: rootBody.leadingAnchor, constant: 8),
+            scroll.trailingAnchor.constraint(equalTo: rootBody.trailingAnchor, constant: -8),
 
             listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
@@ -877,20 +959,80 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
 
             hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
-            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+            hint.leadingAnchor.constraint(equalTo: rootBody.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(equalTo: rootBody.trailingAnchor, constant: -12),
+            hint.bottomAnchor.constraint(equalTo: rootBody.bottomAnchor, constant: -10),
         ])
 
         listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
         listView.onRun = { [weak self] index in self?.runIndex(index) }
         listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
         listView.onCommandKey = { [weak self] keyCode in self?.runCommandKey(keyCode) ?? false }
-        listView.onClose = { [weak self] in self?.window?.close() }
+        listView.onClose = { [weak self] in self?.handleCancel() }
         listView.onHorizontal = { [weak self] delta in self?.horizontalOnSelection(delta) }
         listView.onSecondary = { [weak self] in self?.secondaryOnSelection() }
         listView.onFocusSearch = { [weak self] in self?.focusSearch() }
     }
+
+    // MARK: Режимы (root ↔ module)
+
+    /// Показать модуль на месте корневого списка: вставить его вьюху в тело модуля, свапнуть
+    /// видимость, подогнать окно и передать фокус модулю. Опрос громкости на время модуля глушим.
+    func enterModule(_ module: PaletteModule) {
+        stopVolumePolling()
+        moduleBody.subviews.forEach { $0.removeFromSuperview() }
+        let view = module.contentView
+        view.translatesAutoresizingMaskIntoConstraints = false
+        moduleBody.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: moduleBody.topAnchor),
+            view.leadingAnchor.constraint(equalTo: moduleBody.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: moduleBody.trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: moduleBody.bottomAnchor),
+        ])
+        headerLabel?.stringValue = L(module.titleKey)
+        mode = .module(module)
+        rootBody.isHidden = true
+        moduleBody.isHidden = false
+        sizeToFit()
+        module.moduleWillAppear(host: self)
+    }
+
+    /// Вернуться из модуля в корневой список: сбросить поиск, пересобрать корень, вернуть фокус и
+    /// опрос громкости. Тело модуля очищаем (вьюха модуля отвязывается).
+    private func enterRoot() {
+        guard case .module = mode else { return }
+        mode = .root
+        headerLabel?.stringValue = L("panel.title")
+        moduleBody.isHidden = true
+        moduleBody.subviews.forEach { $0.removeFromSuperview() }
+        rootBody.isHidden = false
+        searchField.stringValue = ""
+        currentQuery = ""
+        rebuild(commands: lastCommands, snippets: lastSnippets, sliders: lastSliders)
+        sizeToFit()
+        window?.makeFirstResponder(listView)
+        startVolumePolling()
+    }
+
+    /// Единая точка Esc: из модуля → корень; из поиска → очистить и вернуться в список; из
+    /// «пустого» корня → закрыть окно. Так Esc везде значит «на шаг назад, из корня — закрыть».
+    private func handleCancel() {
+        if case .module = mode { enterRoot(); return }
+        if !currentQuery.isEmpty {
+            searchField.stringValue = ""
+            applyQuery()
+            window?.makeFirstResponder(listView)
+        } else {
+            window?.close()
+        }
+    }
+
+    // MARK: - PaletteHost
+
+    func dismissModule() { enterRoot() }
+    func closePalette() { window?.close() }
+    func setNeedsResize() { sizeToFit() }
 
     // MARK: Поиск
 
@@ -973,6 +1115,12 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         lastCommands = commands
         lastSnippets = snippets
         lastSliders = sliders
+        // Всегда открываемся в корне: сбрасываем возможный застрявший режим модуля прошлого показа.
+        mode = .root
+        moduleBody.subviews.forEach { $0.removeFromSuperview() }
+        moduleBody.isHidden = true
+        rootBody.isHidden = false
+        headerLabel?.stringValue = L("panel.title")
         searchField.stringValue = ""
         currentQuery = ""
         rebuild(commands: commands, snippets: snippets, sliders: sliders)
@@ -1384,11 +1532,14 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         return true
     }
 
-    /// Тумблер остаётся в панели (обновляет плитку), лончеры/действия закрывают её.
+    /// Тумблер остаётся в панели (обновляет плитку); команда-модуль разворачивается на месте (панель
+    /// не закрываем); прочие лончеры/действия закрывают панель.
     private func runCommand(_ command: ToolboxCommand, at index: Int) {
         if command.isOn() != nil {
             command.run()
             refreshTile(command, at: index)
+        } else if onPresentCommandModule?(command) == true {
+            // команда открыла модуль внутри палитры — панель остаётся открытой
         } else {
             finish { command.run() }
         }
@@ -1423,8 +1574,35 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     // MARK: Геометрия
 
+    /// Подгоняет окно под текущий режим, сохраняя верхнюю кромку (панель растёт вниз, не «прыгает»).
+    /// Используется при живом ресайзе в корне (разворачивание секций/результаты поиска).
     private func sizeToFit() {
         guard let window else { return }
+        let size = contentSizeForCurrentMode()
+        let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
+        window.setContentSize(size)
+        window.setFrameTopLeftPoint(topLeft)
+        clampIntoActiveScreen()
+    }
+
+    /// Минимально сдвигает окно, чтобы оно целиком помещалось на активном экране (корень, растущий
+    /// вниз в модуль, может выйти за нижнюю кромку). Двигаем только при выходе за край — иначе
+    /// верхняя кромка (наш якорь) остаётся на месте.
+    private func clampIntoActiveScreen() {
+        guard let window, let area = activeScreen()?.visibleFrame else { return }
+        var origin = window.frame.origin
+        let size = window.frame.size
+        if origin.x + size.width > area.maxX { origin.x = area.maxX - size.width }
+        if origin.x < area.minX { origin.x = area.minX }
+        if origin.y + size.height > area.maxY { origin.y = area.maxY - size.height }
+        if origin.y < area.minY { origin.y = area.minY }
+        if origin != window.frame.origin { window.setFrameOrigin(origin) }
+    }
+
+    /// Требуемый размер контента под текущий режим (без изменения позиции окна) — единый источник
+    /// для `sizeToFit` (по верхней кромке) и `resizeKeepingCenter` (по центру).
+    private func contentSizeForCurrentMode() -> NSSize {
+        if case .module(let module) = mode { return moduleContentSize(module) }
         contentStack.layoutSubtreeIfNeeded()
         let content = contentStack.fittingSize.height + 12  // + верх/низ отступы listView
         // заголовок+поиск (66) + зазор + футер(11) + низ. 66 = searchTop 32 + height 28 + gap 6.
@@ -1434,15 +1612,22 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         let ceiling = activeScreen().map { $0.visibleFrame.height - 40 } ?? Self.maxHeight
         let height = min(content + chrome, ceiling)
         // Ширина: контент может требовать больше `Self.width` (длинные имена устройств, длинный
-        // футер-подсказка). Берём фактически необходимую ширину, иначе `centerOnActiveScreen`
-        // посчитает центр по 470, а Auto Layout затем дорастит окно вправо → съезд от центра.
+        // футер-подсказка). Берём фактически необходимую ширину, иначе центр посчитается по 470,
+        // а Auto Layout затем дорастит окно вправо → съезд от центра.
         panelContent.layoutSubtreeIfNeeded()
         let widthCeiling = activeScreen().map { $0.visibleFrame.width - 40 } ?? Self.width
         let width = min(max(Self.width, panelContent.fittingSize.width), widthCeiling)
-        // Сохраняем верхнюю кромку окна — при разворачивании секции панель растёт вниз, не «прыгает».
-        let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
-        window.setContentSize(NSSize(width: width, height: height))
-        window.setFrameTopLeftPoint(topLeft)
+        return NSSize(width: width, height: height)
+    }
+
+    /// Требуемый размер контента под модуль: хедер (top 9 + марка 18 + зазор 8 до тела) + желаемая
+    /// высота контента модуля + нижний отступ, с тем же экранным потолком, что у корня.
+    private func moduleContentSize(_ module: PaletteModule) -> NSSize {
+        let width = Self.width
+        let headerAllowance: CGFloat = 9 + 18 + 8
+        let ceiling = activeScreen().map { $0.visibleFrame.height - 40 } ?? Self.maxHeight
+        let height = min(headerAllowance + module.fittingHeight(forWidth: width) + 10, ceiling)
+        return NSSize(width: width, height: height)
     }
 
     /// Экран под курсором (или основной) — общая опора для потолка высоты и центрирования.
@@ -1538,12 +1723,11 @@ func historyPreview(_ text: String) -> String {
     return oneLine.count > 60 ? String(oneLine.prefix(60)) + "…" : oneLine
 }
 
-// MARK: - Обобщённое окно-список (пикер)
+// MARK: - Общие строки-пикеры (Item + билдеры)
 
-/// Обобщённое стеклянное окно-список: заголовок, прокручиваемый список строк с клавнавигацией
-/// (стрелки/1–9/Enter/Esc), выделение, пустое состояние, опц. кнопка-корзина в заголовке.
-/// Специфику строк (история/трансформации/аудио) дают статические билдеры `Item`.
-final class GlassListWindowController: NSWindowController, NSWindowDelegate {
+/// Неймспейс общих строк-пикеров (история буфера, аудиоустройства): тип `Item` и статические
+/// билдеры строк. Окно-список теперь живёт внутри палитры как `GlassListModule` — отдельного окна нет.
+enum GlassListWindowController {
 
     struct Item {
         let view: NSView
@@ -1553,207 +1737,6 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         let setSelected: (Bool) -> Void
         let setOnClick: (@escaping () -> Void) -> Void
         let run: () -> Void
-    }
-
-    private let titleKey: String
-    private let emptyKey: String?
-    private let rowHeight: CGFloat
-    private let width: CGFloat
-    private let maxHeight: CGFloat
-    private var clearHandler: (() -> Void)?
-
-    private var items: [Item] = []
-    private var selectedIndex = 0
-    private var finished = false
-    private let listView = CommandListView()
-    private let contentStack = NSStackView()
-    private let scroll = NSScrollView()
-    private let emptyLabel = NSTextField(labelWithString: "")
-    private var clearButton: ClosureButton?
-
-    init(titleKey: String, emptyKey: String? = nil, rowHeight: CGFloat = 40,
-         width: CGFloat = 460, maxHeight: CGFloat = 560) {
-        self.titleKey = titleKey
-        self.emptyKey = emptyKey
-        self.rowHeight = rowHeight
-        self.width = width
-        self.maxHeight = maxHeight
-        let panel = CommandPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: 280),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered, defer: false)
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        buildChrome()
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
-
-    /// Включает кнопку-корзину в заголовке (напр. очистка истории). Клик — `handler` + закрыть.
-    func enableClearButton(_ handler: @escaping () -> Void) {
-        clearHandler = handler
-    }
-
-    private func buildChrome() {
-        guard let window else { return }
-        let content = NSView()
-        installGlass(in: window, content: content)
-
-        let header = Brand.makeHeaderView(title: L(titleKey))
-        header.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header)
-
-        let clear = ClosureButton(symbol: "trash", tooltip: L("panel.clipboard.clear")) { [weak self] in
-            self?.clearHandler?()
-            self?.window?.close()
-        }
-        clear.translatesAutoresizingMaskIntoConstraints = false
-        clear.isHidden = true
-        content.addSubview(clear)
-        clearButton = clear
-
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 4
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        listView.translatesAutoresizingMaskIntoConstraints = false
-        listView.addSubview(contentStack)
-
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.documentView = listView
-        content.addSubview(scroll)
-
-        emptyLabel.stringValue = emptyKey.map { L($0) } ?? ""
-        emptyLabel.font = .systemFont(ofSize: 13)
-        emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.alignment = .center
-        emptyLabel.isHidden = true
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(emptyLabel)
-
-        let hint = NSTextField(labelWithString: L("panel.footer"))
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-        hint.alignment = .center
-        hint.lineBreakMode = .byTruncatingTail
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(hint)
-
-        NSLayoutConstraint.activate([
-            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
-            clear.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            clear.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
-
-            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-
-            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
-            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
-            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
-            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
-
-            emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-
-            hint.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 6),
-            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
-        ])
-
-        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
-        listView.onRun = { [weak self] _ in self?.runIndex(-1) }
-        listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
-        listView.onClose = { [weak self] in self?.window?.close() }
-    }
-
-    func show(items: [Item], preselect: Int = 0) {
-        finished = false
-        self.items = items
-        rebuild()
-        selectedIndex = items.isEmpty ? -1 : min(max(preselect, 0), items.count - 1)
-        updateSelection()
-        emptyLabel.isHidden = !items.isEmpty
-        clearButton?.isHidden = (clearHandler == nil || items.isEmpty)
-        sizeToFit()
-        centerOnActiveScreen()
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
-        window?.makeFirstResponder(listView)
-    }
-
-    private func rebuild() {
-        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for (index, item) in items.enumerated() {
-            item.setOnClick { [weak self] in self?.runIndex(index) }
-            item.view.translatesAutoresizingMaskIntoConstraints = false
-            item.view.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
-            contentStack.addArrangedSubview(item.view)
-            item.view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-        }
-    }
-
-    private func moveSelection(by delta: Int) {
-        guard !items.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + items.count) % items.count
-        updateSelection()
-        items[selectedIndex].view.scrollToVisible(items[selectedIndex].view.bounds)
-    }
-    private func updateSelection() {
-        for (i, item) in items.enumerated() { item.setSelected(i == selectedIndex) }
-    }
-    private func runDigit(_ digit: Int) {
-        guard let index = items.firstIndex(where: { $0.digit == digit }) else { NSSound.beep(); return }
-        runIndex(index)
-    }
-    private func runIndex(_ index: Int) {
-        let target = index < 0 ? selectedIndex : index
-        guard items.indices.contains(target) else { NSSound.beep(); return }
-        let item = items[target]
-        guard item.enabled else { NSSound.beep(); return }
-        finish { item.run() }
-    }
-    private func finish(_ action: @escaping () -> Void) {
-        guard !finished else { return }
-        finished = true
-        window?.close()
-        action()
-    }
-    func windowWillClose(_ notification: Notification) {}
-
-    private func sizeToFit() {
-        guard let window else { return }
-        contentStack.layoutSubtreeIfNeeded()
-        let inner = items.isEmpty ? 60 : contentStack.fittingSize.height + 12
-        let chrome: CGFloat = 36 + 6 + 11 + 10 + 6
-        let height = min(inner + chrome, maxHeight)
-        window.setContentSize(NSSize(width: width, height: height))
-    }
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 
     // MARK: - Билдеры Item
@@ -1811,6 +1794,188 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
         default: return "speaker.wave.2.fill"
         }
+    }
+}
+
+// MARK: - Обобщённый список как модуль палитры
+
+/// Тот же список-пикер, что `GlassListWindowController`, но как `PaletteModule` — живёт внутри окна
+/// палитры (история буфера, аудиоустройства). Переиспользует `Item` и статические билдеры того
+/// контроллера. Хедер рисует палитра (по `titleKey`); опц. кнопка-корзина — в футере модуля.
+final class GlassListModule: NSObject, PaletteModule {
+    typealias Item = GlassListWindowController.Item
+
+    let titleKey: String
+    private let emptyKey: String?
+    private let rowHeight: CGFloat
+    private let maxContentHeight: CGFloat
+    private var clearHandler: (() -> Void)?
+
+    private var items: [Item] = []
+    private var selectedIndex = 0
+    private let listView = CommandListView()
+    private let contentStack = NSStackView()
+    private let scroll = NSScrollView()
+    private let emptyLabel = NSTextField(labelWithString: "")
+    private var clearButton: ClosureButton?
+    private weak var host: PaletteHost?
+
+    private var window: NSWindow? { contentView.window }
+
+    init(titleKey: String, emptyKey: String? = nil, rowHeight: CGFloat = 40, maxContentHeight: CGFloat = 520) {
+        self.titleKey = titleKey
+        self.emptyKey = emptyKey
+        self.rowHeight = rowHeight
+        self.maxContentHeight = maxContentHeight
+        super.init()
+    }
+
+    /// Включает кнопку-корзину в футере (напр. очистка истории): клик — `handler` + закрыть палитру.
+    func enableClearButton(_ handler: @escaping () -> Void) {
+        clearHandler = handler
+    }
+
+    /// Задаёт содержимое списка перед `enterModule` (аналог `prefill` у transform). Форсит сборку
+    /// ленивой вьюхи, чтобы `contentStack`/`emptyLabel` уже существовали.
+    func configure(items: [Item], preselect: Int = 0) {
+        _ = contentView
+        self.items = items
+        rebuild()
+        selectedIndex = items.isEmpty ? -1 : min(max(preselect, 0), items.count - 1)
+        updateSelection()
+        emptyLabel.isHidden = !items.isEmpty
+        clearButton?.isHidden = (clearHandler == nil || items.isEmpty)
+    }
+
+    // MARK: PaletteModule
+
+    private(set) lazy var contentView: NSView = buildContent()
+
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        contentStack.layoutSubtreeIfNeeded()
+        let inner = items.isEmpty ? 60 : contentStack.fittingSize.height + 12
+        // футер: зазор до подсказки (6) + подсказка (~14) + нижний отступ (10) + верхний отступ (6).
+        let footer: CGFloat = 6 + 14 + 10 + 6
+        return min(inner + footer, maxContentHeight)
+    }
+
+    func moduleWillAppear(host: PaletteHost) {
+        self.host = host
+        window?.makeFirstResponder(listView)
+    }
+
+    func handleCommandReturn() -> Bool { false }  // Enter обрабатывает список; ⌘↩ семантики нет
+
+    private func buildContent() -> NSView {
+        let content = NSView()
+
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 4
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.addSubview(contentStack)
+
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.documentView = listView
+        content.addSubview(scroll)
+
+        emptyLabel.stringValue = emptyKey.map { L($0) } ?? ""
+        emptyLabel.font = .systemFont(ofSize: 13)
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.isHidden = true
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(emptyLabel)
+
+        let hint = NSTextField(labelWithString: L("panel.footer"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(hint)
+
+        // Кнопка-корзина в футере (справа), видна только когда включена и список непустой.
+        let clear = ClosureButton(symbol: "trash", tooltip: L("panel.clipboard.clear")) { [weak self] in
+            self?.clearHandler?()
+            self?.host?.closePalette()
+        }
+        clear.translatesAutoresizingMaskIntoConstraints = false
+        clear.isHidden = true
+        content.addSubview(clear)
+        clearButton = clear
+
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            scroll.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -6),
+
+            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
+            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
+            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
+            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
+
+            emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+
+            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(lessThanOrEqualTo: clear.leadingAnchor, constant: -8),
+            hint.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+
+            clear.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            clear.centerYAnchor.constraint(equalTo: hint.centerYAnchor),
+        ])
+
+        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
+        listView.onRun = { [weak self] _ in self?.runIndex(-1) }
+        listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
+        listView.onClose = { [weak self] in self?.host?.dismissModule() }
+        return content
+    }
+
+    private func rebuild() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (index, item) in items.enumerated() {
+            item.setOnClick { [weak self] in self?.runIndex(index) }
+            item.view.translatesAutoresizingMaskIntoConstraints = false
+            item.view.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
+            contentStack.addArrangedSubview(item.view)
+            item.view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+        }
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !items.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + items.count) % items.count
+        updateSelection()
+        items[selectedIndex].view.scrollToVisible(items[selectedIndex].view.bounds)
+    }
+    private func updateSelection() {
+        for (i, item) in items.enumerated() { item.setSelected(i == selectedIndex) }
+    }
+    private func runDigit(_ digit: Int) {
+        guard let index = items.firstIndex(where: { $0.digit == digit }) else { NSSound.beep(); return }
+        runIndex(index)
+    }
+    /// Выбор строки закрывает палитру целиком (как вставка сниппета/transform) и выполняет действие.
+    private func runIndex(_ index: Int) {
+        let target = index < 0 ? selectedIndex : index
+        guard items.indices.contains(target) else { NSSound.beep(); return }
+        let item = items[target]
+        guard item.enabled else { NSSound.beep(); return }
+        host?.closePalette()
+        item.run()
     }
 }
 

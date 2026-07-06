@@ -1,26 +1,6 @@
 import AppKit
 import HopkeyCore
 
-/// Стеклянная панель окна ручного преобразования: ловит Esc (закрыть) и ⌘↩ (вставить
-/// выбранное) на уровне окна — независимо от того, где фокус (поле ввода или сама панель).
-/// Обычный ↩ оставляем полю: текст может быть многострочным.
-private final class TransformInputPanel: NSPanel {
-    var onCommandReturn: (() -> Void)?
-    var onCancel: (() -> Void)?
-
-    override func cancelOperation(_ sender: Any?) { onCancel?() }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let onlyCommand = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask) == .command
-        if onlyCommand, event.charactersIgnoringModifiers == "\r" {
-            onCommandReturn?()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 /// Перевёрнутая вью (origin сверху-слева) — документ NSScrollView списка. Иначе короткий контент
 /// (когда фильтр оставил пару строк) «падает» к низу вьюпорта, а не прижимается к верху.
 ///
@@ -85,17 +65,15 @@ private final class PlaceholderTextView: NSTextView {
     }
 }
 
-/// Окно ручного преобразования текста для команды «Преобразовать выделение».
+/// Ручное преобразование текста как **модуль палитры**: поле ввода сверху, список всех способов
+/// (только названия), фильтр и единое поле результата для **выбранного** способа. Живёт внутри
+/// окна палитры команд (см. `PaletteModule`) — отдельного окна не открывает.
 ///
-/// Открывается, когда в момент вызова команды ничего не выделено. В одном окне: поле ввода
-/// сверху, под ним — список всех преобразований (только названия), а внизу — единое поле
-/// результата, показывающее итог **только для выбранного** способа. Так окно не разрастается
-/// вширь от длинного превью и не рябит десятком строк-результатов сразу.
-///
-/// Пользователь набирает/вставляет текст, кликом выбирает способ (внизу виден результат) и
-/// жмёт «Вставить» (или ⌘↩). Esc закрывает. Саму вставку делает AppDelegate через `onApply`.
-final class TransformInputWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate,
-                                            NSSearchFieldDelegate {
+/// Открывается, когда команда «Преобразовать выделение» вызвана из палитры или напрямую (меню/
+/// хоткей — тогда AppDelegate сперва открывает палитру): выделение (если есть)
+/// префиллит поле ввода. Пользователь выбирает способ (кликом/↑↓), внизу виден результат, и жмёт
+/// «Вставить» (⌘↩). Esc возвращает в корень палитры. Саму вставку делает AppDelegate через `onApply`.
+final class TransformModule: NSObject, PaletteModule, NSTextViewDelegate, NSSearchFieldDelegate {
 
     /// Итоговый (уже преобразованный) текст для вставки в целевое поле.
     var onApply: ((String) -> Void)?
@@ -122,45 +100,52 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
     /// Текущая наведённая строка. Наведение эксклюзивно: при входе в новую строку гасим прежнюю —
     /// иначе потерянный `mouseExited` (быстрый проход по списку) оставляет подсветку залипшей.
     private weak var hoveredRow: CommandRowView?
+    /// Был ли текст префилла пуст на входе — определяет, куда ставить фокус (поле ввода или список).
+    private var prefillWasEmpty = true
+    private weak var host: PaletteHost?
 
-    // Тот же размер, что у основной панели команд (`CommandPanelWindowController`: 470×620) —
-    // единый габарит окон приложения.
-    private static let windowWidth: CGFloat = 470
-    private static let windowHeight: CGFloat = 620
+    private var window: NSWindow? { contentView.window }
 
-    init() {
-        let panel = TransformInputPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: Self.windowHeight),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered, defer: false)
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        super.init(window: panel)
-        panel.delegate = self
-        panel.onCommandReturn = { [weak self] in self?.applySelected() }
-        panel.onCancel = { [weak self] in self?.window?.close() }
-        buildUI()
+    // MARK: - PaletteModule
+
+    let titleKey = "transform.input.title"
+
+    private(set) lazy var contentView: NSView = buildContent()
+
+    /// Модуль высоты не растит от контента — фиксируем как раньше окно (≈620), палитра докинет хедер.
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat { 576 }
+
+    /// Вход в режим: фокус в поле ввода при ручном наборе, в список — когда текст уже подставлен
+    /// (сразу листать ↑↓ и вставлять). Приложение не активируем — палитра уже ключевая (в отличие
+    /// от отдельного окна, которому нужен NSApp.activate).
+    func moduleWillAppear(host: PaletteHost) {
+        self.host = host
+        window?.makeFirstResponder(prefillWasEmpty ? inputView : listContainer)
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+    /// ⌘↩ на уровне окна палитры — вставить выбранное.
+    func handleCommandReturn() -> Bool { applySelected(); return true }
 
-    private func buildUI() {
-        guard let window else { return }
+    /// Подставляет исходный текст и пересобирает результаты/фильтр под него. Вызывать до `enterModule`.
+    func prefill(_ text: String) {
+        // Гарантируем, что ленивый `contentView` (а с ним `rows`/`results` из `buildRows`) построен:
+        // `prefill` может прийти раньше, чем палитра впервые дотянется до вьюхи в `enterModule`.
+        _ = contentView
+        prefillWasEmpty = text.isEmpty
+        inputView.string = text
+        searchField.stringValue = ""
+        filter = ""
+        selectedIndex = -1
+        refreshResults()
+        applyFilter()
+    }
+
+    private func buildContent() -> NSView {
         let content = NSView()
-        installGlass(in: window, content: content)
-
-        let header = Brand.makeHeaderView(title: L("transform.input.title"))
-        header.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header)
 
         let field = boxedTextView(inputView, editable: true, placeholder: L("transform.input.placeholder"))
         inputView.delegate = self
-        inputView.onCancel = { [weak self] in self?.window?.close() }
+        inputView.onCancel = { [weak self] in self?.host?.dismissModule() }
         content.addSubview(field)
 
         // Поле-фильтр над списком: сужает список по названию/термину (jwt, base64…). ↑/↓ и Enter
@@ -182,9 +167,8 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
 
         listContainer.translatesAutoresizingMaskIntoConstraints = false
         listContainer.addSubview(listStack)
-        // Список — третья остановка Tab-цикла (как основной респондент панели): в фокусе сам
-        // разбирает ↑↓/Enter/Esc/Tab. Признак фокуса — подсветка выбранной строки и отсутствие
-        // текстового курсора (он есть только в полях ввода/фильтра), отдельной рамки не рисуем.
+        // Список — третья остановка Tab-цикла: в фокусе сам разбирает ↑↓/Enter/Esc/Tab. Признак
+        // фокуса — подсветка выбранной строки и отсутствие текстового курсора, рамки не рисуем.
         listContainer.focusable = true
         listContainer.onCommand = { [weak self] selector in self?.handleListCommand(selector) ?? false }
 
@@ -240,7 +224,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         insertButton.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(insertButton)
 
-        // Вторичное действие: окно открывается всегда, в т.ч. когда вставлять некуда (нет целевого
+        // Вторичное действие: модуль открывается всегда, в т.ч. когда вставлять некуда (нет целевого
         // поля / Accessibility) — тогда результат можно просто скопировать.
         copyButton.bezelStyle = .rounded
         copyButton.target = self
@@ -252,14 +236,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         content.addSubview(copyButton)
 
         NSLayoutConstraint.activate([
-            // Жёстко фиксируем размер окна — оно не должно расти от контента.
-            content.widthAnchor.constraint(equalToConstant: Self.windowWidth),
-            content.heightAnchor.constraint(equalToConstant: Self.windowHeight),
-
-            header.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 9),
-
-            field.topAnchor.constraint(equalTo: content.topAnchor, constant: 40),
+            field.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
             field.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             field.heightAnchor.constraint(equalToConstant: 76),
@@ -305,6 +282,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
             insertButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             insertButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
         ])
+        return content
     }
 
     /// Собирает поле-текствью в рамке поверх стекла. Текст переносится по ширине (не растёт вправо).
@@ -454,7 +432,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
     }
 
     /// Перемещает выбор по списку на ±1, пропуская скрытые фильтром строки, с заворотом на краях —
-    /// как в основной панели команд (мышечная память единая на все списки приложения).
+    /// как в основной палитре команд (мышечная память единая на все списки приложения).
     private func moveSelection(by delta: Int) {
         let count = transforms.count
         guard (0..<count).contains(where: isSelectable) else { return }
@@ -498,11 +476,13 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         }
     }
 
+    /// Вставка выбранного: закрываем палитру целиком (как вставка сниппета) и отдаём результат
+    /// наружу — AppDelegate вернёт фокус целевому приложению и синтезирует Cmd+V.
     private func applySelected() {
         guard results.indices.contains(selectedIndex), let result = results[selectedIndex] else {
             NSSound.beep(); return
         }
-        window?.close()
+        host?.closePalette()
         onApply?(result)
     }
 
@@ -531,7 +511,7 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         case #selector(NSResponder.moveUp(_:)): moveSelection(by: -1); return true
         case #selector(NSResponder.moveDown(_:)): moveSelection(by: 1); return true
         case #selector(NSResponder.insertNewline(_:)): applySelected(); return true
-        case #selector(NSResponder.cancelOperation(_:)): window?.close(); return true
+        case #selector(NSResponder.cancelOperation(_:)): host?.dismissModule(); return true
         case #selector(NSResponder.insertTab(_:)): window?.makeFirstResponder(inputView); return true
         case #selector(NSResponder.insertBacktab(_:)): window?.makeFirstResponder(searchField); return true
         default: return false
@@ -552,40 +532,10 @@ final class TransformInputWindowController: NSWindowController, NSWindowDelegate
         guard control === searchField else { return false }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)): applySelected(); return true
-        case #selector(NSResponder.cancelOperation(_:)): window?.close(); return true
+        case #selector(NSResponder.cancelOperation(_:)): host?.dismissModule(); return true
         case #selector(NSResponder.insertTab(_:)): window?.makeFirstResponder(listContainer); return true
         case #selector(NSResponder.insertBacktab(_:)): window?.makeFirstResponder(inputView); return true
         default: return false
         }
-    }
-
-    // MARK: - Показ
-
-    /// Показывает окно, ставит фокус в поле. Приложение — `.accessory`, поэтому без
-    /// `NSApp.activate` панель не получит клавиатурный фокус (как в окне быстрого ввода).
-    /// Фокус: если текст уже подставлен (выделение) — ставим на список, чтобы сразу листать
-    /// стрелками и вставлять Enter; если пусто — в поле ввода, там сперва нужно набрать текст.
-    func show(prefill: String = "") {
-        inputView.string = prefill
-        searchField.stringValue = ""
-        filter = ""
-        selectedIndex = -1
-        refreshResults()
-        applyFilter()
-        NSApp.activate(ignoringOtherApps: true)
-        centerOnActiveScreen()
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.makeFirstResponder(prefill.isEmpty ? inputView : listContainer)
-    }
-
-    private func centerOnActiveScreen() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
-        let size = window.frame.size
-        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 }

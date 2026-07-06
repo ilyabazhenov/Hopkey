@@ -76,6 +76,12 @@ enum Brand {
     /// Ставим вместо системного `title` (его прячем через `titleVisibility = .hidden`), чтобы
     /// окно читалось как Hopkey, а не как безымянная системная панель.
     static func makeHeaderView(title: String) -> NSView {
+        makeHeader(title: title).view
+    }
+
+    /// Как `makeHeaderView`, но отдаёт и label — чтобы менять заголовок на лету (палитра меняет его
+    /// под активный модуль).
+    static func makeHeader(title: String) -> (view: NSView, label: NSTextField) {
         let icon = NSImageView(image: markImage ?? NSImage())
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.contentTintColor = .labelColor  // шаблонная марка под цвет заголовка (адаптивна)
@@ -92,7 +98,7 @@ enum Brand {
         stack.spacing = 7
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
-        return stack
+        return (stack, label)
     }
 }
 
