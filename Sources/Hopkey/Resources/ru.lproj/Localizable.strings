@@ -108,6 +108,11 @@
 "cmd.textTransform" = "Преобразовать выделение";
 "transform.window.title" = "Преобразовать текст";
 "settings.command.textTransform" = "Преобразовать текст";
+"transform.input.title" = "Текст для преобразования";
+"transform.input.placeholder" = "Введите или вставьте текст…";
+"transform.input.hint" = "⌘↩ — вставить · Esc — отмена";
+"transform.input.insert" = "Вставить";
+"transform.input.result" = "Результат преобразования";
 "transform.upper" = "ВЕРХНИЙ РЕГИСТР";
 "transform.lower" = "нижний регистр";
 "transform.title" = "Заголовок Как Этот";
@@ -130,6 +135,9 @@
 "transform.sortLinesDesc" = "Сортировать строки Я→А";
 "transform.dedupeLines" = "Убрать дубли строк";
 "transform.reverseLines" = "Перевернуть порядок строк";
+"transform.appendPeriod" = "Добавить точку в конце строк";
+"transform.appendComma" = "Добавить запятую в конце строк";
+"transform.appendSemicolon" = "Добавить точку с запятой в конце строк";
 "cmd.audioOutput" = "Аудиовыход";
 "cmd.audioInput" = "Аудиовход";
 "audio.output.title" = "Аудиовыход";
@@ -146,9 +154,13 @@
 "panel.section.launchers" = "Jira и сниппеты";
 "panel.section.snippets" = "Сниппеты";
 "panel.section.clipboard" = "Буфер";
+"panel.section.volume" = "Громкость и устройства";
+"panel.section.output" = "Выход";
+"panel.section.input" = "Вход";
 "panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
+"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · → ещё · 1–9 · ↩ выполнить · Esc";
 "panel.toggle.on" = "вкл";
 "panel.toggle.off" = "выкл";
 "status.micMuted" = "Микрофон выключен";

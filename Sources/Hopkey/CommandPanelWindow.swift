@@ -18,14 +18,22 @@ private final class CommandListView: NSView {
     var onDigit: ((Int) -> Void)?
     var onClose: (() -> Void)?
     var onMove: ((Int) -> Void)?
+    /// ←/→ по текущему выделению: слайдер меняет уровень, сниппет с несколькими действиями —
+    /// открывает панель действий (только →). Знак: -1 влево, +1 вправо.
+    var onHorizontal: ((Int) -> Void)?
+    /// Tab — панель вторичных действий текущего выделения (сниппет).
+    var onSecondary: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
 
     override func keyDown(with event: NSEvent) {
         switch Int(event.keyCode) {
-        case 125: onMove?(1)     // ↓
-        case 126: onMove?(-1)    // ↑
+        case 125: onMove?(1)         // ↓
+        case 126: onMove?(-1)        // ↑
+        case 123: onHorizontal?(-1)  // ←
+        case 124: onHorizontal?(1)   // →
+        case 48:  onSecondary?()     // Tab
         case 36, 76: onRun?(-1)  // Return — по текущему выделению
         case 53: onClose?()      // Esc
         default:
@@ -112,9 +120,10 @@ private final class CommandTileView: NSView {
         case .attention:
             fill = NSColor.systemRed.withAlphaComponent(0.14); stroke = .systemRed; fg = .systemRed
         case .active:
-            fill = NSColor.controlAccentColor.withAlphaComponent(0.14)
-            stroke = .controlAccentColor
-            fg = .controlAccentColor
+            // Янтарь для включённого тумблера — чтобы не конфликтовать с синей рамкой выделения.
+            fill = NSColor.systemOrange.withAlphaComponent(0.16)
+            stroke = .systemOrange
+            fg = .systemOrange
         case .inactive:
             fill = .clear; stroke = .separatorColor; fg = .secondaryLabelColor
         }
@@ -181,7 +190,7 @@ private final class ClosureButton: NSButton {
 /// Строка (действие / лончер / сниппет): номер + иконка + название + трейлинг (хоткей действия
 /// или тип сниппета). У сниппетов на hover/выборе трейлинг сменяется кнопками действий.
 /// Выделение — нейтральная акцентная заливка, hover — слабая серая.
-private final class CommandRowView: NSView {
+final class CommandRowView: NSView {
     var onClick: (() -> Void)?
     var onHover: ((Bool) -> Void)?
 
@@ -191,6 +200,7 @@ private final class CommandRowView: NSView {
     private let trailingLabel = NSTextField(labelWithString: "")
     private let actionsStack = NSStackView()
     private var hasActions = false
+    private var actionsData: [(symbol: String, tooltip: String, run: () -> Void)] = []
     private var tracking: NSTrackingArea?
 
     var isSelected = false { didSet { refreshBackground(); updateActionsVisibility() } }
@@ -261,8 +271,33 @@ private final class CommandRowView: NSView {
             actionsStack.addArrangedSubview(
                 ClosureButton(symbol: action.symbol, tooltip: action.tooltip, handler: action.run))
         }
+        actionsData = actions
         hasActions = !actions.isEmpty
         updateActionsVisibility()
+    }
+
+    /// Есть ли вторичные действия — контроллер решает, вешать ли на строку клавиатурный вызов (→/Tab).
+    var hasSecondaryActions: Bool { hasActions }
+
+    /// Клавиатурный вызов панели вторичных действий (→/Tab): одно действие — выполняем сразу,
+    /// несколько — открываем нативное меню у правого края строки.
+    func triggerActionPanel() {
+        guard !actionsData.isEmpty else { NSSound.beep(); return }
+        if actionsData.count == 1 { actionsData[0].run(); return }
+        let menu = NSMenu()
+        for (index, action) in actionsData.enumerated() {
+            let item = NSMenuItem(title: action.tooltip, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            item.image = NSImage(systemSymbolName: action.symbol, accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.width - 40, y: bounds.height), in: self)
+    }
+
+    @objc private func runMenuAction(_ sender: NSMenuItem) {
+        guard actionsData.indices.contains(sender.tag) else { return }
+        actionsData[sender.tag].run()
     }
 
     private func updateActionsVisibility() {
@@ -291,6 +326,139 @@ private final class CommandRowView: NSView {
         else { color = .clear }
         layer?.backgroundColor = color.cgColor
     }
+}
+
+/// Выбор аудиоустройства: текущее имя для подписи + список для выпадашки.
+struct SliderDevice {
+    struct Option { let id: AudioDeviceID; let name: String; let isCurrent: Bool }
+    let currentName: String
+    let options: [Option]
+    let onPick: (AudioDeviceID) -> Void
+}
+
+/// Кнопка-выпадашка выбора устройства: текущее имя + шеврон, клик — нативное меню со списком
+/// (галочка на текущем). Живёт в заголовке направления справа («выход»/«вход» слева).
+private final class DeviceMenuButton: NSButton {
+    private var options: [SliderDevice.Option] = []
+    private var onPick: ((AudioDeviceID) -> Void)?
+
+    init(device: SliderDevice) {
+        super.init(frame: .zero)
+        isBordered = false
+        setButtonType(.momentaryChange)
+        image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
+        imagePosition = .imageRight
+        imageScaling = .scaleProportionallyDown
+        contentTintColor = .secondaryLabelColor
+        font = .systemFont(ofSize: 11, weight: .medium)
+        alignment = .right
+        (cell as? NSButtonCell)?.lineBreakMode = .byTruncatingTail
+        target = self
+        action = #selector(showMenu)
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        options = device.options
+        onPick = device.onPick
+        title = device.currentName
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    @objc private func showMenu() {
+        guard !options.isEmpty else { return }
+        let menu = NSMenu()
+        for option in options {
+            let item = NSMenuItem(title: option.name, action: #selector(pick(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: option.id)
+            item.state = option.isCurrent ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+    }
+    @objc private func pick(_ sender: NSMenuItem) {
+        guard let id = (sender.representedObject as? NSNumber)?.uint32Value else { return }
+        title = sender.title
+        options = options.map { .init(id: $0.id, name: $0.name, isCurrent: $0.id == id) }
+        onPick?(id)
+    }
+}
+
+/// Строка-слайдер (одна на направление): иконка + ползунок (0…1) во всю ширину с живым процентом.
+/// Устройство живёт в заголовке над строкой (см. `makeDeviceHeader`). Панель не закрывается.
+/// Выделяется стрелками (фон-подсветка), ←/→ меняют уровень (`nudge`).
+private final class SliderRowView: NSView {
+    var onChange: ((Float) -> Void)?
+
+    private let iconView = NSImageView()
+    private let slider = NSSlider()
+    private let valueLabel = NSTextField(labelWithString: "")
+
+    var isSelected = false { didSet { refreshBackground() } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        slider.minValue = 0
+        slider.maxValue = 1
+        slider.isContinuous = true
+        slider.target = self
+        slider.action = #selector(changed)
+        slider.translatesAutoresizingMaskIntoConstraints = false
+        // Живой процент справа — иначе по одному положению ползунка уровень не считать.
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.alignment = .right
+        valueLabel.isEditable = false; valueLabel.isBordered = false; valueLabel.drawsBackground = false
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        addSubview(iconView); addSubview(slider); addSubview(valueLabel)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 18),
+            iconView.heightAnchor.constraint(equalToConstant: 18),
+            slider.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
+            slider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            slider.trailingAnchor.constraint(equalTo: valueLabel.leadingAnchor, constant: -10),
+            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            valueLabel.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
+            valueLabel.widthAnchor.constraint(equalToConstant: 34),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    func configure(symbol: String, value: Float) {
+        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        slider.floatValue = value
+        valueLabel.stringValue = Self.percent(value)
+    }
+
+    /// ←/→ на выделенной строке: шаг 5 %, с обрезкой в [0…1] и живым колбэком.
+    func nudge(_ delta: Int) {
+        let step: Float = 0.05
+        let value = max(0, min(1, slider.floatValue + Float(delta) * step))
+        slider.floatValue = value
+        valueLabel.stringValue = Self.percent(value)
+        onChange?(value)
+    }
+
+    private func refreshBackground() {
+        layer?.backgroundColor = (isSelected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.12) : NSColor.clear).cgColor
+    }
+
+    @objc private func changed() {
+        valueLabel.stringValue = Self.percent(slider.floatValue)
+        onChange?(slider.floatValue)
+    }
+
+    private static func percent(_ value: Float) -> String { "\(Int((value * 100).rounded()))%" }
 }
 
 /// Строка окна истории буфера: номер быстрого выбора + предпросмотр текста, паста-глиф на hover.
@@ -377,6 +545,24 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
     /// Панель закрылась (Esc/выбор/клик мимо) — вызывающий сбрасывает состояние жеста-триггера.
     var onClose: (() -> Void)?
 
+    /// Слайдер громкости в панели: иконка, стартовое значение (0…1), живой колбэк изменения и
+    /// опциональное аудиоустройство для встроенной выпадашки выбора.
+    struct VolumeSlider {
+        let title: String       // заголовок направления («Выход»/«Вход»)
+        let symbol: String
+        let value: Float
+        let device: SliderDevice?
+        let onChange: (Float) -> Void
+        init(title: String, symbol: String, value: Float, device: SliderDevice? = nil,
+             onChange: @escaping (Float) -> Void) {
+            self.title = title
+            self.symbol = symbol
+            self.value = value
+            self.device = device
+            self.onChange = onChange
+        }
+    }
+
     /// Одна выбираемая позиция панели (плитка или строка) в визуальном порядке.
     /// `digit` — номер быстрого выбора 1–9 (nil у истории: она номера не расходует).
     private struct Entry {
@@ -384,6 +570,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let digit: Int?
         let setSelected: (Bool) -> Void
         let run: () -> Void
+        /// ←/→ на выделении (слайдер меняет уровень); nil у обычных строк.
+        var adjust: ((Int) -> Void)? = nil
+        /// →/Tab на выделении (вторичные действия сниппета); nil если их нет.
+        var secondary: (() -> Void)? = nil
     }
     private var entries: [Entry] = []
     private var selectedIndex = 0
@@ -442,7 +632,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         scroll.documentView = listView
         content.addSubview(scroll)
 
-        let hint = NSTextField(labelWithString: L("panel.footer"))
+        let hint = NSTextField(labelWithString: L("panel.footer.commands"))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
@@ -478,13 +668,32 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         listView.onRun = { [weak self] index in self?.runIndex(index) }
         listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
         listView.onClose = { [weak self] in self?.window?.close() }
+        listView.onHorizontal = { [weak self] delta in self?.horizontalOnSelection(delta) }
+        listView.onSecondary = { [weak self] in self?.secondaryOnSelection() }
+    }
+
+    /// ←/→ по выделению: слайдер меняет уровень; сниппет (только →) открывает вторичные действия.
+    private func horizontalOnSelection(_ delta: Int) {
+        guard entries.indices.contains(selectedIndex) else { return }
+        let entry = entries[selectedIndex]
+        if let adjust = entry.adjust {
+            adjust(delta)
+        } else if delta > 0, let secondary = entry.secondary {
+            secondary()
+        }
+    }
+
+    /// Tab по выделению: вторичные действия сниппета (если есть).
+    private func secondaryOnSelection() {
+        guard entries.indices.contains(selectedIndex) else { return }
+        entries[selectedIndex].secondary?()
     }
 
     /// Показывает панель. `commands` — команды тулбокса (без лончера сниппетов; сами сниппеты
     /// идут построчно в `snippets`).
-    func show(commands: [ToolboxCommand], snippets: [Snippet]) {
+    func show(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider] = []) {
         finished = false
-        rebuild(commands: commands, snippets: snippets)
+        rebuild(commands: commands, snippets: snippets, sliders: sliders)
         sizeToFit()
         centerOnActiveScreen()
         showWindow(nil)
@@ -493,7 +702,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         window?.makeFirstResponder(listView)
     }
 
-    private func rebuild(commands: [ToolboxCommand], snippets: [Snippet]) {
+    private func rebuild(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider]) {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         entries.removeAll()
         digitCounter = 0
@@ -513,10 +722,41 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
             if !pair.isEmpty { addTileRow(pair) }
         }
 
-        // Зона «действия» — строки (paste-plain, открыть тикет).
+        // Громкость: каждое направление — свой заголовок («выход»/«вход») с выпадашкой устройства
+        // справа, под ним слайдер во всю ширину. Слайдеры выбираются стрелками (без номера 1–9),
+        // ←/→ на выделении меняют уровень.
+        for spec in sliders {
+            let header = makeDeviceHeader(spec.title, device: spec.device)
+            contentStack.addArrangedSubview(header)
+            header.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+            let row = SliderRowView()
+            row.configure(symbol: spec.symbol, value: spec.value)
+            row.onChange = spec.onChange
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            contentStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            entries.append(Entry(view: row, digit: nil,
+                                 setSelected: { [weak row] in row?.isSelected = $0 },
+                                 run: {},
+                                 adjust: { [weak row] delta in row?.nudge(delta) }))
+        }
+
+        // Зона «действия» — компактные строки по две в ряд. Колонки делим по центральной оси
+        // (см. addTwoColumnRow), а не через fillEqually: у строки с трейлинг-хоткеем ширина
+        // контента иная, и fillEqually сдвигал правую колонку — центр же стоит на месте всегда.
         if !actions.isEmpty {
             addHeader(L("panel.section.actions"), trailing: nil)
-            for command in actions { addRow(makeCommandRow(command)) }
+            var pair: [NSView] = []
+            for command in actions {
+                let row = makeCommandRow(command)
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.heightAnchor.constraint(equalToConstant: 34).isActive = true
+                pair.append(row)
+                if pair.count == 2 { addTwoColumnRow(pair); pair = [] }
+            }
+            if !pair.isEmpty { addTwoColumnRow(pair) }
         }
 
         // Зона «сниппеты» — каждый в один клик.
@@ -567,6 +807,39 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
     }
 
+    /// Ряд из двух колонок, делённый по центральной оси контейнера: правая колонка всегда
+    /// начинается на середине (+полузазор), поэтому её левый край стоит на одном X во всех рядах —
+    /// в отличие от fillEqually, который при разной ширине контента колонки разъезжается. Высоту
+    /// ряда задаёт height-констрейнт самих вложенных строк.
+    private func addTwoColumnRow(_ views: [NSView]) {
+        guard let left = views.first else { return }
+        let gap: CGFloat = 10
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(container)
+        container.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        left.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(left)
+        NSLayoutConstraint.activate([
+            left.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            left.topAnchor.constraint(equalTo: container.topAnchor),
+            left.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            left.trailingAnchor.constraint(equalTo: container.centerXAnchor, constant: -gap / 2),
+        ])
+        if views.count > 1 {
+            let right = views[1]
+            right.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(right)
+            NSLayoutConstraint.activate([
+                right.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: gap / 2),
+                right.topAnchor.constraint(equalTo: container.topAnchor),
+                right.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                right.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            ])
+        }
+    }
+
     // MARK: Строки
 
     private func makeCommandRow(_ command: ToolboxCommand) -> CommandRowView {
@@ -599,7 +872,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
         entries.append(Entry(view: row, digit: digit,
                              setSelected: { [weak row] in row?.isSelected = $0 },
-                             run: { [weak self] in self?.runSnippet(snippet) }))
+                             run: { [weak self] in self?.runSnippet(snippet) },
+                             secondary: row.hasSecondaryActions ? { [weak row] in row?.triggerActionPanel() } : nil))
         return row
     }
 
@@ -616,6 +890,36 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         let header = makeHeader(text, trailing: trailing)
         contentStack.addArrangedSubview(header)
         header.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+    }
+
+    /// Заголовок аудионаправления: «выход»/«вход» слева, выпадашка текущего устройства справа
+    /// (усекается по ширине панели, но имя видно целиком в самом меню). Клик по имени не закрывает
+    /// панель.
+    private func makeDeviceHeader(_ text: String, device: SliderDevice?) -> NSView {
+        let left = NSTextField(labelWithString: text.lowercased())
+        left.font = .systemFont(ofSize: 11); left.textColor = .secondaryLabelColor
+        left.isEditable = false; left.isBordered = false; left.drawsBackground = false
+        left.translatesAutoresizingMaskIntoConstraints = false
+        left.setContentHuggingPriority(.required, for: .horizontal)
+        left.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(left)
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(equalToConstant: 26),
+            left.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            left.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+        ])
+        if let device {
+            let button = DeviceMenuButton(device: device)
+            container.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+                button.firstBaselineAnchor.constraint(equalTo: left.firstBaselineAnchor),
+                button.leadingAnchor.constraint(greaterThanOrEqualTo: left.trailingAnchor, constant: 8),
+            ])
+        }
+        return container
     }
 
     private func makeHeader(_ text: String, trailing: String?) -> NSView {
@@ -714,19 +1018,26 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
         contentStack.layoutSubtreeIfNeeded()
         let content = contentStack.fittingSize.height + 12  // + верх/низ отступы listView
         let chrome: CGFloat = 36 + 6 + 11 + 10 + 6  // заголовок + зазоры + футер
-        let height = min(content + chrome, Self.maxHeight)
+        // Потолок — по высоте активного экрана (минус поля), чтобы фикс-часть + разумный список
+        // сниппетов помещались без скролла; `maxHeight` остаётся фолбэком, если экрана нет.
+        let ceiling = activeScreen().map { $0.visibleFrame.height - 40 } ?? Self.maxHeight
+        let height = min(content + chrome, ceiling)
         // Сохраняем верхнюю кромку окна — при разворачивании секции панель растёт вниз, не «прыгает».
         let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
         window.setContentSize(NSSize(width: Self.width, height: height))
         window.setFrameTopLeftPoint(topLeft)
     }
 
+    /// Экран под курсором (или основной) — общая опора для потолка высоты и центрирования.
+    private func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
     private func centerOnActiveScreen() {
         guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { window.center(); return }
+        guard let area = activeScreen()?.visibleFrame else { window.center(); return }
         let size = window.frame.size
         window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
@@ -770,7 +1081,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate {
 
 /// Оборачивает контент окна в Liquid Glass (macOS 26) или матовое стекло (фолбэк). Переиспользуют
 /// панель команд и окно истории буфера.
-private func installGlass(in window: NSWindow, content: NSView) {
+func installGlass(in window: NSWindow, content: NSView) {
     window.isOpaque = false
     window.backgroundColor = .clear
     content.translatesAutoresizingMaskIntoConstraints = false
@@ -800,7 +1111,7 @@ private func installGlass(in window: NSWindow, content: NSView) {
 }
 
 /// Однострочный обрезанный предпросмотр значения из истории буфера.
-private func historyPreview(_ text: String) -> String {
+func historyPreview(_ text: String) -> String {
     let oneLine = text.replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\t", with: " ")
         .trimmingCharacters(in: .whitespaces)
@@ -1074,7 +1385,7 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         return (items, preselect)
     }
 
-    private static func transformSymbol(_ t: TextTransform) -> String {
+    static func transformSymbol(_ t: TextTransform) -> String {
         switch t {
         case .upper, .lower, .title, .camel, .snake, .kebab, .constant, .slug: return "textformat"
         case .trim, .collapseSpaces, .removeEmptyLines, .joinLines: return "wand.and.stars"
@@ -1082,6 +1393,7 @@ final class GlassListWindowController: NSWindowController, NSWindowDelegate {
         case .urlEncode, .urlDecode: return "link"
         case .base64Encode, .base64Decode: return "barcode"
         case .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines: return "arrow.up.arrow.down"
+        case .appendPeriod, .appendComma, .appendSemicolon: return "text.append"
         }
     }
     private static func audioSymbol(_ transport: UInt32) -> String {

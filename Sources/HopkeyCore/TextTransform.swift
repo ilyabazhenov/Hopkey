@@ -12,6 +12,8 @@ public enum TextTransform: String, CaseIterable {
     case jsonPretty, jsonMinify, urlEncode, urlDecode, base64Encode, base64Decode
     // Строки
     case sortLines, sortLinesDesc, dedupeLines, reverseLines
+    // Пунктуация: добавить символ в конец каждой строки
+    case appendPeriod, appendComma, appendSemicolon
 
     /// Ключ локализации отображаемого имени.
     public var titleKey: String { "transform.\(rawValue)" }
@@ -44,6 +46,10 @@ public enum TextTransform: String, CaseIterable {
         case .sortLinesDesc: return Self.sortLines(text, ascending: false)
         case .dedupeLines: return Self.dedupeLines(text)
         case .reverseLines: return Self.lines(text).reversed().joined(separator: "\n")
+
+        case .appendPeriod: return Self.appendToLines(text, ".")
+        case .appendComma: return Self.appendToLines(text, ",")
+        case .appendSemicolon: return Self.appendToLines(text, ";")
         }
     }
 
@@ -130,6 +136,18 @@ public enum TextTransform: String, CaseIterable {
     static func dedupeLines(_ text: String) -> String {
         var seen = Set<String>()
         return lines(text).filter { seen.insert($0).inserted }.joined(separator: "\n")
+    }
+
+    /// Добавляет `suffix` в конец каждой непустой строки. Пустые/пробельные строки не трогает;
+    /// строку, уже оканчивающуюся на этот символ, не дублирует. Хвостовые пробелы срезает,
+    /// чтобы символ вставал сразу за содержимым.
+    static func appendToLines(_ text: String, _ suffix: Character) -> String {
+        lines(text).map { line in
+            let trimmedRight = String(line.reversed().drop { $0 == " " || $0 == "\t" }.reversed())
+            guard !trimmedRight.isEmpty else { return line }
+            guard trimmedRight.last != suffix else { return trimmedRight }
+            return trimmedRight + String(suffix)
+        }.joined(separator: "\n")
     }
 
     // MARK: - Кодирование

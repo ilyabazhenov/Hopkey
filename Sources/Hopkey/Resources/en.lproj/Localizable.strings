@@ -108,6 +108,11 @@
 "cmd.textTransform" = "Transform selection";
 "transform.window.title" = "Transform text";
 "settings.command.textTransform" = "Transform text";
+"transform.input.title" = "Text to transform";
+"transform.input.placeholder" = "Type or paste text…";
+"transform.input.hint" = "⌘↩ — insert · Esc — cancel";
+"transform.input.insert" = "Insert";
+"transform.input.result" = "Transformation result";
 "transform.upper" = "UPPERCASE";
 "transform.lower" = "lowercase";
 "transform.title" = "Title Case";
@@ -130,6 +135,9 @@
 "transform.sortLinesDesc" = "Sort lines Z→A";
 "transform.dedupeLines" = "Remove duplicate lines";
 "transform.reverseLines" = "Reverse line order";
+"transform.appendPeriod" = "Add period at line ends";
+"transform.appendComma" = "Add comma at line ends";
+"transform.appendSemicolon" = "Add semicolon at line ends";
 "cmd.audioOutput" = "Audio output";
 "cmd.audioInput" = "Audio input";
 "audio.output.title" = "Audio output";
@@ -146,9 +154,13 @@
 "panel.section.launchers" = "Jira and snippets";
 "panel.section.snippets" = "Snippets";
 "panel.section.clipboard" = "Clipboard";
+"panel.section.volume" = "Volume & devices";
+"panel.section.output" = "Output";
+"panel.section.input" = "Input";
 "panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
+"panel.footer.commands" = "↑↓ move · ←→ volume · → more · 1–9 · ↩ run · Esc";
 "panel.toggle.on" = "on";
 "panel.toggle.off" = "off";
 "status.micMuted" = "Microphone muted";

@@ -34,6 +34,59 @@ final class AudioDeviceController {
         setDefault(id, selectors: [kAudioHardwarePropertyDefaultInputDevice])
     }
 
+    // MARK: - Громкость (для слайдеров в панели)
+
+    /// Громкость выхода/входа дефолтного устройства (0…1), nil — устройство её не поддерживает.
+    func outputVolume() -> Float? {
+        deviceVolume(defaultDevice(selector: kAudioHardwarePropertyDefaultOutputDevice),
+                     scope: kAudioObjectPropertyScopeOutput)
+    }
+    func inputVolume() -> Float? {
+        deviceVolume(defaultDevice(selector: kAudioHardwarePropertyDefaultInputDevice),
+                     scope: kAudioObjectPropertyScopeInput)
+    }
+    func setOutputVolume(_ v: Float) {
+        setDeviceVolume(v, device: defaultDevice(selector: kAudioHardwarePropertyDefaultOutputDevice),
+                        scope: kAudioObjectPropertyScopeOutput)
+    }
+    func setInputVolume(_ v: Float) {
+        setDeviceVolume(v, device: defaultDevice(selector: kAudioHardwarePropertyDefaultInputDevice),
+                        scope: kAudioObjectPropertyScopeInput)
+    }
+
+    /// Элементы, которые пробуем: мастер (0) и первые два канала (у части устройств настраивается
+    /// не мастер, а каналы 1/2).
+    private static let volumeElements: [UInt32] = [kAudioObjectPropertyElementMain, 1, 2]
+
+    private func deviceVolume(_ device: AudioDeviceID?, scope: AudioObjectPropertyScope) -> Float? {
+        guard let device else { return nil }
+        for element in Self.volumeElements {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar, mScope: scope, mElement: element)
+            guard AudioObjectHasProperty(device, &address) else { continue }
+            var value: Float32 = 0
+            var size = UInt32(MemoryLayout<Float32>.size)
+            if AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr { return value }
+        }
+        return nil
+    }
+
+    private func setDeviceVolume(_ v: Float, device: AudioDeviceID?, scope: AudioObjectPropertyScope) {
+        guard let device else { return }
+        let clamped = Float32(max(0, min(1, v)))
+        for element in Self.volumeElements {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar, mScope: scope, mElement: element)
+            var settable: DarwinBoolean = false
+            guard AudioObjectHasProperty(device, &address),
+                  AudioObjectIsPropertySettable(device, &address, &settable) == noErr, settable.boolValue
+            else { continue }
+            var value = clamped
+            _ = AudioObjectSetPropertyData(device, &address, 0, nil,
+                                           UInt32(MemoryLayout<Float32>.size), &value)
+        }
+    }
+
     // MARK: - CoreAudio helpers
 
     private func devices(scope: AudioObjectPropertyScope) -> [AudioDevice] {

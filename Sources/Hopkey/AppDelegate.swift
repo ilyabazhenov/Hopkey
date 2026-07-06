@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import HopkeyCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -298,10 +299,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Запоминаем активное приложение — сниппет/paste вставятся туда, где стоял курсор.
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         // Сниппеты показываем построчно (каждый в один клик), поэтому лончер сниппетов из
-        // панели убираем; ⌃⌥V по-прежнему открывает полный пикер.
-        let panelCommands = commands.filter { $0.id != .snippets }
-        commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets)
+        // панели убираем; ⌃⌥V по-прежнему открывает полный пикер. Аудиовыход/вход в панели живут
+        // выпадашкой прямо в слайдерах, поэтому одноимённые действия из грида тоже убираем (в
+        // меню-баре и по хоткею они остаются).
+        let panelCommands = commands.filter {
+            $0.id != .snippets && $0.id != .audioOutput && $0.id != .audioInput
+        }
+        commandPanel.show(commands: panelCommands, snippets: snippetStore.snippets,
+                          sliders: volumeSliders())
         panelIsOpen = true
+    }
+
+    /// Слайдеры громкости в панели: выход и вход микрофона — только те, что устройство
+    /// реально поддерживает (иначе значение nil и слайдер не показываем).
+    private func volumeSliders() -> [CommandPanelWindowController.VolumeSlider] {
+        var result: [CommandPanelWindowController.VolumeSlider] = []
+        if let out = audio.outputVolume() {
+            let device = sliderDevice(audio.outputDevices(), currentID: audio.currentOutputDeviceID()) {
+                [weak self] id in self?.audio.setOutput(id)
+            }
+            result.append(.init(title: L("panel.section.output"), symbol: "speaker.wave.2.fill",
+                                value: out, device: device) { [weak self] v in
+                self?.audio.setOutputVolume(v)
+            })
+        }
+        if let input = audio.inputVolume() {
+            let device = sliderDevice(audio.inputDevices(), currentID: audio.currentInputDeviceID()) {
+                [weak self] id in self?.audio.setInput(id)
+            }
+            result.append(.init(title: L("panel.section.input"), symbol: "mic.fill",
+                                value: input, device: device) { [weak self] v in
+                self?.audio.setInputVolume(v)
+            })
+        }
+        return result
+    }
+
+    /// Собирает встроенную выпадашку выбора устройства для слайдера; nil — если устройств нет.
+    private func sliderDevice(_ devices: [AudioDevice], currentID: AudioDeviceID?,
+                              onPick: @escaping (AudioDeviceID) -> Void) -> SliderDevice? {
+        guard !devices.isEmpty else { return nil }
+        let options = devices.map {
+            SliderDevice.Option(id: $0.id, name: $0.name, isCurrent: $0.id == currentID)
+        }
+        let currentName = devices.first { $0.id == currentID }?.name ?? devices[0].name
+        return SliderDevice(currentName: currentName, options: options, onPick: onPick)
     }
 
     // Четыре пикера на одном обобщённом окне-списке (GlassListWindowController); специфику строк
@@ -326,25 +368,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Окно преобразований выделенного текста.
     private lazy var transformWindow = GlassListWindowController(titleKey: "transform.window.title",
                                                                  width: 500, maxHeight: 600)
+    /// Окно ручного преобразования (поле ввода + список преобразований с превью + «Вставить»),
+    /// когда в момент вызова команды ничего не выделено.
+    private lazy var transformInputWindow: TransformInputWindowController = {
+        let controller = TransformInputWindowController()
+        controller.onApply = { [weak self] result in self?.pasteTransform(result) }
+        return controller
+    }()
 
     /// Команда «Преобразовать выделение»: снимает выделение (Cmd+C), открывает пикер с превью.
+    /// Если ничего не выделено (и буфер пуст) — открываем поле ручного ввода вместо «бип».
     /// Без Accessibility снять выделение нельзя — источником берём буфер.
     private func openTextTransforms() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
-            showTransforms(source: NSPasteboard.general.string(forType: .string) ?? "")
+            let clip = NSPasteboard.general.string(forType: .string) ?? ""
+            clip.isEmpty ? promptTransformInput() : showTransforms(source: clip)
             HotKeyManager.ensureAccessibility(prompt: true)
             return
         }
         hotKey.captureSelection { [weak self] selection in
             guard let self else { return }
             self.clipboard.syncChangeCount()
-            self.showTransforms(source: selection ?? NSPasteboard.general.string(forType: .string) ?? "")
+            if let selection, !selection.isEmpty {
+                self.showTransforms(source: selection)
+            } else {
+                self.promptTransformInput()
+            }
         }
     }
 
+    /// Открывает окно ручного ввода: пользователь сам набирает текст для преобразования.
+    private func promptTransformInput() {
+        transformInputWindow.show()
+    }
+
     private func showTransforms(source: String) {
-        guard !source.isEmpty else { NSSound.beep(); return }
+        guard !source.isEmpty else { promptTransformInput(); return }
         let items = GlassListWindowController.transformItems(source: source) { [weak self] result in
             self?.pasteTransform(result)
         }
@@ -373,11 +433,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.
+    /// Возвращаем фокус целевому приложению: при ручном вводе окно ввода активировало Hopkey,
+    /// иначе Cmd+V ушёл бы не в то поле (в обычном пути пикер не забирает фокус — activate no-op).
     private func pasteTransform(_ text: String) {
+        let target = snippetTargetApp
+        snippetTargetApp = nil
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             URLOpener.copy(text); clipboard.syncChangeCount(); return
         }
-        hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
+        target?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self else { return }
+            self.hotKey.paste(text) { self.clipboard.syncChangeCount() }
+        }
     }
 
     /// Маршрутизирует конкретное действие сниппета из панели (первичное или вторичное).

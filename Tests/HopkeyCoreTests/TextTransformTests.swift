@@ -78,6 +78,16 @@ final class TextTransformTests: XCTestCase {
 
     // MARK: Разбор слов
 
+    func testAppendToLines() {
+        // Символ добавляется в конец каждой непустой строки.
+        XCTAssertEqual(apply(.appendPeriod, "one\ntwo"), "one.\ntwo.")
+        XCTAssertEqual(apply(.appendComma, "one\ntwo"), "one,\ntwo,")
+        XCTAssertEqual(apply(.appendSemicolon, "a\nb"), "a;\nb;")
+        // Пустые строки не трогаем, уже стоящий символ не дублируем, хвостовые пробелы срезаем.
+        XCTAssertEqual(apply(.appendPeriod, "one\n\ntwo."), "one.\n\ntwo.")
+        XCTAssertEqual(apply(.appendPeriod, "one  "), "one.")
+    }
+
     func testWordSplitting() {
         XCTAssertEqual(TextTransform.words("helloWorld"), ["hello", "World"])
         XCTAssertEqual(TextTransform.words("hello_world foo"), ["hello", "world", "foo"])
@@ -91,6 +101,7 @@ final class TextTransformTests: XCTestCase {
             .upper, .lower, .title, .camel, .snake, .kebab, .constant, .slug,
             .trim, .collapseSpaces, .removeEmptyLines, .joinLines,
             .urlEncode, .base64Encode, .sortLines, .sortLinesDesc, .dedupeLines, .reverseLines,
+            .appendPeriod, .appendComma, .appendSemicolon,
         ]
         for t in alwaysApplicable {
             XCTAssertNotNil(t.apply(to: "hello world"), "\(t) вернул nil")
