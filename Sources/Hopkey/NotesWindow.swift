@@ -54,6 +54,8 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     private var didCenter = false
     /// Дебаунс сброса на диск: правки кэшируются сразу, файл переписываем по паузе в наборе.
     private var saveTimer: Timer?
+    /// Идёт авто-перенумерация нумерованного списка — гасит рекурсию через `textDidChange`.
+    private var isRenumbering = false
 
     // Размер сопоставим с палитрой команд (та ~470 шириной) — заметки это рабочая поверхность,
     // а не крохотный попап. Пользовательский ресайз запоминается (frameAutosaveName ниже).
@@ -273,15 +275,31 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         guard let window else { return }
         loadDot()
         if !didCenter {
-            // Восстанавливаем сохранённое положение; если его нет (первый запуск) — центрируем.
-            if !window.setFrameUsingName(Self.frameAutosaveName) { window.center() }
+            // Разово восстанавливаем сохранённый размер/позицию (если есть).
+            _ = window.setFrameUsingName(Self.frameAutosaveName)
             didCenter = true
         }
+        moveToActiveScreenIfNeeded()  // открыть там, где работаешь (экран под курсором), а не на main
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(textView)
         // Курсор в конец текста — сразу можно дописывать.
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+    }
+
+    /// Экран, где сейчас работает пользователь — под курсором мыши (как у палитры), иначе main.
+    private func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    /// Если окно не на активном экране — центрирует его там (размер сохраняем). Если уже на нём —
+    /// не трогаем позицию, чтобы уважать ручное перемещение пользователя.
+    private func moveToActiveScreenIfNeeded() {
+        guard let window, let screen = activeScreen(), window.screen !== screen else { return }
+        let area = screen.visibleFrame
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 
     /// Открывает окно сразу на указанной точке (вызов из инлайн-полосы палитры). Если окно уже
@@ -336,6 +354,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     // MARK: - Редактирование
 
     func textDidChange(_ notification: Notification) {
+        renumberOrderedListsIfNeeded()  // может переписать номера пунктов (удаление/вставка)
         store.update(textView.string, at: activeDot)  // кэш — сразу (highlighter красит через делегат)
         updateCount()
         dotBar.setEmpty(store.isEmpty(at: activeDot), at: activeDot)  // «пустая» точка бледнеет живьём
@@ -352,6 +371,54 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     /// Абзац, в котором стоит курсор (для раскрытия его маркеров в rich-режиме).
     private func paragraphOfCaret() -> NSRange {
         (textView.string as NSString).paragraphRange(for: textView.selectedRange())
+    }
+
+    /// Разбор нумерованной строки: отступ, номер, текст пункта. nil — не «N. …».
+    private func orderedInfo(_ line: String) -> (indent: String, number: Int, content: String)? {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        let digits = rest.prefix { $0.isNumber }
+        guard !digits.isEmpty, let number = Int(digits) else { return nil }
+        let after = rest.dropFirst(digits.count)
+        guard after.first == ".", after.dropFirst().first == " " else { return nil }
+        return (String(indent), number, String(after.dropFirst(2)))
+    }
+
+    /// Перенумеровывает смежные блоки нумерованного списка последовательно от номера первого пункта
+    /// (удалил/вставил пункт — остальные подстроились). Блок — идущие подряд строки «N. …» с
+    /// одинаковым отступом. Правит текст одним undo-шагом, курсор сохраняем. Только в rich-режиме.
+    private func renumberOrderedListsIfNeeded() {
+        guard highlighter.formatted, !isRenumbering else { return }
+        var lines = textView.string.components(separatedBy: "\n")
+        var changed = false
+        var i = 0
+        while i < lines.count {
+            guard let head = orderedInfo(lines[i]) else { i += 1; continue }
+            var offset = 0
+            while i + offset < lines.count,
+                  let item = orderedInfo(lines[i + offset]), item.indent == head.indent {
+                let desired = head.number + offset
+                if item.number != desired {
+                    lines[i + offset] = "\(item.indent)\(desired). \(item.content)"
+                    changed = true
+                }
+                offset += 1
+            }
+            i += offset
+        }
+        guard changed else { return }
+
+        let newText = lines.joined(separator: "\n")
+        let caret = textView.selectedRange()
+        let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+        isRenumbering = true
+        if textView.shouldChangeText(in: fullRange, replacementString: newText) {
+            textView.replaceCharacters(in: fullRange, with: newText)
+            textView.didChangeText()
+        }
+        isRenumbering = false
+        let newLength = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: min(caret.location, newLength), length: 0))
     }
 
     /// Смена выделения — в rich-режиме раскрываем маркеры строки только под ОДИНОЧНЫМ курсором
@@ -390,7 +457,21 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     /// Умные буллеты по Enter: продолжить список маркером следующего пункта; на пустом пункте —
     /// завершить (убрать маркер). Только в rich-режиме.
     func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
-        guard highlighter.formatted, selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        guard highlighter.formatted else { return false }
+
+        // Перескок курсора через скрытые (нулевой ширины) маркеры — чтобы одним нажатием стрелки
+        // не «застревать» в невидимом `**`/`#`.
+        let caret = view.selectedRange()
+        if caret.length == 0, selector == #selector(NSResponder.moveRight(_:)),
+           let end = highlighter.hiddenRunEnd(rightOf: caret.location) {
+            view.setSelectedRange(NSRange(location: end, length: 0)); return true
+        }
+        if caret.length == 0, caret.location > 0, selector == #selector(NSResponder.moveLeft(_:)),
+           let start = highlighter.hiddenRunStart(leftOf: caret.location - 1) {
+            view.setSelectedRange(NSRange(location: start, length: 0)); return true
+        }
+
+        guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
         let ns = view.string as NSString
         let lineRange = ns.lineRange(for: view.selectedRange())
         guard let item = NotesListItem.parse(ns.substring(with: lineRange)) else { return false }
@@ -681,6 +762,9 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
     /// Абзац под курсором — в нём маркеры не прячем (можно править). Задаёт контроллер по смене
     /// выделения; `NSNotFound` — не раскрывать ничего.
     var revealParagraph = NSRange(location: NSNotFound, length: 0)
+    /// Диапазоны спрятанных (нулевой ширины) маркеров текущего рендера — чтобы контроллер перескакивал
+    /// через них стрелками.
+    private(set) var hiddenRanges: [NSRange] = []
     private var isHighlighting = false
 
     private let bodyFont = NSFont.systemFont(ofSize: 14)
@@ -708,6 +792,7 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
     private func highlight(_ ts: NSTextStorage) {
         isHighlighting = true
         defer { isHighlighting = false }
+        hiddenRanges.removeAll()
         let full = NSRange(location: 0, length: ts.length)
         // База: моно (исходник) либо пропорциональный (rich). Меняем только атрибуты.
         ts.setAttributes([.font: formatted ? bodyFont : monoFont,
@@ -768,6 +853,24 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
         if revealParagraph.location != NSNotFound,
            NSIntersectionRange(range, revealParagraph).length > 0 { return }
         ts.addAttributes(hiddenAttrs, range: range)
+        hiddenRanges.append(range)
+    }
+
+    /// Конец скрытого прогона справа от курсора (для перескока стрелкой →), либо nil.
+    func hiddenRunEnd(rightOf caret: Int) -> Int? {
+        for range in hiddenRanges where caret >= range.location && caret < range.location + range.length {
+            return range.location + range.length
+        }
+        return nil
+    }
+
+    /// Начало скрытого прогона слева от курсора (для перескока стрелкой ←), либо nil. `index` —
+    /// позиция символа слева от курсора (`caret - 1`).
+    func hiddenRunStart(leftOf index: Int) -> Int? {
+        for range in hiddenRanges where index >= range.location && index < range.location + range.length {
+            return range.location
+        }
+        return nil
     }
 
     /// Уровень Markdown-заголовка (1…6) или nil. «#tag» без пробела после решёток — не заголовок.

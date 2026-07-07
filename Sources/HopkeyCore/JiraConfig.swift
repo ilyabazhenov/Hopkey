@@ -186,8 +186,8 @@ public final class JiraConfig {
         storeCommandBindings(dict)
     }
 
-    /// Значения по умолчанию: ⌃⌥C — окно ввода, ⌃⌥V — сниппеты, ⇧⌘M — мьют микрофона;
-    /// keep-awake и paste-plain по умолчанию без прямой комбинации (живут в панели).
+    /// Значения по умолчанию: ⌃⌥C — окно ввода, ⌃⌥V — сниппеты, ⌃⌥N — заметки, ⇧⌘M — мьют
+    /// микрофона; keep-awake и paste-plain по умолчанию без прямой комбинации (живут в панели).
     public static func defaultBinding(for id: CommandID) -> HotKeyBinding {
         switch id {
         case .quickInput:
@@ -196,10 +196,14 @@ public final class JiraConfig {
         case .snippets:
             return HotKeyBinding(enabled: true, keyCode: 9,
                                  modifiers: CarbonModifier.control | CarbonModifier.option)
+        case .notes:
+            // ⌃⌥N (keyCode 45 = kVK_ANSI_N) — та же мнемоника, что буква N в палитре.
+            return HotKeyBinding(enabled: true, keyCode: 45,
+                                 modifiers: CarbonModifier.control | CarbonModifier.option)
         case .micToggle:
             return HotKeyBinding(enabled: true, keyCode: 46,
                                  modifiers: CarbonModifier.shift | CarbonModifier.command)
-        case .keepAwake, .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr, .notes:
+        case .keepAwake, .pastePlain, .clipboardHistory, .textTransform, .audioOutput, .audioInput, .ocr:
             return HotKeyBinding(enabled: false, keyCode: 0, modifiers: 0)
         }
     }
