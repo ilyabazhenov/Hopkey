@@ -239,6 +239,95 @@ private final class ClosureButton: NSButton {
     @objc private func fire() { handler() }
 }
 
+/// Единая «пилюля» выделения: одна подложка, которая физически переезжает пружиной от прошлой
+/// позиции к текущей (magic-move), а не телепортирует подсветку по строкам. Живёт под списком,
+/// строки/плитки свою заливку-выбор больше не рисуют — подсветку целиком держит она.
+private final class SelectionPill: NSView {
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.16).cgColor
+        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+        layer?.borderWidth = 1
+        isHidden = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    /// Переезд к целевому кадру. `animated == false` — мгновенно (первое появление, ресайз);
+    /// иначе позиция едет мягкой пружиной с едва заметным доездом, а размер и радиус углов
+    /// задемпфированы критически (без колебаний) — иначе пилюля «резинится» на переходе между
+    /// крупной плиткой и тонкой строкой.
+    func move(to target: NSRect, cornerRadius: CGFloat, animated: Bool) {
+        guard let layer else { return }
+        let wasHidden = isHidden
+        isHidden = false
+        // От нуля/скрытого состояния не летим — просто проявляемся на месте.
+        guard animated, !wasHidden, !frame.isEmpty else {
+            layer.removeAnimation(forKey: "pillMove")
+            layer.removeAnimation(forKey: "pillResize")
+            layer.removeAnimation(forKey: "pillRadius")
+            frame = target
+            layer.cornerRadius = cornerRadius
+            return
+        }
+        let oldPosition = layer.presentation()?.position ?? layer.position
+        let oldBounds = layer.presentation()?.bounds ?? layer.bounds
+        let oldRadius = layer.presentation()?.cornerRadius ?? layer.cornerRadius
+        frame = target
+        layer.cornerRadius = cornerRadius
+
+        // Позиция: ζ≈0.85 при высокой жёсткости — быстрый доезд с едва заметным «приземлением».
+        let move = CASpringAnimation(keyPath: "position")
+        move.fromValue = NSValue(point: oldPosition)
+        move.toValue = NSValue(point: layer.position)
+        move.stiffness = 2400; move.damping = 92; move.mass = 1
+        move.duration = move.settlingDuration
+        layer.add(move, forKey: "pillMove")
+
+        // Размер: ζ≈1 — оседает без колебания, не тянется резиной.
+        let resize = CASpringAnimation(keyPath: "bounds.size")
+        resize.fromValue = NSValue(size: oldBounds.size)
+        resize.toValue = NSValue(size: layer.bounds.size)
+        resize.stiffness = 2600; resize.damping = 102; resize.mass = 1
+        resize.duration = resize.settlingDuration
+        layer.add(resize, forKey: "pillResize")
+
+        // Радиус — короткий ease, чтобы угол не щёлкал на переходе 12↔8.
+        let radius = CABasicAnimation(keyPath: "cornerRadius")
+        radius.fromValue = oldRadius
+        radius.toValue = cornerRadius
+        radius.duration = 0.12
+        radius.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(radius, forKey: "pillRadius")
+    }
+}
+
+/// Короткий «щелчок» при активации элемента: масштаб 1→0.93→1 за ~0.16с. Визуальный аналог
+/// тактильного отклика — виден при любом вводе, в отличие от трекпадных haptics.
+private func pressBounce(_ view: NSView) {
+    guard let layer = view.layer else { return }
+    let anim = CAKeyframeAnimation(keyPath: "transform.scale")
+    anim.values = [1.0, 0.93, 1.0]
+    anim.keyTimes = [0, 0.4, 1]
+    anim.duration = 0.16
+    anim.timingFunctions = [CAMediaTimingFunction(name: .easeOut),
+                            CAMediaTimingFunction(name: .easeIn)]
+    layer.add(anim, forKey: "pressBounce")
+}
+
+/// Переносит пилюлю под выбранную вьюху в координатах документа списка. Форсит раскладку — иначе
+/// на первой сборке кадры ещё нулевые. `selected == nil` (пустой список) — прячем пилюлю.
+private func positionPill(_ pill: SelectionPill, in listView: NSView, selected: NSView?, animated: Bool) {
+    listView.layoutSubtreeIfNeeded()
+    guard let selected else { pill.isHidden = true; return }
+    let frame = selected.convert(selected.bounds, to: listView)
+    guard !frame.isEmpty else { pill.isHidden = true; return }
+    pill.move(to: frame, cornerRadius: selected.layer?.cornerRadius ?? 10, animated: animated)
+}
+
 /// Строка (действие / лончер / сниппет): номер + иконка + название + трейлинг (хоткей действия
 /// или тип сниппета). У сниппетов на hover/выборе трейлинг сменяется кнопками действий.
 /// Выделение — нейтральная акцентная заливка, hover — слабая серая.
@@ -389,10 +478,8 @@ final class CommandRowView: NSView {
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
     private func refreshBackground() {
-        let color: NSColor
-        if isSelected { color = NSColor.controlAccentColor.withAlphaComponent(0.20) }
-        else if isHovered { color = NSColor.secondaryLabelColor.withAlphaComponent(0.10) }
-        else { color = .clear }
+        // Выбор рисует общая пилюля — строка держит только hover-заливку.
+        let color = isHovered ? NSColor.secondaryLabelColor.withAlphaComponent(0.10) : .clear
         layer?.backgroundColor = color.cgColor
     }
 }
@@ -558,8 +645,8 @@ private final class SliderRowView: NSView {
     }
 
     private func refreshBackground() {
-        layer?.backgroundColor = (isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12) : NSColor.clear).cgColor
+        // Выбор рисует общая пилюля — ряд слайдера собственную заливку-выбор не держит.
+        layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     @objc private func changed() {
@@ -638,10 +725,8 @@ private final class HistoryRowView: NSView {
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
     private func refresh() {
-        let color: NSColor
-        if isSelected { color = NSColor.controlAccentColor.withAlphaComponent(0.20) }
-        else if isHovered { color = NSColor.secondaryLabelColor.withAlphaComponent(0.10) }
-        else { color = .clear }
+        // Выбор рисует общая пилюля — строка держит только hover-заливку и показ паста-глифа.
+        let color = isHovered ? NSColor.secondaryLabelColor.withAlphaComponent(0.10) : .clear
         layer?.backgroundColor = color.cgColor
         pasteIcon.isHidden = !(isSelected || isHovered)
     }
@@ -942,6 +1027,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     private let searchField = PaletteSearchField()
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
+    /// Плывущая подложка выделения (magic-move) — живёт под `contentStack` в координатах списка.
+    private let selectionPill = SelectionPill()
 
     /// Текущий режим окна. `.root` — корневой список (в т.ч. живой поиск внутри него, см.
     /// `currentQuery`); `.module` — инструмент, показанный на месте списка (transform и пр.).
@@ -1022,6 +1109,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
         listView.translatesAutoresizingMaskIntoConstraints = false
         listView.addSubview(contentStack)
+        // Пилюля — под списком (её рисуем позади строк, поверх — контент).
+        listView.addSubview(selectionPill, positioned: .below, relativeTo: contentStack)
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.hasVerticalScroller = true
@@ -1086,12 +1175,12 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             hint.bottomAnchor.constraint(equalTo: rootBody.bottomAnchor, constant: -10),
         ])
 
-        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
+        listView.onMove = { [weak self] delta in self?.moveVertical(delta) }
         listView.onRun = { [weak self] index in self?.runIndex(index) }
         listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
         listView.onCommandKey = { [weak self] keyCode in self?.runCommandKey(keyCode) ?? false }
         listView.onClose = { [weak self] in self?.handleCancel() }
-        listView.onHorizontal = { [weak self] delta in self?.horizontalOnSelection(delta) }
+        listView.onHorizontal = { [weak self] delta in self?.moveHorizontal(delta) }
         listView.onSecondary = { [weak self] in self?.secondaryOnSelection() }
         listView.onFocusSearch = { [weak self] in self?.focusSearch() }
     }
@@ -1198,9 +1287,9 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.moveDown(_:)):
-            moveSelection(by: 1); return true
+            moveVertical(1); return true
         case #selector(NSResponder.moveUp(_:)):
-            moveSelection(by: -1); return true
+            moveVertical(-1); return true
         case #selector(NSResponder.insertNewline(_:)):
             runIndex(-1); return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -1254,6 +1343,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
         window?.makeFirstResponder(listView)
+        // Окно уже на экране и размечено — ставим пилюлю на стартовую позицию без анимации.
+        updateSelection(animated: false)
         startVolumePolling()
     }
 
@@ -1299,29 +1390,26 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             if !pair.isEmpty { addTileRow(pair) }
         }
 
-        // Громкость: обе направления в одном ряду двумя колонками (выход | вход). Сверху — строка
-        // выбора устройства (по колонке на направление), под ней — ползунки. Иконка (динамик/
-        // микрофон) задаёт направление, ползунок с живым процентом. Выбор устройства вынесен
-        // наверх, чтобы в узкой колонке хватило места ползунку. Слайдеры выбираются стрелками
-        // (без номера 1–9), ←/→ на выделении меняют уровень.
+        // Громкость: каждая пара «устройство + ползунок» идёт в столбик на всю ширину — выход
+        // сверху, вход снизу. Так навигация полностью 2D: ↑/↓ ходят между выходом и входом
+        // (совпадает с экраном), а ←/→ на выделенном ползунке меняют уровень. Иконка (динамик/
+        // микрофон) задаёт направление, ползунок с живым процентом; ячейка устройства — над ним.
+        // Слайдеры выбираются стрелками (без номера 1–9).
         if !sliders.isEmpty {
             addHeader(L("panel.section.volume"), trailing: nil)
-            addTwoColumnRow(sliders.map { makeDeviceCell($0.device) })
-            var sliderRows: [NSView] = []
             for spec in sliders {
+                if spec.device != nil { addFullWidthRow(makeDeviceCell(spec.device)) }
                 let row = SliderRowView()
                 row.configure(symbol: spec.symbol, value: spec.value, reflectsLevel: spec.reflectsLevel)
                 row.onChange = spec.onChange
-                row.translatesAutoresizingMaskIntoConstraints = false
                 row.heightAnchor.constraint(equalToConstant: 30).isActive = true
-                sliderRows.append(row)
                 if let read = spec.readValue { pollSliders.append((row, read)) }
+                addFullWidthRow(row)
                 entries.append(Entry(view: row, badge: nil, digit: nil, commandKey: nil,
                                      setSelected: { [weak row] in row?.isSelected = $0 },
                                      run: {},
                                      adjust: { [weak row] delta in row?.nudge(delta) }))
             }
-            addTwoColumnRow(sliderRows)
         }
 
         // Зона «действия» — компактные строки по две в ряд. Колонки делим по центральной оси
@@ -1626,6 +1714,14 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
     }
 
+    /// Кладёт произвольную вьюху в список на всю ширину (высоту вьюха задаёт сама). Для секций,
+    /// где строки идут в один столбец (ползунки громкости, ячейки устройств над ними).
+    private func addFullWidthRow(_ view: NSView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+    }
+
     /// Добавляет заголовок секции в стек и только ПОТОМ вешает ширину (иначе констрейнт с
     /// `contentStack` активируется до появления общего предка → Auto Layout exception).
     private func addHeader(_ text: String, trailing: String?) {
@@ -1664,20 +1760,88 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     // MARK: Выделение и запуск
 
-    private func moveSelection(by delta: Int) {
-        guard !entries.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + entries.count) % entries.count
-        updateSelection()
+    /// Визуальная решётка индексов `entries`: строки по фактическому Y кадров, колонки по X.
+    /// Записи с `adjust` (слайдеры/заметки — они держат ←/→ под уровень/курсор) выносятся каждая
+    /// в отдельную строку: между ними ходят ↑/↓, а ←/→ остаются за их семантикой. Так навигация
+    /// становится двумерной (↓ = строго вниз, а не «следующий по списку → сосед справа»).
+    private func navGrid() -> [[Int]] {
+        guard !entries.isEmpty else { return [] }
+        listView.layoutSubtreeIfNeeded()
+        let framed = entries.indices.map { i -> (idx: Int, frame: CGRect) in
+            (i, entries[i].view.convert(entries[i].view.bounds, to: listView))
+        }
+        // Группируем по Y (допуск — половина высоты, чтобы одна визуальная строка не расщепилась).
+        var rows: [[(idx: Int, frame: CGRect)]] = []
+        for item in framed.sorted(by: { $0.frame.midY < $1.frame.midY }) {
+            if let ref = rows.last?.first,
+               abs(ref.frame.midY - item.frame.midY) < max(ref.frame.height, item.frame.height) * 0.5 {
+                rows[rows.count - 1].append(item)
+            } else {
+                rows.append([item])
+            }
+        }
+        // Каждую строку — по X; строку со слайдерами/заметками дробим на одиночные (см. выше).
+        var grid: [[Int]] = []
+        for row in rows {
+            let sorted = row.sorted { $0.frame.midX < $1.frame.midX }
+            if sorted.contains(where: { entries[$0.idx].adjust != nil }) {
+                sorted.forEach { grid.append([$0.idx]) }
+            } else {
+                grid.append(sorted.map { $0.idx })
+            }
+        }
+        return grid
+    }
+
+    private func gridPosition(of index: Int, in grid: [[Int]]) -> (row: Int, col: Int)? {
+        for (r, row) in grid.enumerated() {
+            if let c = row.firstIndex(of: index) { return (r, c) }
+        }
+        return nil
+    }
+
+    private func select(_ index: Int) {
+        selectedIndex = index
+        updateSelection(animated: true)
         entries[selectedIndex].view.scrollToVisible(entries[selectedIndex].view.bounds)
     }
 
-    private func updateSelection() {
+    /// ↑/↓ — на строку выше/ниже, удерживая колонку (обрезаем по ширине целевой строки). На краях
+    /// заворачиваем, как и раньше.
+    private func moveVertical(_ delta: Int) {
+        guard !entries.isEmpty else { return }
+        let grid = navGrid()
+        guard let (row, col) = gridPosition(of: selectedIndex, in: grid), !grid.isEmpty else { return }
+        let targetRow = grid[(row + delta + grid.count) % grid.count]
+        select(targetRow[min(col, targetRow.count - 1)])
+    }
+
+    /// ←/→ — сперва отдаём семантике записи (слайдер — уровень, сниппет — панель действий), иначе
+    /// это переход между колонками сетки (плитки-тумблеры, строки действий).
+    private func moveHorizontal(_ delta: Int) {
+        guard entries.indices.contains(selectedIndex) else { return }
+        let entry = entries[selectedIndex]
+        if entry.adjust != nil || (delta > 0 && entry.secondary != nil) {
+            horizontalOnSelection(delta); return
+        }
+        let grid = navGrid()
+        guard let (row, col) = gridPosition(of: selectedIndex, in: grid) else { return }
+        let targetCol = col + delta
+        if grid[row].indices.contains(targetCol) { select(grid[row][targetCol]) }
+    }
+
+    /// `animated` — перезаезд пилюли пружиной (навигация стрелками); при пересборке списка/первом
+    /// показе ставим её на место мгновенно.
+    private func updateSelection(animated: Bool = false) {
         for (i, entry) in entries.enumerated() { entry.setSelected(i == selectedIndex) }
+        positionPill(selectionPill, in: listView,
+                     selected: entries[safe: selectedIndex]?.view, animated: animated)
     }
 
     private func runIndex(_ index: Int) {
         let target = index < 0 ? selectedIndex : index
         guard entries.indices.contains(target) else { NSSound.beep(); return }
+        pressBounce(entries[target].view)
         entries[target].run()
     }
 
@@ -1685,6 +1849,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// номеров не имеет).
     private func runDigit(_ digit: Int) {
         guard let entry = entries.first(where: { $0.digit == digit }) else { NSSound.beep(); return }
+        pressBounce(entry.view)
         entry.run()
     }
 
@@ -1692,6 +1857,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// кодом есть (тогда событие поглощено); иначе false — незанятая буква уходит в `super`.
     private func runCommandKey(_ keyCode: UInt16) -> Bool {
         guard let entry = entries.first(where: { $0.commandKey == keyCode }) else { return false }
+        pressBounce(entry.view)
         entry.run()
         return true
     }
@@ -1993,6 +2159,8 @@ final class GlassListModule: NSObject, PaletteModule {
     private let listView = CommandListView()
     private let contentStack = NSStackView()
     private let scroll = NSScrollView()
+    /// Плывущая подложка выделения (magic-move) — та же, что в корневой палитре.
+    private let selectionPill = SelectionPill()
     private let emptyLabel = NSTextField(labelWithString: "")
     private var clearButton: ClosureButton?
     private weak var host: PaletteHost?
@@ -2039,6 +2207,8 @@ final class GlassListModule: NSObject, PaletteModule {
     func moduleWillAppear(host: PaletteHost) {
         self.host = host
         window?.makeFirstResponder(listView)
+        // Список размечен внутри палитры — ставим пилюлю на стартовую позицию без анимации.
+        updateSelection(animated: false)
     }
 
     func handleCommandReturn() -> Bool { false }  // Enter обрабатывает список; ⌘↩ семантики нет
@@ -2052,6 +2222,7 @@ final class GlassListModule: NSObject, PaletteModule {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         listView.translatesAutoresizingMaskIntoConstraints = false
         listView.addSubview(contentStack)
+        listView.addSubview(selectionPill, positioned: .below, relativeTo: contentStack)
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.hasVerticalScroller = true
@@ -2135,11 +2306,13 @@ final class GlassListModule: NSObject, PaletteModule {
     private func moveSelection(by delta: Int) {
         guard !items.isEmpty else { return }
         selectedIndex = (selectedIndex + delta + items.count) % items.count
-        updateSelection()
+        updateSelection(animated: true)
         items[selectedIndex].view.scrollToVisible(items[selectedIndex].view.bounds)
     }
-    private func updateSelection() {
+    private func updateSelection(animated: Bool = false) {
         for (i, item) in items.enumerated() { item.setSelected(i == selectedIndex) }
+        positionPill(selectionPill, in: listView,
+                     selected: items[safe: selectedIndex]?.view, animated: animated)
     }
     private func runDigit(_ digit: Int) {
         guard let index = items.firstIndex(where: { $0.digit == digit }) else { NSSound.beep(); return }
@@ -2151,6 +2324,7 @@ final class GlassListModule: NSObject, PaletteModule {
         guard items.indices.contains(target) else { NSSound.beep(); return }
         let item = items[target]
         guard item.enabled else { NSSound.beep(); return }
+        pressBounce(item.view)
         host?.closePalette()
         item.run()
     }
