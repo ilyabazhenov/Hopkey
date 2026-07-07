@@ -140,21 +140,30 @@ private final class CommandTileView: NSView {
             field.isEditable = false; field.isBordered = false; field.drawsBackground = false
         }
         addSubview(iconView); addSubview(numberLabel); addSubview(titleLabel); addSubview(statusLabel)
+        // Статус прижат к нижней кромке, заголовок центрируется в зоне между иконкой и статусом:
+        // так «вкл»/«выкл» всех плиток (и стат-строка карточки «Звук») стоят на одной нижней линии, а
+        // одно- и двухстрочные названия смотрятся сбалансированно, без «верхо-тяжёлой» пустоты снизу.
+        let titleZone = NSLayoutGuide()
+        addLayoutGuide(titleZone)
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
             numberLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             numberLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             numberLabel.leadingAnchor.constraint(greaterThanOrEqualTo: iconView.trailingAnchor, constant: 6),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 6),
+
             statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            heightAnchor.constraint(equalToConstant: 90),
+            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+
+            titleZone.topAnchor.constraint(equalTo: iconView.bottomAnchor),
+            titleZone.bottomAnchor.constraint(equalTo: statusLabel.topAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            titleLabel.centerYAnchor.constraint(equalTo: titleZone.centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 94),
         ])
     }
 
@@ -265,29 +274,36 @@ private final class SoundCardView: NSView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView); addSubview(badgeLabel); addSubview(titleLabel)
         addSubview(chevron); addSubview(stats)
+        // Та же раскладка, что у плиток-тумблеров (см. CommandTileView): стат-строка прижата к низу,
+        // заголовок «Звук» центрируется в зоне между иконкой и статами — уровни встают на одну линию
+        // с «вкл»/«выкл» соседних плиток.
+        let titleZone = NSLayoutGuide()
+        addLayoutGuide(titleZone)
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
             badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             badgeLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 6),
-            chevron.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 4),
-            chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            chevron.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 11),
-
+            stats.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stats.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            stats.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             outIcon.widthAnchor.constraint(equalToConstant: 14),
             outIcon.heightAnchor.constraint(equalToConstant: 14),
             inIcon.widthAnchor.constraint(equalToConstant: 14),
             inIcon.heightAnchor.constraint(equalToConstant: 14),
-            stats.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stats.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            stats.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            heightAnchor.constraint(equalToConstant: 90),
+
+            titleZone.topAnchor.constraint(equalTo: iconView.bottomAnchor),
+            titleZone.bottomAnchor.constraint(equalTo: stats.topAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.centerYAnchor.constraint(equalTo: titleZone.centerYAnchor),
+            chevron.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 4),
+            chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            chevron.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 11),
+            heightAnchor.constraint(equalToConstant: 94),
         ])
         refresh()
     }
