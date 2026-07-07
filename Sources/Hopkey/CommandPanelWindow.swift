@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreAudio
 import HopkeyCore
 
@@ -120,32 +121,40 @@ private final class CommandTileView: NSView {
         layer?.borderWidth = 1
 
         iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
         numberLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         numberLabel.alignment = .right
-        titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        titleLabel.lineBreakMode = .byTruncatingTail
+        numberLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Заголовок переносится в две строки: в ряду по три плитки длинные имена («Не давать
+        // засыпать») в одну строку не влезают и раньше усекались.
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.maximumNumberOfLines = 2
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 12)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         for field in [numberLabel, titleLabel, statusLabel] {
             field.isEditable = false; field.isBordered = false; field.drawsBackground = false
         }
-        let top = NSStackView(views: [iconView, NSView(), numberLabel])
-        top.orientation = .horizontal
-        top.alignment = .centerY
-        let stack = NSStackView(views: [top, titleLabel, statusLabel])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        addSubview(iconView); addSubview(numberLabel); addSubview(titleLabel); addSubview(statusLabel)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            top.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
-            heightAnchor.constraint(equalToConstant: 78),
+            numberLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            numberLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+            numberLabel.leadingAnchor.constraint(greaterThanOrEqualTo: iconView.trailingAnchor, constant: 6),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 6),
+            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            heightAnchor.constraint(equalToConstant: 90),
         ])
     }
 
@@ -187,6 +196,134 @@ private final class CommandTileView: NSView {
         // Выделение с клавиатуры — акцентная рамка поверх состояния.
         layer?.borderColor = (isSelected ? NSColor.controlAccentColor : stroke).cgColor
         layer?.borderWidth = isSelected ? 2 : 1
+    }
+}
+
+/// Компактная карточка «Звук» в ряду переключателей: показывает только текущие уровни (выход/вход)
+/// и шеврон-намёк. Клик/буква проваливают в отдельный экран уровней (`LevelsModule`) — там уже
+/// живут ползунки и выбор устройства. Нейтральная плитка (как выключенный тумблер), при выделении —
+/// акцентная рамка; своих состояний on/off у неё нет.
+private final class SoundCardView: NSView {
+    var onClick: (() -> Void)?
+
+    private let iconView = NSImageView()
+    private let badgeLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let chevron = NSImageView()
+    private let outIcon = NSImageView()
+    private let outLabel = NSTextField(labelWithString: "")
+    private let inIcon = NSImageView()
+    private let inLabel = NSTextField(labelWithString: "")
+
+    var isSelected = false { didSet { refresh() } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.borderWidth = 1
+
+        iconView.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: nil)
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        badgeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        badgeLabel.textColor = .secondaryLabelColor
+        badgeLabel.alignment = .right
+
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+        chevron.contentTintColor = .tertiaryLabelColor
+        chevron.imageScaling = .scaleProportionallyDown
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+
+        for (view, symbol) in [(outIcon, "speaker.wave.1"), (inIcon, "mic")] {
+            view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            view.contentTintColor = .secondaryLabelColor
+            view.imageScaling = .scaleProportionallyDown
+            view.translatesAutoresizingMaskIntoConstraints = false
+        }
+        for label in [outLabel, inLabel] {
+            label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            label.textColor = .labelColor
+        }
+        for field in [badgeLabel, titleLabel, outLabel, inLabel] {
+            field.isEditable = false; field.isBordered = false; field.drawsBackground = false
+        }
+
+        let stats = NSStackView(views: [outIcon, outLabel, inIcon, inLabel])
+        stats.orientation = .horizontal
+        stats.spacing = 4
+        stats.setCustomSpacing(10, after: outLabel)
+        stats.translatesAutoresizingMaskIntoConstraints = false
+
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(iconView); addSubview(badgeLabel); addSubview(titleLabel)
+        addSubview(chevron); addSubview(stats)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            iconView.widthAnchor.constraint(equalToConstant: 22),
+            iconView.heightAnchor.constraint(equalToConstant: 22),
+            badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            badgeLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 6),
+            chevron.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 4),
+            chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            chevron.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 11),
+
+            outIcon.widthAnchor.constraint(equalToConstant: 14),
+            outIcon.heightAnchor.constraint(equalToConstant: 14),
+            inIcon.widthAnchor.constraint(equalToConstant: 14),
+            inIcon.heightAnchor.constraint(equalToConstant: 14),
+            stats.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stats.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            stats.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            heightAnchor.constraint(equalToConstant: 90),
+        ])
+        refresh()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    override func mouseUp(with event: NSEvent) { onClick?() }
+
+    func configure(badge: String, output: Float?, input: Float?) {
+        badgeLabel.stringValue = badge
+        titleLabel.stringValue = L("panel.sound.title")
+        updateLevels(output: output, input: input)
+    }
+
+    /// Обновляет проценты (стартово и при опросе системной громкости). Направление, которого
+    /// устройство не поддерживает (значение nil), в карточке не показываем.
+    func updateLevels(output: Float?, input: Float?) {
+        outIcon.isHidden = (output == nil)
+        outLabel.isHidden = (output == nil)
+        outLabel.stringValue = Self.percent(output)
+        inIcon.isHidden = (input == nil)
+        inLabel.isHidden = (input == nil)
+        inLabel.stringValue = Self.percent(input)
+        let parts = [output.map { _ in "\(L("panel.section.output")) \(Self.percent(output))" },
+                     input.map { _ in "\(L("panel.section.input")) \(Self.percent(input))" }]
+        setAccessibilityLabel("\(L("panel.sound.title")). " + parts.compactMap { $0 }.joined(separator: ", "))
+    }
+
+    private func refresh() {
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.borderColor = (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        layer?.borderWidth = isSelected ? 2 : 1
+    }
+
+    private static func percent(_ value: Float?) -> String {
+        guard let value else { return "—" }
+        return "\(Int((value * 100).rounded()))%"
     }
 }
 
@@ -955,6 +1092,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// асинхронно после захвата выделения); иначе false — команда исполняется обычным путём.
     var onPresentCommandModule: ((ToolboxCommand) -> Bool)?
 
+    /// Карточка «Звук» просит развернуть экран уровней (модуль). Хозяин (AppDelegate) собирает
+    /// `LevelsModule` из актуальных данных громкости и делает `enterModule` — панель остаётся открытой.
+    var onOpenLevels: (() -> Void)?
+
     /// Слайдер громкости в панели: иконка, стартовое значение (0…1), живой колбэк изменения и
     /// опциональное аудиоустройство для встроенной выпадашки выбора.
     struct VolumeSlider {
@@ -1016,6 +1157,9 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     private var entries: [Entry] = []
     private var selectedIndex = 0
     private var finished = false
+    /// Растёт на каждом `show()`. Отложенное закрытие по fade-out (см. `fadeOutAndClose`) сверяет
+    /// поколение: если за время затухания панель открыли заново, «висящий» close() отменяется.
+    private var showGeneration = 0
     /// Счётчик присвоенных сниппетам цифр 1–9.
     private var snippetDigitCounter = 0
 
@@ -1235,7 +1379,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             applyQuery()
             window?.makeFirstResponder(listView)
         } else {
-            window?.close()
+            fadeOutAndClose()
         }
     }
 
@@ -1324,6 +1468,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     func show(commands: [ToolboxCommand], snippets: [Snippet], sliders: [VolumeSlider] = [],
               notes: NotesStrip? = nil) {
         finished = false
+        showGeneration &+= 1
         lastCommands = commands
         lastSnippets = snippets
         lastSliders = sliders
@@ -1345,7 +1490,57 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         window?.makeFirstResponder(listView)
         // Окно уже на экране и размечено — ставим пилюлю на стартовую позицию без анимации.
         updateSelection(animated: false)
+        animateEntrance()
         startVolumePolling()
+    }
+
+    /// Вход: панель проявляется (fade) и «садится» — масштаб 0.96→1.0 пружиной от геометрического
+    /// центра (матрицей, без завязки на anchorPoint слоя стекла). Читается как «прилетела и села».
+    private func animateEntrance() {
+        guard let window else { return }
+        // Alpha — на окне; сброс безусловный (не за guard'ом слоя), чтобы переиспользуемая панель
+        // после fade-out гарантированно снова проявлялась.
+        window.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.14
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        }
+        // Масштаб — по слою ВНУТРЕННЕГО контента, а не стекла: NSGlassEffectView/NSVisualEffectView
+        // сами гоняют свой backing-слой под live-блюр и transform на нём игнорируют/дёргают.
+        panelContent.layoutSubtreeIfNeeded()
+        guard let layer = panelContent.layer else { return }
+        let b = layer.bounds
+        guard b.width > 0, b.height > 0 else { return }  // без валидных bounds центр ушёл бы в угол
+        let cx = b.width / 2, cy = b.height / 2
+        var from = CATransform3DIdentity
+        from = CATransform3DTranslate(from, cx, cy, 0)
+        from = CATransform3DScale(from, 0.96, 0.96, 1)
+        from = CATransform3DTranslate(from, -cx, -cy, 0)
+        let scale = CASpringAnimation(keyPath: "transform")
+        scale.fromValue = NSValue(caTransform3D: from)
+        scale.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        scale.stiffness = 900; scale.damping = 40; scale.mass = 1
+        scale.duration = scale.settlingDuration
+        layer.add(scale, forKey: "entrance")
+    }
+
+    /// Быстрый уход по Esc/клику-вне: гасим alpha и только потом закрываем. Только для чистого
+    /// закрытия (без действия) — там задержка не мешает; активация с пастой/лончером закрывается
+    /// мгновенно (см. `finish`), чтобы не терять отзывчивость.
+    private func fadeOutAndClose() {
+        guard let window else { return }
+        // Панель переиспользуется: если за время затухания её открыли заново (`show()` увеличит
+        // поколение), «висящий» close() отменяем — иначе схлопнем свежепоказанную панель.
+        let generation = showGeneration
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.09
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self, weak window] in
+            guard let self, self.showGeneration == generation else { return }
+            window?.close()
+        })
     }
 
     /// Пока панель открыта — раз в ~0.3с читаем системную громкость и подтягиваем ползунки, чтобы
