@@ -317,6 +317,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         nameField.stringValue = store.name(at: activeDot)
         textView.font = editorFont
         textView.string = store.text(at: activeDot)  // подмена текста триггерит highlighter
+        highlighter.revealParagraph = paragraphOfCaret()  // раскрыть маркеры строки под курсором
         if let storage = textView.textStorage { highlighter.rehighlight(storage) }  // на случай, если делегат не сработал
         dotBar.configure(colors: Self.dotColors,
                          emptyFlags: (0..<NotesStore.count).map { store.isEmpty(at: $0) },
@@ -346,6 +347,68 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
     func controlTextDidChange(_ notification: Notification) {
         guard (notification.object as? NSTextField) === nameField else { return }
         store.setName(nameField.stringValue, at: activeDot)
+    }
+
+    /// Абзац, в котором стоит курсор (для раскрытия его маркеров в rich-режиме).
+    private func paragraphOfCaret() -> NSRange {
+        (textView.string as NSString).paragraphRange(for: textView.selectedRange())
+    }
+
+    /// Смена выделения — в rich-режиме раскрываем маркеры строки только под ОДИНОЧНЫМ курсором
+    /// (пустое выделение). При выделении диапазона/⌘A маркеры остаются спрятанными: тогда текст
+    /// читают/копируют, а не правят конкретную строку.
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard highlighter.formatted, let storage = textView.textStorage else { return }
+        let reveal = textView.selectedRange().length == 0
+            ? paragraphOfCaret()
+            : NSRange(location: NSNotFound, length: 0)
+        guard !NSEqualRanges(reveal, highlighter.revealParagraph) else { return }
+        highlighter.revealParagraph = reveal
+        highlighter.rehighlight(storage)
+    }
+
+    /// Умный буллет: в rich-режиме `-`/`*`/`+` + пробел в начале строки превращаем в `• `.
+    func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange,
+                  replacementString: String?) -> Bool {
+        guard highlighter.formatted, replacementString == " ", affectedRange.length == 0,
+              affectedRange.location > 0 else { return true }
+        let ns = view.string as NSString
+        let markerLoc = affectedRange.location - 1
+        let marker = ns.substring(with: NSRange(location: markerLoc, length: 1))
+        guard ["-", "*", "+"].contains(marker) else { return true }
+        let lineRange = ns.lineRange(for: NSRange(location: affectedRange.location, length: 0))
+        let before = ns.substring(with: NSRange(location: lineRange.location, length: markerLoc - lineRange.location))
+        guard before.allSatisfy({ $0 == " " || $0 == "\t" }) else { return true }
+        let replaceRange = NSRange(location: markerLoc, length: 1)
+        if view.shouldChangeText(in: replaceRange, replacementString: "• ") {
+            view.replaceCharacters(in: replaceRange, with: "• ")  // "•" + пробел вместо "-" + вводимого пробела
+            view.didChangeText()
+        }
+        return false
+    }
+
+    /// Умные буллеты по Enter: продолжить список маркером следующего пункта; на пустом пункте —
+    /// завершить (убрать маркер). Только в rich-режиме.
+    func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard highlighter.formatted, selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        let ns = view.string as NSString
+        let lineRange = ns.lineRange(for: view.selectedRange())
+        guard let item = NotesListItem.parse(ns.substring(with: lineRange)) else { return false }
+        if item.contentEmpty {
+            let prefixRange = NSRange(location: lineRange.location, length: item.prefixLength)
+            if view.shouldChangeText(in: prefixRange, replacementString: "") {
+                view.replaceCharacters(in: prefixRange, with: "")
+                view.didChangeText()
+            }
+        } else {
+            let insert = "\n" + item.nextMarker
+            let range = view.selectedRange()
+            if view.shouldChangeText(in: range, replacementString: insert) {
+                view.replaceCharacters(in: range, with: insert)
+                view.didChangeText()
+            }
+        }
+        return true
     }
 
     /// Переписывает файл активной точки через ~0.6с после последнего нажатия (частые правки не
@@ -394,6 +457,7 @@ final class NotesWindowController: NSWindowController, NSWindowDelegate, NSTextV
         let formatted = formatToggle.state == .on
         store.setFormatted(formatted, at: activeDot)
         highlighter.formatted = formatted
+        highlighter.revealParagraph = paragraphOfCaret()
         if let storage = textView.textStorage { highlighter.rehighlight(storage) }
         window?.makeFirstResponder(textView)
     }
@@ -607,18 +671,27 @@ private final class PlaceholderTextView: NSTextView {
 
 /// Рендер Markdown как делегат `NSTextStorage`: перекрашивает текст по каждой правке (в
 /// `didProcessEditing`, поэтому не мусорит в undo). `formatted=false` — однородный моноширинный
-/// (исходник); `formatted=true` — Markdown-вид: заголовки/жирный/курсив/код/разделители. Меняет
-/// только атрибуты — сам текст (то, что сохраняется) остаётся plain-Markdown.
+/// (исходник); `formatted=true` — Markdown-вид: заголовки/жирный/курсив/код/разделители.
+///
+/// В rich-режиме сами маркеры (`**`, `*`, `` ` ``, `#·`) ПРЯЧУТСЯ (нулевой шрифт + прозрачный цвет —
+/// display-only, текст на диске остаётся plain-Markdown), КРОМЕ абзаца под курсором (`revealParagraph`):
+/// там маркеры видны, чтобы их можно было править (идиома Bear/Obsidian).
 private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
     var formatted = false
+    /// Абзац под курсором — в нём маркеры не прячем (можно править). Задаёт контроллер по смене
+    /// выделения; `NSNotFound` — не раскрывать ничего.
+    var revealParagraph = NSRange(location: NSNotFound, length: 0)
     private var isHighlighting = false
 
     private let bodyFont = NSFont.systemFont(ofSize: 14)
     private let monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     private lazy var boldBody = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
     private lazy var italicBody = NSFontManager.shared.convert(bodyFont, toHaveTrait: .italicFontMask)
+    /// «Прячущие» атрибуты: почти нулевой шрифт (схлопывает ширину глифов) + прозрачный цвет.
+    private let hiddenAttrs: [NSAttributedString.Key: Any] =
+        [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
 
-    // `**жирный**`, `*курсив*` (не задевая `**`), `` `код` ``.
+    // `**жирный**`, `*курсив*` (не задевая `**`), `` `код` `` — группа 1 = содержимое без маркеров.
     private static let boldRE = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*")
     private static let italicRE = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)([^*\\n]+?)\\*(?!\\*)")
     private static let codeRE = try? NSRegularExpression(pattern: "`([^`\\n]+)`")
@@ -629,7 +702,7 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
         highlight(textStorage)
     }
 
-    /// Полная перекраска без правки текста (при переключении режима).
+    /// Полная перекраска без правки текста (переключение режима / смена абзаца-раскрытия).
     func rehighlight(_ textStorage: NSTextStorage) { highlight(textStorage) }
 
     private func highlight(_ ts: NSTextStorage) {
@@ -641,7 +714,7 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
                           .foregroundColor: NSColor.labelColor], range: full)
         guard formatted, full.length > 0 else { return }
 
-        // Строчные конструкции: заголовки (жирнее/крупнее), разделители (приглушённо).
+        // Строчные конструкции: заголовки (жирнее/крупнее, `#·` прячем), разделители (приглушённо).
         let text = ts.string as NSString
         text.enumerateSubstrings(in: full, options: .byLines) { line, lineRange, _, _ in
             guard let line else { return }
@@ -649,28 +722,52 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
             if let level = Self.headingLevel(trimmed) {
                 let size: CGFloat = level == 1 ? 19 : (level == 2 ? 16 : 14)
                 ts.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: size), range: lineRange)
+                // Прячем префикс «#…· » (решётки + пробелы до текста), если после него есть контент.
+                let leading = line.prefix { $0 == " " }.count
+                let prefixLen = leading + level + 1
+                if line.count > prefixLen {
+                    self.hide(NSRange(location: lineRange.location, length: prefixLen), in: ts)
+                }
             } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
                 ts.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: lineRange)
+            } else if Self.isListLine(line) {
+                // Висячий отступ: перенос строки пункта выравнивается под текст, а не под буллет.
+                let style = NSMutableParagraphStyle()
+                style.firstLineHeadIndent = 0
+                style.headIndent = 18
+                ts.addAttribute(.paragraphStyle, value: style, range: lineRange)
             }
         }
 
-        // Инлайн: жирный, курсив, код.
-        apply(Self.boldRE, to: ts, in: full) { [.font: self.boldBody] }
-        apply(Self.italicRE, to: ts, in: full) { [.font: self.italicBody] }
-        apply(Self.codeRE, to: ts, in: full) {
-            [.font: self.monoFont,
-             .backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12)]
+        // Инлайн: содержимое стилизуем, маркеры (разница match − группа1) прячем.
+        style(Self.boldRE, in: ts, range: full, content: [.font: boldBody])
+        style(Self.italicRE, in: ts, range: full, content: [.font: italicBody])
+        style(Self.codeRE, in: ts, range: full,
+              content: [.font: monoFont, .backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12)])
+    }
+
+    /// Стилизует содержимое (группа 1) и прячет обрамляющие маркеры каждого совпадения.
+    private func style(_ regex: NSRegularExpression?, in ts: NSTextStorage, range: NSRange,
+                       content: [NSAttributedString.Key: Any]) {
+        guard let regex else { return }
+        regex.enumerateMatches(in: ts.string, options: [], range: range) { match, _, _ in
+            guard let match, match.numberOfRanges >= 2 else { return }
+            let whole = match.range, inner = match.range(at: 1)
+            ts.addAttributes(content, range: whole)          // весь спан — в стиль (в т.ч. маркеры)
+            // Левый маркер: [whole.start, inner.start); правый: [inner.end, whole.end).
+            self.hide(NSRange(location: whole.location, length: inner.location - whole.location), in: ts)
+            let innerEnd = inner.location + inner.length
+            self.hide(NSRange(location: innerEnd, length: whole.location + whole.length - innerEnd), in: ts)
         }
     }
 
-    private func apply(_ regex: NSRegularExpression?, to ts: NSTextStorage, in range: NSRange,
-                       _ attrs: () -> [NSAttributedString.Key: Any]) {
-        guard let regex else { return }
-        let resolved = attrs()
-        regex.enumerateMatches(in: ts.string, options: [], range: range) { match, _, _ in
-            guard let match else { return }
-            ts.addAttributes(resolved, range: match.range)
-        }
+    /// Прячет диапазон маркера — кроме случая, когда он в абзаце под курсором (там оставляем видимым
+    /// для правки).
+    private func hide(_ range: NSRange, in ts: NSTextStorage) {
+        guard range.length > 0 else { return }
+        if revealParagraph.location != NSNotFound,
+           NSIntersectionRange(range, revealParagraph).length > 0 { return }
+        ts.addAttributes(hiddenAttrs, range: range)
     }
 
     /// Уровень Markdown-заголовка (1…6) или nil. «#tag» без пробела после решёток — не заголовок.
@@ -680,6 +777,11 @@ private final class MarkdownHighlighter: NSObject, NSTextStorageDelegate {
         guard (1...6).contains(hashes) else { return nil }
         let after = trimmed.dropFirst(hashes)
         return (after.isEmpty || after.first == " ") ? hashes : nil
+    }
+
+    /// Строка-пункт списка: маркер `•`/`-`/`*`/`+` или `N.` + пробел (с любым ведущим отступом).
+    static func isListLine(_ line: String) -> Bool {
+        NotesListItem.parse(line) != nil
     }
 }
 

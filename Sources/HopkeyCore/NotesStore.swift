@@ -201,3 +201,40 @@ public final class NotesStore {
         for index in 0..<Self.count { persist(at: index) }
     }
 }
+
+/// Разбор строки-пункта списка (маркированного `•`/`-`/`*`/`+` или нумерованного `N.`) — общая
+/// чистая логика для рендера висячего отступа и «умных буллетов» (продолжение/завершение по Enter).
+public enum NotesListItem {
+    /// Один пункт: длина префикса (`отступ+маркер+пробел`), маркер следующего пункта, пуст ли текст.
+    public struct Parsed: Equatable {
+        public let prefixLength: Int
+        public let nextMarker: String
+        public let contentEmpty: Bool
+    }
+
+    /// Разбирает строку (завершающий перевод строки игнорируется). nil — не пункт списка.
+    public static func parse(_ rawLine: String) -> Parsed? {
+        let line = rawLine.hasSuffix("\n") ? String(rawLine.dropLast()) : rawLine
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        // Маркированный: •/-/*/+ + пробел.
+        if let marker = rest.first, "•-*+".contains(marker), rest.dropFirst().first == " " {
+            let content = rest.dropFirst(2)
+            return Parsed(prefixLength: indent.count + 2,
+                          nextMarker: indent + String(marker) + " ",
+                          contentEmpty: content.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        // Нумерованный: цифры + «. ».
+        let digits = rest.prefix { $0.isNumber }
+        if !digits.isEmpty {
+            let afterDigits = rest.dropFirst(digits.count)
+            if afterDigits.first == ".", afterDigits.dropFirst().first == " ", let number = Int(digits) {
+                let content = afterDigits.dropFirst(2)
+                return Parsed(prefixLength: indent.count + digits.count + 2,
+                              nextMarker: "\(indent)\(number + 1). ",
+                              contentEmpty: content.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        return nil
+    }
+}

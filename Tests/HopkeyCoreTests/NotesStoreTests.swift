@@ -105,6 +105,38 @@ final class NotesStoreTests: XCTestCase {
         XCTAssertEqual(reopened.name(at: 3), "")
     }
 
+    // MARK: - NotesListItem
+
+    func testListItemUnorderedContinues() {
+        let item = NotesListItem.parse("- пункт")
+        XCTAssertEqual(item?.nextMarker, "- ")
+        XCTAssertEqual(item?.prefixLength, 2)
+        XCTAssertEqual(item?.contentEmpty, false)
+    }
+
+    func testListItemBulletAndIndentPreserved() {
+        let item = NotesListItem.parse("  • пункт")
+        XCTAssertEqual(item?.nextMarker, "  • ")  // отступ сохраняется
+        XCTAssertEqual(item?.prefixLength, 4)
+    }
+
+    func testListItemOrderedIncrements() {
+        let item = NotesListItem.parse("3. пункт")
+        XCTAssertEqual(item?.nextMarker, "4. ")
+        XCTAssertEqual(item?.prefixLength, 3)
+    }
+
+    func testListItemEmptyDetected() {
+        XCTAssertEqual(NotesListItem.parse("- ")?.contentEmpty, true)
+        XCTAssertEqual(NotesListItem.parse("1. \n")?.contentEmpty, true)  // хвостовой \n игнорируется
+    }
+
+    func testNonListLinesReturnNil() {
+        XCTAssertNil(NotesListItem.parse("обычный текст"))
+        XCTAssertNil(NotesListItem.parse("-нет пробела"))
+        XCTAssertNil(NotesListItem.parse("# заголовок"))
+    }
+
     func testOutOfRangeIndexIsSafe() {
         let store = NotesStore(directory: directory)
         store.update("ignored", at: NotesStore.count)   // за пределами — без эффекта, без краша
