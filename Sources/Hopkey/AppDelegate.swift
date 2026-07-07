@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onPresentCommandModule = { [weak self] command in
             self?.presentCommandModule(command) ?? false
         }
+        // Карточка «Звук» проваливает в отдельный экран уровней (ползунки выхода/входа).
+        controller.onOpenLevels = { [weak self] in self?.presentAudioLevels() }
         return controller
     }()
 
@@ -475,6 +477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     private lazy var audioOutputModule = GlassListModule(titleKey: "audio.output.title", emptyKey: "audio.empty")
     private lazy var audioInputModule = GlassListModule(titleKey: "audio.input.title", emptyKey: "audio.empty")
+    /// Экран уровней внутри палитры (ползунки выхода/входа + выбор устройства). Разворачивается
+    /// карточкой «Звук»; данные берём из тех же спеков, что раньше шли секцией слайдеров.
+    private lazy var levelsModule = LevelsModule()
 
     private func presentClipboardHistory() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
@@ -499,6 +504,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         audioInputModule.configure(items: items, preselect: preselect)
         commandPanel.enterModule(audioInputModule)
+    }
+    /// Разворачивает экран уровней (из карточки «Звук»): свежие спеки громкости → модуль.
+    private func presentAudioLevels() {
+        let sliders = volumeSliders()
+        guard !sliders.isEmpty else { NSSound.beep(); return }
+        levelsModule.configure(sliders: sliders)
+        commandPanel.enterModule(levelsModule)
     }
 
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.

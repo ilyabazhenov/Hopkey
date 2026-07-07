@@ -191,10 +191,13 @@
 "panel.section.volume" = "Volume & devices";
 "panel.section.output" = "Output";
 "panel.section.input" = "Input";
+"panel.sound.title" = "Sound";
+"audio.levels.title" = "Levels";
+"panel.levels.footer" = "↑↓ move · ←→ level · Esc back";
 "panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
-"panel.footer.commands" = "↑↓ move · ←→ volume · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
+"panel.footer.commands" = "↑↓ move · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
 "panel.search.placeholder" = "Search apps, commands, calculator…";
 "panel.search.type.command" = "command";
 "panel.search.type.note" = "note";

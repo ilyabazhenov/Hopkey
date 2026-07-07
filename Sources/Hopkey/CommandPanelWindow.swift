@@ -1165,6 +1165,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     /// Опрос системной громкости, пока панель открыта: ряды слайдеров с их геттером уровня.
     private var pollSliders: [(row: SliderRowView, read: () -> Float?)] = []
+    /// Обновление уровней в карточке «Звук» на каждом тике опроса (nil — карточки нет).
+    private var pollCard: (() -> Void)?
     private var pollTimer: Timer?
 
     private let listView = CommandListView()
@@ -1548,12 +1550,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// время модального цикла трекинга ползунка (там `externalUpdate` сам себя пропустит по флагу).
     private func startVolumePolling() {
         stopVolumePolling()
-        guard !pollSliders.isEmpty else { return }
+        guard !pollSliders.isEmpty || pollCard != nil else { return }
         let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self else { return }
             for item in self.pollSliders {
                 if let value = item.read() { item.row.externalUpdate(value) }
             }
+            self.pollCard?()
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
@@ -1568,42 +1571,31 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         entries.removeAll()
         pollSliders.removeAll()
+        pollCard = nil
         snippetDigitCounter = 0
 
         let toggles = commands.filter { $0.id.section == .toggles }
         let actions = commands.filter { $0.id.section == .actions || $0.id.section == .launchers }
 
-        // Зона «переключатели» — плитки по две в ряд.
+        // Зона «переключатели» — плитки по три в ряд: микрофон, карточка «Звук» (уровни) и keep-awake.
+        // Громкость больше не занимает отдельную секцию из ползунков — она свёрнута в карточку «Звук»,
+        // которая проваливает в отдельный экран уровней (см. `makeSoundCard` / `LevelsModule`).
         if !toggles.isEmpty {
             addHeader(L("panel.section.toggles"), trailing: nil)
-            var pair: [NSView] = []
+            var tiles: [NSView] = []
             for command in toggles {
-                let tile = makeTile(command)
-                pair.append(tile)
-                if pair.count == 2 { addTileRow(pair); pair = [] }
+                tiles.append(makeTile(command))
+                // Карточку «Звук» ставим сразу за микрофоном — уровни рядом с мьютом (см. дизайн).
+                if command.id == .micToggle, !sliders.isEmpty { tiles.append(makeSoundCard(sliders: sliders)) }
             }
-            if !pair.isEmpty { addTileRow(pair) }
-        }
-
-        // Громкость: каждая пара «устройство + ползунок» идёт в столбик на всю ширину — выход
-        // сверху, вход снизу. Так навигация полностью 2D: ↑/↓ ходят между выходом и входом
-        // (совпадает с экраном), а ←/→ на выделенном ползунке меняют уровень. Иконка (динамик/
-        // микрофон) задаёт направление, ползунок с живым процентом; ячейка устройства — над ним.
-        // Слайдеры выбираются стрелками (без номера 1–9).
-        if !sliders.isEmpty {
-            addHeader(L("panel.section.volume"), trailing: nil)
-            for spec in sliders {
-                if spec.device != nil { addFullWidthRow(makeDeviceCell(spec.device)) }
-                let row = SliderRowView()
-                row.configure(symbol: spec.symbol, value: spec.value, reflectsLevel: spec.reflectsLevel)
-                row.onChange = spec.onChange
-                row.heightAnchor.constraint(equalToConstant: 30).isActive = true
-                if let read = spec.readValue { pollSliders.append((row, read)) }
-                addFullWidthRow(row)
-                entries.append(Entry(view: row, badge: nil, digit: nil, commandKey: nil,
-                                     setSelected: { [weak row] in row?.isSelected = $0 },
-                                     run: {},
-                                     adjust: { [weak row] delta in row?.nudge(delta) }))
+            // Звук есть, а микрофона в наборе нет — карточку в конец ряда.
+            if !sliders.isEmpty, !toggles.contains(where: { $0.id == .micToggle }) {
+                tiles.append(makeSoundCard(sliders: sliders))
+            }
+            var index = 0
+            while index < tiles.count {
+                addTileRow(Array(tiles[index..<min(index + 3, tiles.count)]))
+                index += 3
             }
         }
 
@@ -1663,6 +1655,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         entries.removeAll()
         pollSliders.removeAll()
+        pollCard = nil
         snippetDigitCounter = 0
 
         if let value = Calculator.evaluate(query) {
@@ -1800,6 +1793,32 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
                              run: { [weak self] in self?.runCommand(command, at: idx) }))
         return tile
     }
+
+    /// Карточка «Звук»: свёрнутые уровни (выход/вход) + буква быстрого выбора (A). Клик/буква
+    /// проваливают в экран уровней (`onOpenLevels`). Направления различаем по символу спека
+    /// (`speaker…` — выход, `mic…` — вход); карточку опрашиваем на каждом тике (`pollCard`).
+    private func makeSoundCard(sliders: [VolumeSlider]) -> SoundCardView {
+        let card = SoundCardView()
+        let key = UInt16(kVK_ANSI_A)
+        let badge = keyName(forKeyCode: UInt32(key))
+        let output = sliders.first { $0.symbol.contains("speaker") }
+        let input = sliders.first { $0.symbol.contains("mic") }
+        card.configure(badge: badge, output: output?.value, input: input?.value)
+        // Живой опрос: если у направления есть геттер — читаем систему, иначе держим стартовое.
+        pollCard = { [weak card] in
+            card?.updateLevels(output: output?.readValue?() ?? output?.value,
+                               input: input?.readValue?() ?? input?.value)
+        }
+        card.onClick = { [weak self] in self?.openLevels() }
+        entries.append(Entry(view: card, badge: badge, digit: nil, commandKey: key,
+                             setSelected: { [weak card] in card?.isSelected = $0 },
+                             run: { [weak self] in self?.openLevels() }))
+        return card
+    }
+
+    /// Провалиться в экран уровней. Хозяин сам делает `enterModule` — панель остаётся открытой,
+    /// поэтому здесь без `finish()` (в отличие от лончеров, закрывающих окно).
+    private func openLevels() { onOpenLevels?() }
 
     private func addTileRow(_ tiles: [NSView]) {
         let row = NSStackView(views: tiles)
@@ -2522,6 +2541,196 @@ final class GlassListModule: NSObject, PaletteModule {
         pressBounce(item.view)
         host?.closePalette()
         item.run()
+    }
+}
+
+/// Экран управления уровнями — куда проваливает карточка «Звук». Держит ползунки выхода/входа с
+/// выбором устройства (те же `SliderRowView`/`DeviceMenuButton`, что раньше жили секцией в корне) и
+/// свою навигацию: ↑/↓ между ползунками, ←/→ меняют уровень, Esc — назад в корень. Пока экран на
+/// виду — опрашивает системную громкость (таймер живёт по присутствию вьюхи в окне).
+final class LevelsModule: NSObject, PaletteModule {
+    typealias VolumeSlider = CommandPanelWindowController.VolumeSlider
+
+    let titleKey = "audio.levels.title"
+
+    private var specs: [VolumeSlider] = []
+    private var sliderRows: [SliderRowView] = []
+    private var readers: [() -> Float?] = []
+    private var selectedIndex = 0
+    private var pollTimer: Timer?
+
+    private let listView = CommandListView()
+    private let contentStack = NSStackView()
+    private let scroll = NSScrollView()
+    private let selectionPill = SelectionPill()
+    private weak var host: PaletteHost?
+
+    private var window: NSWindow? { contentView.window }
+
+    /// Задаёт направления перед `enterModule` (форсит ленивую сборку вьюхи).
+    func configure(sliders: [VolumeSlider]) {
+        _ = contentView
+        specs = sliders
+        rebuild()
+        selectedIndex = sliderRows.isEmpty ? -1 : 0
+        updateSelection(animated: false)
+    }
+
+    // MARK: PaletteModule
+
+    private(set) lazy var contentView: NSView = buildContent()
+
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        contentStack.layoutSubtreeIfNeeded()
+        let inner = contentStack.fittingSize.height + 12
+        // футер: зазор до подсказки (6) + подсказка (~14) + нижний отступ (10) + верхний отступ (6).
+        let footer: CGFloat = 6 + 14 + 10 + 6
+        return inner + footer
+    }
+
+    func moduleWillAppear(host: PaletteHost) {
+        self.host = host
+        window?.makeFirstResponder(listView)
+        updateSelection(animated: false)
+    }
+
+    func handleCommandReturn() -> Bool { false }
+
+    private func buildContent() -> NSView {
+        let content = LevelsContentView()
+        // Таймер опроса живёт только пока экран в окне (у модуля нет колбэка «исчез»).
+        content.onWindowChange = { [weak self] visible in
+            visible ? self?.startPolling() : self?.stopPolling()
+        }
+
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 4
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.addSubview(contentStack)
+        listView.addSubview(selectionPill, positioned: .below, relativeTo: contentStack)
+
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.documentView = listView
+        content.addSubview(scroll)
+
+        let hint = NSTextField(labelWithString: L("panel.levels.footer"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(hint)
+
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            scroll.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -6),
+
+            listView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            listView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: listView.topAnchor, constant: 6),
+            contentStack.leadingAnchor.constraint(equalTo: listView.leadingAnchor, constant: 6),
+            contentStack.trailingAnchor.constraint(equalTo: listView.trailingAnchor, constant: -6),
+            contentStack.bottomAnchor.constraint(equalTo: listView.bottomAnchor, constant: -6),
+
+            hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+        ])
+
+        listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
+        listView.onHorizontal = { [weak self] delta in self?.nudgeSelected(delta) }
+        listView.onClose = { [weak self] in self?.host?.dismissModule() }
+        return content
+    }
+
+    private func rebuild() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        sliderRows.removeAll()
+        readers.removeAll()
+        for spec in specs {
+            if spec.device != nil {
+                let cell = makeDeviceCell(spec.device)
+                contentStack.addArrangedSubview(cell)
+                cell.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            }
+            let row = SliderRowView()
+            row.configure(symbol: spec.symbol, value: spec.value, reflectsLevel: spec.reflectsLevel)
+            row.onChange = spec.onChange
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            contentStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+            sliderRows.append(row)
+            readers.append(spec.readValue ?? { nil })
+        }
+    }
+
+    /// Строка выбора устройства над ползунком (та же выпадашка, что была в корневой секции).
+    private func makeDeviceCell(_ device: SliderDevice?) -> NSView {
+        let cell = NSView()
+        cell.translatesAutoresizingMaskIntoConstraints = false
+        cell.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        guard let device else { return cell }
+        let button = DeviceMenuButton(device: device)
+        button.alignment = .left
+        cell.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 12),
+            button.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -12),
+            button.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !sliderRows.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + sliderRows.count) % sliderRows.count
+        updateSelection(animated: true)
+        sliderRows[selectedIndex].scrollToVisible(sliderRows[selectedIndex].bounds)
+    }
+    private func nudgeSelected(_ delta: Int) {
+        sliderRows[safe: selectedIndex]?.nudge(delta)
+    }
+    private func updateSelection(animated: Bool) {
+        for (i, row) in sliderRows.enumerated() { row.isSelected = (i == selectedIndex) }
+        positionPill(selectionPill, in: listView, selected: sliderRows[safe: selectedIndex], animated: animated)
+    }
+
+    private func startPolling() {
+        stopPolling()
+        guard !readers.isEmpty else { return }
+        let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            for (i, read) in self.readers.enumerated() {
+                if let value = read() { self.sliderRows[safe: i]?.externalUpdate(value) }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+    }
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+}
+
+/// Корневая вьюха экрана уровней: сообщает модулю о входе/уходе из окна, чтобы стартовать/глушить
+/// опрос громкости (у модуля нет колбэка «исчез», а таймер должен жить только пока экран на виду).
+private final class LevelsContentView: NSView {
+    var onWindowChange: ((Bool) -> Void)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window != nil)
     }
 }
 

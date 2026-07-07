@@ -191,10 +191,13 @@
 "panel.section.volume" = "Громкость и устройства";
 "panel.section.output" = "Выход";
 "panel.section.input" = "Вход";
+"panel.sound.title" = "Звук";
+"audio.levels.title" = "Уровни";
+"panel.levels.footer" = "↑↓ выбрать · ←→ уровень · Esc назад";
 "panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
-"panel.footer.commands" = "↑↓ выбрать · ←→ громкость · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
+"panel.footer.commands" = "↑↓ выбрать · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
 "panel.search.placeholder" = "Поиск: приложения, команды, калькулятор…";
 "panel.search.type.command" = "команда";
 "panel.search.type.note" = "заметка";
