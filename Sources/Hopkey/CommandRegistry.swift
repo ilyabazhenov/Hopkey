@@ -67,4 +67,20 @@ extension CommandID {
             return .launchers
         }
     }
+
+    /// Цветовой акцент чипа-иконки в палитре: кодирует смысл команды (поиск — синий, буфер —
+    /// индиго, OCR — оранжевый…), даёт быстрый визуальный якорь по цвету. Тумблеры красятся по
+    /// состоянию (см. `CommandTileView`), поэтому свой фиксированный тон им не нужен — тут нейтраль.
+    var paletteTint: NSColor {
+        switch self {
+        case .quickInput:            return .systemBlue
+        case .clipboardHistory:      return .systemIndigo
+        case .textTransform:         return .systemPurple
+        case .pastePlain:            return .systemTeal
+        case .ocr:                   return .systemOrange
+        case .audioOutput, .audioInput: return .systemBlue
+        case .snippets, .notes:      return .systemBlue
+        case .micToggle, .keepAwake: return .secondaryLabelColor
+        }
+    }
 }

@@ -239,6 +239,27 @@ final class HotKeyManager {
         }
     }
 
+    /// То же, что `paste(_ text:)`, но кладёт в буфер картинку (PNG). Используется для вставки
+    /// картинки из истории буфера. Прежнее содержимое восстанавливается при выданном Accessibility.
+    func paste(pngData: Data, completion: (() -> Void)? = nil) {
+        whenModifiersCleared {
+            let pasteboard = NSPasteboard.general
+            let saved = self.savedItems(of: pasteboard)
+            pasteboard.clearContents()
+            pasteboard.setData(pngData, forType: .png)
+
+            self.synthesizePaste()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                if AXIsProcessTrusted() {
+                    pasteboard.clearContents()
+                    if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+                }
+                completion?()
+            }
+        }
+    }
+
     private func synthesizePaste() {
         let source = CGEventSource(stateID: .combinedSessionState)
         let vKey = CGKeyCode(kVK_ANSI_V)

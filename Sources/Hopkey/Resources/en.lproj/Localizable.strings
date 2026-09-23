@@ -106,6 +106,7 @@
 "cmd.clipboardHistory" = "Clipboard history";
 "clipboard.title" = "Clipboard history";
 "clipboard.empty" = "History is empty";
+"clipboard.image" = "Image";
 "settings.command.clipboardHistory" = "Clipboard history";
 "cmd.textTransform" = "Transform selection";
 "settings.command.textTransform" = "Transform text";
@@ -197,6 +198,7 @@
 "panel.clipboard.clear" = "Clear history";
 "panel.snippets.all" = "⌃⌥V — all";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
+"panel.footer.history" = "↑↓ move · 1–9 · ↩ paste · ⌫ delete · Esc";
 "panel.footer.commands" = "↑↓ move · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
 "panel.search.placeholder" = "Search apps, commands, calculator…";
 "panel.search.type.command" = "command";

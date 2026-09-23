@@ -67,6 +67,8 @@ private final class CommandListView: NSView {
     var onSecondary: (() -> Void)?
     /// ⌘F — перевести фокус в строку поиска (палитра остаётся открытой).
     var onFocusSearch: (() -> Void)?
+    /// ⌫ / Fn+⌫ — удалить текущее выделение (напр. запись истории). Палитра остаётся открытой.
+    var onDelete: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -82,6 +84,7 @@ private final class CommandListView: NSView {
         case 123: onHorizontal?(-1)  // ←
         case 124: onHorizontal?(1)   // →
         case 48:  onSecondary?()     // Tab
+        case 51, 117: onDelete?()    // ⌫ (backspace) / ⌦ (forward delete) — удалить выделение
         case 36, 76: onRun?(-1)  // Return — по текущему выделению
         case 53: onClose?()      // Esc
         default:
@@ -102,15 +105,58 @@ private final class CommandListView: NSView {
 
 /// Крупная плитка-тумблер: иконка + номер + название + статус, цвет фона кодирует состояние
 /// (красный — микрофон замьючен/тревога, акцент — включённый тумблер, иначе нейтральный).
+/// SF-символ на мягкой тонированной подложке (скруглённый квадрат) — цветовой «якорь» команды.
+/// Подложка бледная (~14 %), сам символ насыщенный. При `tint == nil` подложка прозрачна, а символ
+/// красится нейтрально (серым) — так строки-результаты и полноцветные иконки приложений выглядят
+/// как раньше, без цветного квадрата под ними.
+private final class IconChip: NSView {
+    private let iconView = NSImageView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 7
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+
+    var image: NSImage? {
+        get { iconView.image }
+        set { iconView.image = newValue }
+    }
+
+    /// `tint == nil` → прозрачная подложка + нейтральный символ. Полноцветные картинки (иконки
+    /// приложений) `contentTintColor` не перекрашивает, так что для них tint не важен.
+    func apply(tint: NSColor?) {
+        if let tint {
+            layer?.backgroundColor = tint.withAlphaComponent(0.14).cgColor
+            iconView.contentTintColor = tint
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+            iconView.contentTintColor = .secondaryLabelColor
+        }
+    }
+}
+
 private final class CommandTileView: NSView {
     enum State { case inactive, active, attention }
 
     var onClick: (() -> Void)?
 
-    private let iconView = NSImageView()
+    private let chip = IconChip()
     private let numberLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
+    private let statusPill = NSView()
     private var state: State = .inactive
     var isSelected = false { didSet { refresh() } }
 
@@ -120,8 +166,7 @@ private final class CommandTileView: NSView {
         layer?.cornerRadius = 12
         layer?.borderWidth = 1
 
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        chip.translatesAutoresizingMaskIntoConstraints = false
         numberLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         numberLabel.alignment = .right
         numberLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -132,38 +177,48 @@ private final class CommandTileView: NSView {
         titleLabel.maximumNumberOfLines = 2
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 12)
+        statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         for field in [numberLabel, titleLabel, statusLabel] {
             field.isEditable = false; field.isBordered = false; field.drawsBackground = false
         }
-        addSubview(iconView); addSubview(numberLabel); addSubview(titleLabel); addSubview(statusLabel)
-        // Статус прижат к нижней кромке, заголовок центрируется в зоне между иконкой и статусом:
+        // Статус-пилюля: подложка красится по состоянию (см. refresh), «вкл»/«выкл» сидит с отступами.
+        statusPill.wantsLayer = true
+        statusPill.layer?.cornerRadius = 9
+        statusPill.translatesAutoresizingMaskIntoConstraints = false
+        statusPill.addSubview(statusLabel)
+
+        addSubview(chip); addSubview(numberLabel); addSubview(titleLabel); addSubview(statusPill)
+        // Статус-пилюля прижата к нижней кромке, заголовок центрируется в зоне между чипом и пилюлей:
         // так «вкл»/«выкл» всех плиток (и стат-строка карточки «Звук») стоят на одной нижней линии, а
         // одно- и двухстрочные названия смотрятся сбалансированно, без «верхо-тяжёлой» пустоты снизу.
         let titleZone = NSLayoutGuide()
         addLayoutGuide(titleZone)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
+            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            chip.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            chip.widthAnchor.constraint(equalToConstant: 26),
+            chip.heightAnchor.constraint(equalToConstant: 26),
             numberLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            numberLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            numberLabel.leadingAnchor.constraint(greaterThanOrEqualTo: iconView.trailingAnchor, constant: 6),
+            numberLabel.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
+            numberLabel.leadingAnchor.constraint(greaterThanOrEqualTo: chip.trailingAnchor, constant: 6),
 
-            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            statusLabel.leadingAnchor.constraint(equalTo: statusPill.leadingAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(equalTo: statusPill.trailingAnchor, constant: -8),
+            statusLabel.topAnchor.constraint(equalTo: statusPill.topAnchor, constant: 2),
+            statusLabel.bottomAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: -2),
+            statusPill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            statusPill.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            statusPill.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
 
-            titleZone.topAnchor.constraint(equalTo: iconView.bottomAnchor),
-            titleZone.bottomAnchor.constraint(equalTo: statusLabel.topAnchor),
+            titleZone.topAnchor.constraint(equalTo: chip.bottomAnchor),
+            titleZone.bottomAnchor.constraint(equalTo: statusPill.topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             titleLabel.centerYAnchor.constraint(equalTo: titleZone.centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 94),
+            heightAnchor.constraint(equalToConstant: 98),
         ])
     }
 
@@ -173,35 +228,38 @@ private final class CommandTileView: NSView {
 
     func configure(badge: String?, symbol: String, title: String, status: String, state: State) {
         self.state = state
-        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        chip.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         numberLabel.stringValue = badge ?? ""
         titleLabel.stringValue = title
         statusLabel.stringValue = status
+        statusPill.isHidden = status.isEmpty
         setAccessibilityLabel("\(title). \(status)")
         refresh()
     }
 
     private func refresh() {
-        let fill: NSColor
+        // Один «тон» состояния красит чип, номер, заголовок и пилюлю: мьют — красный, включённый
+        // тумблер — системный акцент, выключенный — нейтральный серый.
+        let tone: NSColor
+        let tileFill: NSColor
         let stroke: NSColor
-        let fg: NSColor
         switch state {
         case .attention:
-            fill = NSColor.systemRed.withAlphaComponent(0.14); stroke = .systemRed; fg = .systemRed
+            tone = .systemRed
+            tileFill = NSColor.systemRed.withAlphaComponent(0.14); stroke = .systemRed
         case .active:
-            // Включённый тумблер — системный акцент; при выделении рамка толще (2px), так что
-            // выбор различим и на акцентной заливке.
-            fill = NSColor.controlAccentColor.withAlphaComponent(0.16)
-            stroke = .controlAccentColor
-            fg = .controlAccentColor
+            tone = .controlAccentColor
+            tileFill = NSColor.controlAccentColor.withAlphaComponent(0.16); stroke = .controlAccentColor
         case .inactive:
-            fill = .clear; stroke = .separatorColor; fg = .secondaryLabelColor
+            tone = .secondaryLabelColor
+            tileFill = .clear; stroke = .separatorColor
         }
-        layer?.backgroundColor = fill.cgColor
-        iconView.contentTintColor = fg
-        numberLabel.textColor = fg
-        statusLabel.textColor = fg
-        titleLabel.textColor = (state == .inactive) ? .labelColor : fg
+        layer?.backgroundColor = tileFill.cgColor
+        chip.apply(tint: tone)
+        numberLabel.textColor = tone
+        titleLabel.textColor = (state == .inactive) ? .labelColor : tone
+        statusLabel.textColor = tone
+        statusPill.layer?.backgroundColor = tone.withAlphaComponent(state == .inactive ? 0.10 : 0.18).cgColor
         // Выделение с клавиатуры — акцентная рамка поверх состояния.
         layer?.borderColor = (isSelected ? NSColor.controlAccentColor : stroke).cgColor
         layer?.borderWidth = isSelected ? 2 : 1
@@ -215,7 +273,7 @@ private final class CommandTileView: NSView {
 private final class SoundCardView: NSView {
     var onClick: (() -> Void)?
 
-    private let iconView = NSImageView()
+    private let chip = IconChip()
     private let badgeLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
     private let chevron = NSImageView()
@@ -232,10 +290,10 @@ private final class SoundCardView: NSView {
         layer?.cornerRadius = 12
         layer?.borderWidth = 1
 
-        iconView.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: nil)
-        iconView.contentTintColor = .secondaryLabelColor
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        // Карточка «Звук» ведёт в drill-in экран «Уровни» — синий чип завязывает её на этот переход.
+        chip.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: nil)
+        chip.apply(tint: .systemBlue)
+        chip.translatesAutoresizingMaskIntoConstraints = false
 
         badgeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         badgeLabel.textColor = .secondaryLabelColor
@@ -272,7 +330,7 @@ private final class SoundCardView: NSView {
 
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(iconView); addSubview(badgeLabel); addSubview(titleLabel)
+        addSubview(chip); addSubview(badgeLabel); addSubview(titleLabel)
         addSubview(chevron); addSubview(stats)
         // Та же раскладка, что у плиток-тумблеров (см. CommandTileView): стат-строка прижата к низу,
         // заголовок «Звук» центрируется в зоне между иконкой и статами — уровни встают на одну линию
@@ -280,12 +338,12 @@ private final class SoundCardView: NSView {
         let titleZone = NSLayoutGuide()
         addLayoutGuide(titleZone)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
+            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            chip.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            chip.widthAnchor.constraint(equalToConstant: 26),
+            chip.heightAnchor.constraint(equalToConstant: 26),
             badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            badgeLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+            badgeLabel.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
 
             stats.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stats.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
@@ -295,7 +353,7 @@ private final class SoundCardView: NSView {
             inIcon.widthAnchor.constraint(equalToConstant: 14),
             inIcon.heightAnchor.constraint(equalToConstant: 14),
 
-            titleZone.topAnchor.constraint(equalTo: iconView.bottomAnchor),
+            titleZone.topAnchor.constraint(equalTo: chip.bottomAnchor),
             titleZone.bottomAnchor.constraint(equalTo: stats.topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleLabel.centerYAnchor.constraint(equalTo: titleZone.centerYAnchor),
@@ -303,7 +361,7 @@ private final class SoundCardView: NSView {
             chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             chevron.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 11),
-            heightAnchor.constraint(equalToConstant: 94),
+            heightAnchor.constraint(equalToConstant: 98),
         ])
         refresh()
     }
@@ -489,7 +547,7 @@ final class CommandRowView: NSView {
     var onHover: ((Bool) -> Void)?
 
     private let keycap = NumberBadge()
-    private let iconView = NSImageView()
+    private let chip = IconChip()
     private let titleLabel = NSTextField(labelWithString: "")
     private let trailingLabel = NSTextField(labelWithString: "")
     private let actionsStack = NSStackView()
@@ -510,9 +568,7 @@ final class CommandRowView: NSView {
         layer?.cornerRadius = 8
 
         keycap.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
+        chip.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.drawsBackground = false
         titleLabel.usesSingleLineMode = true; titleLabel.lineBreakMode = .byTruncatingTail
@@ -531,20 +587,20 @@ final class CommandRowView: NSView {
         actionsStack.isHidden = true
         actionsStack.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(keycap); addSubview(iconView); addSubview(titleLabel)
+        addSubview(keycap); addSubview(chip); addSubview(titleLabel)
         addSubview(trailingLabel); addSubview(actionsStack)
-        iconLeadingToBadge = iconView.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10)
-        iconLeadingToEdge = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14)
+        iconLeadingToBadge = chip.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 8)
+        iconLeadingToEdge = chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
         NSLayoutConstraint.activate([
             keycap.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
             keycap.widthAnchor.constraint(equalToConstant: 20),
             keycap.heightAnchor.constraint(equalToConstant: 20),
             iconLeadingToBadge,
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 18),
-            iconView.heightAnchor.constraint(equalToConstant: 18),
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            chip.widthAnchor.constraint(equalToConstant: 24),
+            chip.heightAnchor.constraint(equalToConstant: 24),
+            titleLabel.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: 10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             trailingLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -558,13 +614,18 @@ final class CommandRowView: NSView {
 
     /// `image` (напр. настоящая иконка приложения) перекрывает SF-символ, если задан.
     /// `attributedTitle` (напр. выражение калькулятора с акцентом на результате) перекрывает `title`.
+    /// `tint` красит подложку чипа под иконкой; `nil` — прозрачная подложка (результаты поиска,
+    /// строки устройств, полноцветные иконки приложений остаются как раньше).
     func configure(badge: String?, symbol: String, title: String, trailing: String?,
-                   image: NSImage? = nil, attributedTitle: NSAttributedString? = nil) {
+                   image: NSImage? = nil, attributedTitle: NSAttributedString? = nil,
+                   tint: NSColor? = nil) {
         keycap.value = badge ?? ""
         let hasBadge = !(badge ?? "").isEmpty
         iconLeadingToBadge.isActive = hasBadge
         iconLeadingToEdge.isActive = !hasBadge
-        iconView.image = image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        chip.image = image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        // Полноцветную иконку приложения не сажаем на цветной квадрат — её показываем «как есть».
+        chip.apply(tint: image == nil ? tint : nil)
         if let attributedTitle {
             titleLabel.attributedStringValue = attributedTitle
             setAccessibilityLabel(attributedTitle.string)
@@ -819,7 +880,16 @@ private final class HistoryRowView: NSView {
     private let keycap = NumberBadge()
     private let textLabel = NSTextField(labelWithString: "")
     private let pasteIcon = NSImageView()
+    /// Мета справа: приложение-источник + относительная дата. Прячется на hover/выборе, уступая
+    /// место паста-глифу.
+    private let metaLabel = NSTextField(labelWithString: "")
+    /// Миниатюра для записи-картинки (у текстовой строки скрыта).
+    private let thumb = NSImageView()
     private var tracking: NSTrackingArea?
+    /// Два взаимоисключающих leading-констрейнта текста: к кейпаду (текст) или к миниатюре
+    /// (картинка). Активируем нужный в `configure`.
+    private var textLeadingToKeycap: NSLayoutConstraint!
+    private var textLeadingToThumb: NSLayoutConstraint!
 
     var isSelected = false { didSet { refresh() } }
     private var isHovered = false { didSet { refresh() } }
@@ -842,27 +912,77 @@ private final class HistoryRowView: NSView {
         pasteIcon.isHidden = true
         pasteIcon.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(keycap); addSubview(textLabel); addSubview(pasteIcon)
+        thumb.wantsLayer = true
+        thumb.layer?.cornerRadius = 4
+        thumb.layer?.masksToBounds = true
+        thumb.imageScaling = .scaleProportionallyUpOrDown
+        thumb.isHidden = true
+        thumb.translatesAutoresizingMaskIntoConstraints = false
+
+        metaLabel.font = .systemFont(ofSize: 11)
+        metaLabel.textColor = .tertiaryLabelColor
+        metaLabel.usesSingleLineMode = true
+        metaLabel.lineBreakMode = .byTruncatingTail
+        metaLabel.alignment = .right
+        metaLabel.isEditable = false; metaLabel.isBordered = false; metaLabel.drawsBackground = false
+        metaLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Мета держит свою ширину, обрезается первым сам предпросмотр, а не приложение/дата.
+        metaLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        metaLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        textLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        addSubview(keycap); addSubview(thumb); addSubview(textLabel); addSubview(metaLabel); addSubview(pasteIcon)
+        textLeadingToKeycap = textLabel.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10)
+        textLeadingToThumb = textLabel.leadingAnchor.constraint(equalTo: thumb.trailingAnchor, constant: 10)
         NSLayoutConstraint.activate([
             keycap.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
             keycap.widthAnchor.constraint(equalToConstant: 20),
             keycap.heightAnchor.constraint(equalToConstant: 20),
-            textLabel.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10),
+            thumb.leadingAnchor.constraint(equalTo: keycap.trailingAnchor, constant: 10),
+            thumb.centerYAnchor.constraint(equalTo: centerYAnchor),
+            thumb.widthAnchor.constraint(equalToConstant: 24),
+            thumb.heightAnchor.constraint(equalToConstant: 24),
+            textLeadingToKeycap,
             textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textLabel.trailingAnchor.constraint(lessThanOrEqualTo: pasteIcon.leadingAnchor, constant: -8),
+            textLabel.trailingAnchor.constraint(lessThanOrEqualTo: metaLabel.leadingAnchor, constant: -8),
+            metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            metaLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            metaLabel.leadingAnchor.constraint(greaterThanOrEqualTo: thumb.trailingAnchor, constant: 8),
             pasteIcon.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             pasteIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
             pasteIcon.widthAnchor.constraint(equalToConstant: 15),
             pasteIcon.heightAnchor.constraint(equalToConstant: 15),
         ])
     }
+
+    /// Задаёт мета-подпись (приложение · дата) и полную подсказку. Пустая мета скрывает лейбл.
+    func setMeta(_ text: String?, tooltip: String?) {
+        metaLabel.stringValue = text ?? ""
+        toolTip = tooltip
+        refresh()
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
     func configure(digit: Int?, text: String) {
         keycap.value = digit.map(String.init) ?? ""
+        thumb.isHidden = true
+        thumb.image = nil
+        textLeadingToThumb.isActive = false
+        textLeadingToKeycap.isActive = true
         textLabel.stringValue = text
         setAccessibilityLabel(text)
+    }
+
+    /// Настраивает строку под запись-картинку: миниатюра слева + подпись (тип · размеры).
+    func configure(digit: Int?, image: NSImage?, subtitle: String) {
+        keycap.value = digit.map(String.init) ?? ""
+        thumb.image = image
+        thumb.isHidden = false
+        textLeadingToKeycap.isActive = false
+        textLeadingToThumb.isActive = true
+        textLabel.stringValue = subtitle
+        setAccessibilityLabel(subtitle)
     }
 
     override func updateTrackingAreas() {
@@ -881,7 +1001,10 @@ private final class HistoryRowView: NSView {
         // Выбор рисует общая пилюля — строка держит только hover-заливку и показ паста-глифа.
         let color = isHovered ? NSColor.secondaryLabelColor.withAlphaComponent(0.10) : .clear
         layer?.backgroundColor = color.cgColor
-        pasteIcon.isHidden = !(isSelected || isHovered)
+        let affordance = isSelected || isHovered
+        pasteIcon.isHidden = !affordance
+        // Мета и паста-глиф делят один слот справа: на hover/выборе показываем глиф, иначе — мету.
+        metaLabel.isHidden = affordance || metaLabel.stringValue.isEmpty
     }
 }
 
@@ -1905,7 +2028,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         let key = command.id.panelKeyCode
         let badge = keyName(forKeyCode: UInt32(key))
         row.configure(badge: badge, symbol: command.symbol(), title: command.title(),
-                      trailing: command.trailing())
+                      trailing: command.trailing(), tint: command.id.paletteTint)
         let idx = entries.count
         row.onClick = { [weak self] in self?.runCommand(command, at: idx) }
         row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
@@ -2296,6 +2419,46 @@ func historyPreview(_ text: String) -> String {
     return oneLine.count > 60 ? String(oneLine.prefix(60)) + "…" : oneLine
 }
 
+/// Локаль по текущему языку приложения (`AppleLanguages` читается при старте) — чтобы
+/// относительные даты («5 мин назад») совпадали с языком интерфейса, а не системным.
+private let historyMetaLocale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+
+private let historyRelativeFormatter: RelativeDateTimeFormatter = {
+    let f = RelativeDateTimeFormatter()
+    f.unitsStyle = .abbreviated
+    f.locale = historyMetaLocale
+    return f
+}()
+
+private let historyAbsoluteFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateStyle = .medium
+    f.timeStyle = .short
+    f.locale = historyMetaLocale
+    return f
+}()
+
+/// Компактная мета-подпись строки: «Приложение · 5 мин назад» (любая часть может отсутствовать).
+/// Дата эпохи (запись без `createdAt`) в относительную часть не идёт — показываем только приложение.
+func historyMetaLabel(_ entry: ClipboardEntry) -> String? {
+    var parts: [String] = []
+    if let app = entry.source?.appName, !app.isEmpty { parts.append(app) }
+    if entry.createdAt.timeIntervalSince1970 > 0 {
+        parts.append(historyRelativeFormatter.localizedString(for: entry.createdAt, relativeTo: Date()))
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+}
+
+/// Полная подсказка (tooltip): приложение + абсолютные дата и время.
+func historyMetaTooltip(_ entry: ClipboardEntry) -> String? {
+    var parts: [String] = []
+    if let app = entry.source?.appName, !app.isEmpty { parts.append(app) }
+    if entry.createdAt.timeIntervalSince1970 > 0 {
+        parts.append(historyAbsoluteFormatter.string(from: entry.createdAt))
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+}
+
 // MARK: - Общие строки-пикеры (Item + билдеры)
 
 /// Неймспейс общих строк-пикеров (история буфера, аудиоустройства): тип `Item` и статические
@@ -2310,20 +2473,43 @@ enum GlassListWindowController {
         let setSelected: (Bool) -> Void
         let setOnClick: (@escaping () -> Void) -> Void
         let run: () -> Void
+        /// Точечное удаление строки (напр. запись истории). nil — строку удалять нельзя (аудио).
+        let onDelete: (() -> Void)?
+
+        init(view: NSView, digit: Int?, enabled: Bool, setSelected: @escaping (Bool) -> Void,
+             setOnClick: @escaping (@escaping () -> Void) -> Void, run: @escaping () -> Void,
+             onDelete: (() -> Void)? = nil) {
+            self.view = view; self.digit = digit; self.enabled = enabled
+            self.setSelected = setSelected; self.setOnClick = setOnClick; self.run = run
+            self.onDelete = onDelete
+        }
     }
 
     // MARK: - Билдеры Item
 
-    static func historyItems(_ history: [String], onPaste: @escaping (String) -> Void) -> [Item] {
-        history.enumerated().map { index, text in
+    static func historyItems(_ history: [ClipboardEntry],
+                             imageProvider: (ClipboardImageRef) -> Data?,
+                             onPaste: @escaping (ClipboardEntry) -> Void,
+                             onDelete: @escaping (ClipboardEntry) -> Void) -> [Item] {
+        history.enumerated().map { index, entry in
             let digit = index < 9 ? index + 1 : nil
             let row = HistoryRowView()
-            row.configure(digit: digit, text: historyPreview(text))
+            switch entry.content {
+            case .text(let text):
+                row.configure(digit: digit, text: historyPreview(text))
+            case .image(let ref):
+                let thumbnail = imageProvider(ref).flatMap { NSImage(data: $0) }
+                row.configure(digit: digit, image: thumbnail,
+                              subtitle: "\(L("clipboard.image")) · \(ref.pixelWidth)×\(ref.pixelHeight)")
+            }
+            // Мета справа: приложение-источник + относительная дата; полная дата — в подсказке.
+            row.setMeta(historyMetaLabel(entry), tooltip: historyMetaTooltip(entry))
             row.onHover = { [weak row] hovered in row?.setHovered(hovered) }
             return Item(view: row, digit: digit, enabled: true,
                         setSelected: { [weak row] in row?.isSelected = $0 },
                         setOnClick: { [weak row] handler in row?.onClick = handler },
-                        run: { onPaste(text) })
+                        run: { onPaste(entry) },
+                        onDelete: { onDelete(entry) })
         }
     }
 
@@ -2380,6 +2566,7 @@ final class GlassListModule: NSObject, PaletteModule {
 
     let titleKey: String
     private let emptyKey: String?
+    private let footerKey: String
     private let rowHeight: CGFloat
     private let maxContentHeight: CGFloat
     private var clearHandler: (() -> Void)?
@@ -2397,9 +2584,11 @@ final class GlassListModule: NSObject, PaletteModule {
 
     private var window: NSWindow? { contentView.window }
 
-    init(titleKey: String, emptyKey: String? = nil, rowHeight: CGFloat = 40, maxContentHeight: CGFloat = 520) {
+    init(titleKey: String, emptyKey: String? = nil, footerKey: String = "panel.footer",
+         rowHeight: CGFloat = 40, maxContentHeight: CGFloat = 520) {
         self.titleKey = titleKey
         self.emptyKey = emptyKey
+        self.footerKey = footerKey
         self.rowHeight = rowHeight
         self.maxContentHeight = maxContentHeight
         super.init()
@@ -2469,7 +2658,7 @@ final class GlassListModule: NSObject, PaletteModule {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(emptyLabel)
 
-        let hint = NSTextField(labelWithString: L("panel.footer"))
+        let hint = NSTextField(labelWithString: L(footerKey))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
@@ -2518,6 +2707,7 @@ final class GlassListModule: NSObject, PaletteModule {
         listView.onMove = { [weak self] delta in self?.moveSelection(by: delta) }
         listView.onRun = { [weak self] _ in self?.runIndex(-1) }
         listView.onDigit = { [weak self] digit in self?.runDigit(digit) }
+        listView.onDelete = { [weak self] in self?.deleteSelected() }
         listView.onClose = { [weak self] in self?.host?.dismissModule() }
         return content
     }
@@ -2531,6 +2721,23 @@ final class GlassListModule: NSObject, PaletteModule {
             contentStack.addArrangedSubview(item.view)
             item.view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
         }
+    }
+
+    /// Удаляет текущую выделенную строку (если она удаляемая — у аудио `onDelete == nil`, тогда
+    /// beep). Список перестраивается на месте, палитра не закрывается; при опустошении показываем
+    /// «пусто» и прячем корзину. Высота изменилась — просим палитру пере-разметиться.
+    private func deleteSelected() {
+        guard items.indices.contains(selectedIndex), let onDelete = items[selectedIndex].onDelete else {
+            NSSound.beep(); return
+        }
+        onDelete()
+        items.remove(at: selectedIndex)
+        rebuild()
+        selectedIndex = items.isEmpty ? -1 : min(selectedIndex, items.count - 1)
+        updateSelection(animated: false)
+        emptyLabel.isHidden = !items.isEmpty
+        clearButton?.isHidden = (clearHandler == nil || items.isEmpty)
+        host?.setNeedsResize()
     }
 
     private func moveSelection(by delta: Int) {

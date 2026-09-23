@@ -106,6 +106,7 @@
 "cmd.clipboardHistory" = "История буфера";
 "clipboard.title" = "История буфера";
 "clipboard.empty" = "История пуста";
+"clipboard.image" = "Изображение";
 "settings.command.clipboardHistory" = "История буфера";
 "cmd.textTransform" = "Преобразовать выделение";
 "settings.command.textTransform" = "Преобразовать текст";
@@ -197,6 +198,7 @@
 "panel.clipboard.clear" = "Очистить историю";
 "panel.snippets.all" = "⌃⌥V — все";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
+"panel.footer.history" = "↑↓ выбрать · 1–9 · ↩ вставить · ⌫ удалить · Esc";
 "panel.footer.commands" = "↑↓ выбрать · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
 "panel.search.placeholder" = "Поиск: приложения, команды, калькулятор…";
 "panel.search.type.command" = "команда";

@@ -150,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mic.onStateChange = { [weak self] _ in self?.updateStatusIcon() }
 
         clipboard.onChange = { [weak self] text in self?.handle(text) }
+        clipboard.onImage = { [weak self] data, type in self?.handleImage(data, type) }
         clipboard.start()
 
         if anyHotKeyEnabled {
@@ -172,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (случайно скопированная ссылка или текст с ключом внутри не должны открывать браузер).
     private func handle(_ text: String) {
         // Пишем в историю буфера все пользовательские копии, кроме «скрытых» (пароль-менеджеры).
-        if !clipboardIsConcealed() { clipboardHistory.record(text) }
+        if !clipboardIsConcealed() { clipboardHistory.record(text, source: currentClipboardSource()) }
 
         guard let match = TicketParser.exactMatch(in: text, templates: config.templates) else { return }
         let matches = [match]
@@ -194,6 +195,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifications.notify(matches: matches, action: action)
             clipboard.syncChangeCount()
         }
+    }
+
+    /// Скопировали картинку: пишем в историю буфера (кроме «скрытых» копий). TIFF нормализуем
+    /// в PNG здесь, в AppKit-зоне — в ядро уходит уже PNG. Тикет-логики для картинок нет.
+    private func handleImage(_ data: Data, _ type: NSPasteboard.PasteboardType) {
+        guard !clipboardIsConcealed() else { return }
+        guard let rep = NSBitmapImageRep(data: data),
+              let png = rep.representation(using: .png, properties: [:]) else { return }
+        clipboardHistory.record(imagePNG: png, pixelWidth: rep.pixelsWide, pixelHeight: rep.pixelsHigh,
+                                source: currentClipboardSource())
+    }
+
+    /// Приложение-источник только что замеченной копии — фронтовое приложение в момент детекта
+    /// (опрос буфера синхронный, поэтому фронт ≈ тот, кто скопировал). Себя источником не пишем
+    /// (наши программные копии — калькулятор/сниппеты — идут мимо `handle`, у них источника нет).
+    private func currentClipboardSource() -> ClipboardSource? {
+        let app = NSWorkspace.shared.frontmostApplication
+        guard app?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        return ClipboardSource(appName: app?.localizedName, bundleID: app?.bundleIdentifier)
     }
 
     /// Выполняет действие над найденными тикетами.
@@ -471,7 +491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Списки как модули палитры (билдеры строк — статические в GlassListWindowController)
 
     private lazy var clipboardHistoryModule: GlassListModule = {
-        let module = GlassListModule(titleKey: "clipboard.title", emptyKey: "clipboard.empty", rowHeight: 34)
+        let module = GlassListModule(titleKey: "clipboard.title", emptyKey: "clipboard.empty",
+                                     footerKey: "panel.footer.history", rowHeight: 34)
         module.enableClearButton { [weak self] in self?.clipboardHistory.clear() }
         return module
     }()
@@ -483,9 +504,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentClipboardHistory() {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
-        let items = GlassListWindowController.historyItems(clipboardHistory.entries) { [weak self] text in
-            self?.pasteHistory(text)
-        }
+        let items = GlassListWindowController.historyItems(
+            clipboardHistory.entries,
+            imageProvider: { [weak self] ref in self?.clipboardHistory.imageData(for: ref) },
+            onPaste: { [weak self] entry in self?.pasteHistory(entry) },
+            onDelete: { [weak self] entry in self?.clipboardHistory.delete(id: entry.id) }
+        )
         clipboardHistoryModule.configure(items: items)
         commandPanel.enterModule(clipboardHistoryModule)
     }
@@ -539,12 +563,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Вставляет запись истории буфера в активное поле (как paste-plain). Требует Accessibility.
-    private func pasteHistory(_ text: String) {
-        guard !text.isEmpty else { NSSound.beep(); return }
-        guard HotKeyManager.ensureAccessibility(prompt: false) else {
-            HotKeyManager.ensureAccessibility(prompt: true); return
+    /// Текст печатается как строка; картинка расшифровывается по запросу и кладётся в буфер PNG.
+    private func pasteHistory(_ entry: ClipboardEntry) {
+        switch entry.content {
+        case .text(let text):
+            guard !text.isEmpty else { NSSound.beep(); return }
+            guard HotKeyManager.ensureAccessibility(prompt: false) else {
+                HotKeyManager.ensureAccessibility(prompt: true); return
+            }
+            hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
+        case .image(let ref):
+            guard let png = clipboardHistory.imageData(for: ref) else { NSSound.beep(); return }
+            guard HotKeyManager.ensureAccessibility(prompt: false) else {
+                HotKeyManager.ensureAccessibility(prompt: true); return
+            }
+            hotKey.paste(pngData: png) { [weak self] in self?.clipboard.syncChangeCount() }
         }
-        hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
     }
 
     /// «Скрытая» ли текущая копия: пароль-менеджеры и т.п. помечают буфер служебными типами,
