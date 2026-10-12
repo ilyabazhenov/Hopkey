@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hopkey — двойной ⌘, и всё мелкое уже под рукой</title>
+<meta name="description" content="Палитра рабочего дня в строке меню Mac. Двойной правый ⌘ — открыть ключ задачи по ссылке, вставить сниппет, выключить микрофон перед созвоном. Без аккаунта и облака, бесплатно и open source.">
+<meta property="og:title" content="Hopkey — двойной ⌘, и всё мелкое уже под рукой">
+<meta property="og:description" content="Палитра рабочего дня в строке меню Mac: ключ → ссылка, сниппеты, мьют микрофона. Локально, бесплатно, open source.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:image" content="assets/icon.png">
+<link rel="alternate" hreflang="ru" href="./">
+<link rel="alternate" hreflang="en" href="en/">
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+(function (r) {
+  r.classList.add('js');
+  var t; try { t = localStorage.getItem('theme'); } catch (e) {}
+  r.dataset.theme = t === 'light' || t === 'dark' ? t : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-hop" viewBox="0 0 24 24"><path fill="currentColor" d="M8.3 10.2C7 6.6 6.8 2.7 8.1 2.2c1.3-.5 2.7 3.1 2.8 8zM13.1 10.2c.1-4.9 1.5-8.5 2.8-8 1.3.5 1.1 4.4-.2 8z"/><path fill="currentColor" fill-rule="evenodd" d="M7 10h10a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-3a4 4 0 0 1 4-4zm1.2 4.6q3.8 2.9 7.6 0q-3.8 4.6-7.6 0z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></g></symbol>
+  <symbol id="i-micoff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 3.5l16 17"/></g></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></g></symbol>
+  <symbol id="i-cup" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M15.5 10.5h1.3a2.4 2.4 0 0 1 0 4.8h-1.5M8 3.5v2.5M11.5 3.5v2.5"/></g></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></g></symbol>
+  <symbol id="i-snip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6.5 3 12l5 5.5M16 6.5l5 5.5-5 5.5M13.5 5l-3 14"/></g></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="16.5" rx="2.5"/><path d="M9 3h6v3.5H9z"/></g></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8.5L19 7.5V21H6z"/><path d="M9 12h7M9 16h5"/></g></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 15 9M17 3v3M15.5 4.5h3M20 9v2M19 10h2M11 4v2M10 5h2"/></g></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8 10h8M8 14h5"/></g></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6v3H9z"/><path d="M15.5 5H18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2.5M9 12h6M9 16h4"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></g></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></g></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.3 3 7.9 7 9.5 4-1.6 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></g></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></g></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h8A2.5 2.5 0 0 1 16 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 3 16.5zM16 10.5l5-3v9l-5-3"/></g></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></g></symbol>
+  <symbol id="i-gh" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+</svg>
+
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="30" height="30">Hopkey</a>
+    <nav class="top-nav" aria-label="Разделы">
+      <a href="#why">Зачем</a>
+      <a href="#keys">Ключ → ссылка</a>
+      <a href="#snippets">Сниппеты</a>
+      <a href="#sound">Звук</a>
+      <a href="#more">Ещё</a>
+      <a href="#privacy">Приватность</a>
+      <a href="#faq">Вопросы</a>
+    </nav>
+    <div class="top-r">
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Сменить тему" title="Сменить тему"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg></button>
+      <nav class="lang" aria-label="Язык"><a href="./" hreflang="ru" lang="ru" aria-current="page">RU</a><a href="en/" hreflang="en" lang="en">EN</a></nav>
+      <a class="btn pri sm" href="https://github.com/ilyabazhenov/Hopkey/releases/latest">Скачать</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <div class="eyebrow rv"><span>Hopkey для Mac</span><span>двойной ⌘ — и всё мелкое уже под рукой</span></div>
+        <h1 class="rv"><span class="ln">Номер задачи <span class="ar">→</span> ссылка.</span><span class="ln">Пароль <span class="ar">→</span> в&nbsp;поле.</span><span class="ln">Микрофон <span class="ar">→</span> выкл.</span></h1>
+        <p class="lead rv">Мелочи, ради которых вы десятки раз в день переключаетесь между окнами: найти задачу по номеру из чата, достать пароль из заметок, поймать кнопку мьюта перед созвоном. Hopkey делает их из строки меню Mac — двойной <span class="kc">⌘</span> и одна буква.</p>
+        <div class="cta rv">
+          <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Скачать для macOS</a>
+          <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>Исходники</a>
+        </div>
+        <div class="req rv"><span>macOS 13+, Apple Silicon и Intel</span><span>бесплатно, MIT</span><span>без аккаунта и облака</span></div>
+      </div>
+
+      <div class="rv">
+        <div class="stage" id="stage" aria-label="Интерактивная демонстрация палитры Hopkey">
+          <div class="mbar">
+            <span aria-hidden="true"></span><span class="app">Чат</span>
+            <span class="menus"><span>Файл</span><span>Правка</span><span>Вид</span></span>
+            <span class="r">
+              <button class="mb-hop" id="mbHop" type="button" aria-label="Открыть палитру" style="border:0;background:none;color:inherit;cursor:pointer"><svg class="mb-ico"><use href="#i-hop"/></svg></button>
+              <span class="mb-mic" id="mbMic"><svg><use href="#i-mic"/></svg></span>
+              <span class="mono">Пн 10:58</span>
+            </span>
+          </div>
+
+          <div class="chat" aria-hidden="true">
+            <div class="chat-h"><span class="dots"><i></i><i></i><i></i></span><b># релиз</b><small>4 участника</small></div>
+            <div class="chat-b" id="chatBody">
+              <div class="msg"><span class="av" style="background:var(--violet)">А</span><div><b>Аня</b><p>Глянь <span class="key">PROJ-4821</span>, там опять падает оплата</p></div></div>
+              <div class="msg"><span class="av" style="background:var(--rose)">Д</span><div><b>Дима</b><p>И <span class="key">#42</span> в репозитории — похоже, то же самое. Созвон в 11:00</p></div></div>
+            </div>
+            <div class="composer" id="composer">Сообщение в # релиз</div>
+          </div>
+
+          <div class="tapme" id="tapme">
+            <span class="t-kbd">Нажмите правый ⌘ дважды</span><span class="t-touch">Нажмите на клавишу дважды</span>
+            <button class="cmdkey" id="cmdKey" type="button" aria-label="Клавиша Command: нажмите дважды, чтобы открыть палитру">⌘<small>×2</small></button>
+          </div>
+
+          <div class="pal" id="pal" role="dialog" aria-label="Палитра Hopkey">
+            <div class="pal-h"><svg><use href="#i-search"/></svg><span class="q">Поиск: приложения, команды, калькулятор…</span><span class="kc">⌘F</span></div>
+            <div class="pal-sec">Переключатели</div>
+            <div class="tiles">
+              <button class="tile mic" data-act="mic" data-code="KeyM" type="button"><span class="ti"><svg><use href="#i-mic"/></svg><b>Микрофон</b></span><small data-state>вкл</small><span class="kc">M</span></button>
+              <button class="tile" data-act="sound" data-code="KeyA" type="button"><span class="ti"><svg><use href="#i-speaker"/></svg><b>Звук</b></span><small>AirPods · 62%</small><span class="kc">A</span></button>
+              <button class="tile" data-act="awake" data-code="KeyK" type="button"><span class="ti"><svg><use href="#i-cup"/></svg><b>Не спать</b></span><small data-state>выкл</small><span class="kc">K</span></button>
+            </div>
+            <div class="pal-sec">Ключи и сниппеты<span>все сниппеты — ⌃⌥V</span></div>
+            <div class="rows">
+              <button class="row" data-act="key" data-code="KeyQ" type="button"><svg><use href="#i-link"/></svg><span>Открыть ссылку по ключу</span><span class="kc">Q</span></button>
+            </div>
+            <div class="chips">
+              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--violet)"><i>1</i>«Посмотрю после обеда»</button>
+              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--teal)"><i>2</i>Комната созвона</button>
+              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--blue)"><i>3</i>Пароль стенда</button>
+            </div>
+            <div class="pal-sec">Действия</div>
+            <div class="rows">
+              <button class="row" data-act="clip" data-code="KeyC" type="button"><svg><use href="#i-clip"/></svg><span>История буфера</span><span class="kc">C</span></button>
+              <button class="row" data-act="notes" data-code="KeyN" type="button"><svg><use href="#i-note"/></svg><span>Заметки</span><span class="kc">N</span></button>
+              <button class="row" data-act="transform" data-code="KeyT" type="button"><svg><use href="#i-wand"/></svg><span>Преобразовать выделение</span><span class="kc">T</span></button>
+              <button class="row" data-act="ocr" data-code="KeyR" type="button"><svg><use href="#i-scan"/></svg><span>Распознать текст с экрана</span><span class="kc">R</span></button>
+            </div>
+            <div class="pal-f">↑↓ выбрать · буквы — команды · 1–9 — сниппеты · ↩ · Esc</div>
+          </div>
+
+          <div class="hud" id="hud" aria-live="polite"><svg><use href="#i-micoff"/></svg><span></span></div>
+          <div class="toast" id="toast" aria-live="polite"><img src="assets/icon.png" alt=""><div><b>Hopkey</b><span></span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="why">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Зачем</div>
+        <h2>Три мелочи каждого дня: было 12&nbsp;действий, стало&nbsp;5.</h2>
+        <p class="story">Hopkey для тех, кто весь день между трекером задач, мессенджером и созвонами. Процесс остаётся прежним — уходят лишние шаги.</p>
+      </div>
+      <div class="why">
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-link"/></svg></div><h3>Коллега пишет: «глянь <span class="nw">PROJ-4821</span>»</h3><a href="#keys">Ключ → ссылка ↓</a></div>
+          <div class="why-no"><div class="lbl">Без Hopkey<span>4 действия</span></div><ol><li>Открыть браузер</li><li>Найти вкладку трекера</li><li>Вставить номер в поиск</li><li>Открыть задачу</li></ol></div>
+          <div class="why-yes"><div class="lbl">С Hopkey<span>2 действия</span></div><ol><li>Скопировать текст <span class="kc">⌘C</span></li><li>Нажать на уведомление — задача открыта</li></ol></div>
+        </article>
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>Нужен пароль от тестового стенда</h3><a href="#snippets">Сниппеты ↓</a></div>
+          <div class="why-no"><div class="lbl">Без Hopkey<span>5 действий</span></div><ol><li>Открыть заметки или менеджер паролей</li><li>Найти запись</li><li>Скопировать</li><li>Вернуться в нужное окно</li><li>Вставить</li></ol></div>
+          <div class="why-yes"><div class="lbl">С Hopkey<span>2 действия</span></div><ol><li>Двойной <span class="kc">⌘</span></li><li>Цифра <span class="kc">1</span> — пароль уже в поле</li></ol></div>
+        </article>
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-mic"/></svg></div><h3>Созвон через минуту, а вокруг шумно</h3><a href="#sound">Звук и микрофон ↓</a></div>
+          <div class="why-no"><div class="lbl">Без Hopkey<span>3 действия</span></div><ol><li>Найти окно Zoom или Teams</li><li>Найти кнопку микрофона — в каждом приложении своя</li><li>Проверить, что выключился</li></ol></div>
+          <div class="why-yes"><div class="lbl">С Hopkey<span>1 действие</span></div><ol><li><span class="kc">⇧⌘M</span> в любом приложении — статус виден в строке меню</li></ol></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="keys">
+    <div class="wrap split">
+      <div class="rv">
+        <div class="kicker"><span class="kc">Q</span>Ключ → ссылка</div>
+        <h2>Прислали номер задачи? Hopkey откроет ссылку.</h2>
+        <p class="story">Скопировали текст с ключом — появилось уведомление, клик открывает страницу. Или выделите ключ в любом приложении и нажмите <span class="kc">Q</span> в палитре.</p>
+        <ul class="facts">
+          <li>Шаблоны regex → URL: Jira — лишь один из пресетов, рядом GitHub, GitLab, CVE и любые свои паттерны.</li>
+          <li>Несколько ключей в одном тексте открываются вместе. Регистр не важен: <code>proj-7</code> → <code>PROJ-7</code>.</li>
+          <li>Можно открывать сразу, без уведомления, — переключатель в настройках.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card kl">
+          <label for="klIn">Текст, который вы скопировали — попробуйте свой</label>
+          <textarea id="klIn" spellcheck="false">По PROJ-4821 и #42 есть вопросы, а ещё глянь cve-2024-3094 перед релизом.</textarea>
+          <div class="kl-out" id="klOut" aria-live="polite"></div>
+          <div class="tpl" aria-label="Шаблоны">
+            <div class="tpl-r"><b>Jira</b><span class="re">PROJ-(\d+)</span><span class="ar">→</span><span class="url">jira.example.com/browse/PROJ-<em>$1</em></span></div>
+            <div class="tpl-r"><b>GitHub</b><span class="re">#(\d+)</span><span class="ar">→</span><span class="url">github.com/acme/app/issues/<em>$1</em></span></div>
+            <div class="tpl-r"><b>CVE</b><span class="re">CVE-(\d{4})-(\d+)</span><span class="ar">→</span><span class="url">nvd.nist.gov/vuln/detail/CVE-<em>$1</em>-<em>$2</em></span></div>
+          </div>
+        </div>
+        <div class="banner" id="klBanner"><img src="assets/icon.png" alt=""><div><b>Hopkey</b><br><span id="klBannerText"></span></div><small>сейчас</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="snippets">
+    <div class="wrap split flip">
+      <div class="rv">
+        <div class="kicker"><span class="kc">1–9</span>Сниппеты</div>
+        <h2>Пароль от стенда — цифрой, а&nbsp;не поиском по заметкам.</h2>
+        <p class="story">Заранее заданные значения — пароли, ссылки на комнаты, шаблонные ответы — вставляются туда, где стоит курсор. Цифра из палитры или отдельный список по <span class="kc">⌃⌥V</span> поверх любого приложения.</p>
+        <ul class="facts">
+          <li>Значения лежат в Keychain одним зашифрованным блобом и читаются раз за запуск — без вереницы запросов доступа.</li>
+          <li>Вставка в чужое поле нужна с Универсальным доступом. Без него значение просто окажется в буфере.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card snip">
+          <div class="snip-h"><svg width="18" height="18" style="color:var(--accent-ink)"><use href="#i-snip"/></svg>Сниппеты<span class="kc">⌃⌥V</span></div>
+          <div class="snip-list" id="snipList">
+            <button class="snip-r" type="button" data-n="1" style="--c:var(--blue)"><i>1</i><span><b>Пароль стенда</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
+            <button class="snip-r" type="button" data-n="2" style="--c:var(--teal)"><i>2</i><span><b>Комната созвона</b><small>meet.example.com/team-standup</small></span></button>
+            <button class="snip-r" type="button" data-n="3" style="--c:var(--violet)"><i>3</i><span><b>«Посмотрю после обеда»</b><small>Спасибо! Посмотрю после обеда и вернусь.</small></span></button>
+            <button class="snip-r" type="button" data-n="4" style="--c:var(--rose)"><i>4</i><span><b>Реквизиты для счёта</b><small>billing@example.com · ИНН 7700000000</small></span></button>
+          </div>
+          <div class="field">
+            <label>Поле в другом приложении</label>
+            <div class="in" id="snipField"><span class="caret"></span></div>
+            <div class="note" id="snipNote">Нажмите на сниппет — он вставится сюда.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="sound">
+    <div class="wrap split">
+      <div class="rv">
+        <div class="kicker"><span class="kc">M</span>Звук и микрофон</div>
+        <h2>Микрофон выключен ещё до&nbsp;того, как вы зашли в&nbsp;звонок.</h2>
+        <p class="story">Мьют работает на уровне системы, через CoreAudio, — в любом приложении для звонков. Буква <span class="kc">M</span> в палитре или <span class="kc">⇧⌘M</span> откуда угодно, а иконка в строке меню показывает, слышат ли вас.</p>
+        <ul class="facts">
+          <li>Переключение аудиовыхода и аудиовхода: наушники, колонки, микрофон гарнитуры.</li>
+          <li>Уровни громкости в карточке «Звук» — стрелками, без мышки.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card snd">
+          <div class="snd-bar"><svg width="16" height="16"><use href="#i-hop"/></svg><span class="mono" style="font-size:12px;color:var(--faint)">строка меню</span><span class="r"><span class="mb-mic" id="sndMic"><svg width="13" height="13"><use href="#i-mic"/></svg></span><span class="mono" style="font-size:12px">10:59</span></span></div>
+          <div class="call">
+            <span class="av"><svg><use href="#i-phone"/></svg></span>
+            <span><b>Планёрка</b><small>через 1 минуту · 6 участников</small></span>
+            <button class="mutebtn" id="muteBtn" type="button" aria-pressed="false"><svg><use href="#i-mic"/></svg><span>Микрофон вкл</span><span class="kc">⇧⌘M</span></button>
+          </div>
+          <div class="lvls">
+            <div class="lvl"><svg><use href="#i-speaker"/></svg><span>AirPods Pro</span><input type="range" min="0" max="100" value="62" aria-label="Громкость выхода"><output>62%</output></div>
+            <div class="lvl"><svg><use href="#i-mic"/></svg><span>Микрофон MacBook</span><input type="range" min="0" max="100" value="80" aria-label="Уровень входа"><output>80%</output></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="more">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Ещё под рукой</div>
+        <h2>Остальное — на тех же буквах.</h2>
+        <p class="story">Вторичные модули палитры. Каждый — одна клавиша после двойного <span class="kc">⌘</span>, а частым командам можно дать прямой хоткей.</p>
+      </div>
+      <div class="more">
+        <div class="mod rv"><span class="kc">C</span><h3>История буфера</h3><p>Текст и картинки, хранится зашифрованной. Копии из менеджеров паролей не записываются.</p></div>
+        <div class="mod rv"><span class="kc">N</span><h3>Заметки</h3><p>Семь постоянных черновиков в духе Tot — открываются по <span class="kc">⌃⌥N</span>.</p></div>
+        <div class="mod rv"><span class="kc">T</span><h3>Преобразования</h3><p>Регистр, JSON, URL, Base64, JWT и строки — для выделенного текста, с превью.</p></div>
+        <div class="mod rv"><span class="kc">R</span><h3>Текст с экрана</h3><p>Выделили область — распознанный текст (ru/en) уже в буфере. Распознаёт сам Mac.</p></div>
+        <div class="mod rv"><span class="kc">⌘F</span><h3>Строка поиска</h3><p>Приложения, команды и калькулятор прямо в палитре.</p></div>
+        <div class="mod rv"><span class="kc">V</span><h3>Без форматирования</h3><p>Вставить из буфера только текст — без шрифтов и цветов.</p></div>
+        <div class="mod rv"><span class="kc">O</span> <span class="kc">I</span><h3>Выход и вход</h3><p>Переключить наушники, колонки или микрофон гарнитуры — без системных настроек.</p></div>
+        <div class="mod rv"><span class="kc">K</span><h3>Не давать засыпать</h3><p>Одним переключателем, пока идёт сборка или долгая загрузка.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="layout">
+    <div class="wrap split flip">
+      <div class="rv">
+        <div class="kicker">Раскладка</div>
+        <h2>Русская раскладка не мешает.</h2>
+        <p class="story">Буквы палитры распознаются по физической клавише, а не по символу. Поэтому <span class="kc">M</span> остаётся мьютом и тогда, когда у вас включена кириллица и на клавише «Ь».</p>
+        <p class="story">Попробуйте нажать <span class="kc">M</span> на своей клавиатуре — в любой раскладке.</p>
+      </div>
+      <div class="rv">
+        <div class="card layout">
+          <div class="krow" id="krow">
+            <span class="bigkey" data-code="KeyQ">Q<span class="ru">Й</span></span>
+            <span class="bigkey" data-code="KeyC">C<span class="ru">С</span></span>
+            <span class="bigkey" data-code="KeyN">N<span class="ru">Т</span></span>
+            <span class="bigkey hot" data-code="KeyM">M<span class="ru">Ь</span></span>
+            <span class="bigkey" data-code="KeyT">T<span class="ru">Е</span></span>
+          </div>
+          <div class="kmap">
+            <div class="bad"><b>По символу</b>В кириллице пришла «ь» — команда не нашлась.</div>
+            <div><b>По клавише · Hopkey</b>Та же физическая клавиша — тот же мьют.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wrap" style="margin-top:72px">
+      <div class="sec-head rv" style="margin-bottom:28px">
+        <h3 style="font-size:26px">Чем отличается от Raycast и Alfred</h3>
+      </div>
+      <div class="diff">
+        <div class="rv"><h3>Без аккаунта, облака и магазина расширений</h3><p>Hopkey ходит в сеть только за обновлениями.</p></div>
+        <div class="rv"><h3>Ключи ловятся сами</h3><p>Достаточно скопировать текст. Открывать палитру и вводить запрос не нужно.</p></div>
+        <div class="rv"><h3>Кириллица — не помеха</h3><p>Буквы палитры работают по физической клавише в любой раскладке.</p></div>
+        <div class="rv"><h3>Бесплатно и open source</h3><p>Лицензия MIT, исходники на GitHub.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="privacy">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Приватность</div>
+        <h2>Всё остаётся на вашем Mac.</h2>
+        <p class="story">У Hopkey нет своих серверов и нет телеметрии. Пароли из сниппетов и история буфера не покидают компьютер.</p>
+      </div>
+      <div class="priv">
+        <div class="rv"><svg><use href="#i-lock"/></svg><h3>Сниппеты в Keychain</h3><p>Все значения — одной зашифрованной записью в связке ключей macOS.</p></div>
+        <div class="rv"><svg><use href="#i-shield"/></svg><h3>Буфер зашифрован</h3><p>История хранится под AES-ключом из Keychain. Копии из менеджеров паролей не сохраняются вовсе.</p></div>
+        <div class="rv"><svg><use href="#i-folder"/></svg><h3>Заметки — просто файлы</h3><p>Обычные файлы в Application Support. Их можно забрать и без Hopkey.</p></div>
+      </div>
+      <div class="netline rv"><b>В сеть:</b><span>только Sparkle — проверить обновления</span><span>·</span><span>серверов Hopkey: 0</span><span>·</span><span>телеметрия: нет</span></div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="faq">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Вопросы</div>
+        <h2>Что спрашивают первым.</h2>
+      </div>
+      <div class="faq rv">
+        <details><summary>Зачем Hopkey Универсальный доступ?</summary><p>Чтобы подставить выделенный текст в окно ввода ключа и чтобы вставить сниппет в чужое поле: Hopkey нажимает за вас <span class="kc">⌘C</span> и <span class="kc">⌘V</span>. Без доступа окно ввода открывается пустым, а сниппет копируется в буфер. Мьют микрофона, «не засыпать» и текст с экрана отдельных разрешений не требуют.</p></details>
+        <details><summary>Это только для Jira?</summary><p>Нет. Распознавание задаётся шаблонами regex → URL. Есть пресеты Jira, GitHub, GitLab и CVE — остаётся вписать свой домен или репозиторий. Можно добавить любой свой паттерн.</p></details>
+        <details><summary>Можно не двойной ⌘?</summary><p>Можно: в настройках двойной тап переключается на <span class="kc">⌥</span> или выключается. Палитру открывает и левый клик по иконке в строке меню, а частым командам можно назначить прямые хоткеи.</p></details>
+        <details><summary>Почему ключ не превращается в ссылку прямо в Telegram или Slack?</summary><p>macOS не даёт вставлять ссылки в окна чужих приложений, а системная «Замена текста» умеет только статичные замены. Поэтому Hopkey распознаёт ключ и сразу открывает нужную страницу.</p></details>
+        <details><summary>Подойдёт ли мой Mac?</summary><p>Нужна macOS 13 или новее. Сборка universal — работает и на Apple Silicon, и на Intel. Обновления приходят через Sparkle.</p></details>
+        <details><summary>Сколько это стоит?</summary><p>Нисколько. Hopkey бесплатный и с открытым кодом под лицензией MIT.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final" id="download">
+    <div class="wrap">
+      <img class="app rv" src="assets/icon.png" alt="Иконка Hopkey" width="112" height="112">
+      <h2 class="rv">Два нажатия <span class="kc" style="font-size:.6em;vertical-align:.18em">⌘</span> — и&nbsp;вы уже там, куда шли.</h2>
+      <p class="story rv">Откройте DMG, перетащите Hopkey в «Программы» и запустите. Иконка появится в строке меню.</p>
+      <div class="cta rv">
+        <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Скачать для macOS</a>
+        <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
+      </div>
+      <div class="req rv"><span>macOS 13+</span><span>Apple Silicon и Intel</span><span>RU / EN</span></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="26" height="26">Hopkey</a>
+    <span class="motto">HOP TO THE KEY</span>
+    <nav aria-label="Ссылки">
+      <a href="https://github.com/ilyabazhenov/Hopkey/releases">Все версии</a>
+      <a href="https://github.com/ilyabazhenov/Hopkey/issues">Сообщить о проблеме</a>
+      <a href="https://github.com/ilyabazhenov/Hopkey/blob/main/LICENSE">Лицензия MIT</a>
+      <a href="en/" hreflang="en" lang="en">English</a>
+    </nav>
+    <div class="copy"><span>© 2026 Илья Баженов</span><span>Другие приложения для рабочего дня — <a href="https://websystems.pro/">websystems.pro</a></span></div>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

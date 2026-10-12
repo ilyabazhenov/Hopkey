@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hopkey — double-tap ⌘, the small stuff at hand</title>
+<meta name="description" content="A keyboard-first palette for the Mac menu bar. Double-tap the right ⌘ to open an issue key as a link, paste a snippet or mute your mic before a call. No account, no cloud, free and open source.">
+<meta property="og:title" content="Hopkey — double-tap ⌘, the small stuff at hand">
+<meta property="og:description" content="A palette for your workday in the Mac menu bar: key → link, snippets, mic mute. Local, free, open source.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
+<meta property="og:image" content="../assets/icon.png">
+<link rel="alternate" hreflang="ru" href="../">
+<link rel="alternate" hreflang="en" href="./">
+<link rel="icon" href="../assets/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+(function (r) {
+  r.classList.add('js');
+  var t; try { t = localStorage.getItem('theme'); } catch (e) {}
+  r.dataset.theme = t === 'light' || t === 'dark' ? t : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-hop" viewBox="0 0 24 24"><path fill="currentColor" d="M8.3 10.2C7 6.6 6.8 2.7 8.1 2.2c1.3-.5 2.7 3.1 2.8 8zM13.1 10.2c.1-4.9 1.5-8.5 2.8-8 1.3.5 1.1 4.4-.2 8z"/><path fill="currentColor" fill-rule="evenodd" d="M7 10h10a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-3a4 4 0 0 1 4-4zm1.2 4.6q3.8 2.9 7.6 0q-3.8 4.6-7.6 0z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></g></symbol>
+  <symbol id="i-micoff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 3.5l16 17"/></g></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></g></symbol>
+  <symbol id="i-cup" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M15.5 10.5h1.3a2.4 2.4 0 0 1 0 4.8h-1.5M8 3.5v2.5M11.5 3.5v2.5"/></g></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></g></symbol>
+  <symbol id="i-snip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6.5 3 12l5 5.5M16 6.5l5 5.5-5 5.5M13.5 5l-3 14"/></g></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="16.5" rx="2.5"/><path d="M9 3h6v3.5H9z"/></g></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8.5L19 7.5V21H6z"/><path d="M9 12h7M9 16h5"/></g></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 15 9M17 3v3M15.5 4.5h3M20 9v2M19 10h2M11 4v2M10 5h2"/></g></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8 10h8M8 14h5"/></g></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6v3H9z"/><path d="M15.5 5H18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2.5M9 12h6M9 16h4"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></g></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></g></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.3 3 7.9 7 9.5 4-1.6 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></g></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></g></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h8A2.5 2.5 0 0 1 16 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 3 16.5zM16 10.5l5-3v9l-5-3"/></g></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></g></symbol>
+  <symbol id="i-gh" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+</svg>
+
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="../assets/icon.png" alt="" width="30" height="30">Hopkey</a>
+    <nav class="top-nav" aria-label="Sections">
+      <a href="#why">Why</a>
+      <a href="#keys">Key → link</a>
+      <a href="#snippets">Snippets</a>
+      <a href="#sound">Sound</a>
+      <a href="#more">More</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="top-r">
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg></button>
+      <nav class="lang" aria-label="Language"><a href="../" hreflang="ru" lang="ru">RU</a><a href="./" hreflang="en" lang="en" aria-current="page">EN</a></nav>
+      <a class="btn pri sm" href="https://github.com/ilyabazhenov/Hopkey/releases/latest">Download</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <div class="eyebrow rv"><span>Hopkey for Mac</span><span>Double-tap ⌘. The small stuff, at hand.</span></div>
+        <h1 class="rv"><span class="ln">Issue number <span class="ar">→</span> link.</span><span class="ln">Password <span class="ar">→</span> field.</span><span class="ln">Mic <span class="ar">→</span> off.</span></h1>
+        <p class="lead rv">The small chores that make you switch windows dozens of times a day: finding an issue from a number in chat, digging a password out of your notes, hunting for the mute button before a call. Hopkey handles them from the Mac menu bar. Double-tap <span class="kc">⌘</span>, press one letter.</p>
+        <div class="cta rv">
+          <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Download for macOS</a>
+          <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>Source code</a>
+        </div>
+        <div class="req rv"><span>macOS 13+, Apple Silicon &amp; Intel</span><span>free, MIT</span><span>no account, no cloud</span></div>
+      </div>
+
+      <div class="rv">
+        <div class="stage" id="stage" aria-label="Interactive Hopkey palette demo">
+          <div class="mbar">
+            <span aria-hidden="true"></span><span class="app">Chat</span>
+            <span class="menus"><span>File</span><span>Edit</span><span>View</span></span>
+            <span class="r">
+              <button class="mb-hop" id="mbHop" type="button" aria-label="Open the palette" style="border:0;background:none;color:inherit;cursor:pointer"><svg class="mb-ico"><use href="#i-hop"/></svg></button>
+              <span class="mb-mic" id="mbMic"><svg><use href="#i-mic"/></svg></span>
+              <span class="mono">Mon 10:58</span>
+            </span>
+          </div>
+
+          <div class="chat" aria-hidden="true">
+            <div class="chat-h"><span class="dots"><i></i><i></i><i></i></span><b># release</b><small>4 members</small></div>
+            <div class="chat-b" id="chatBody">
+              <div class="msg"><span class="av" style="background:var(--violet)">A</span><div><b>Anna</b><p>Can you check <span class="key">PROJ-4821</span>? Payments are failing again</p></div></div>
+              <div class="msg"><span class="av" style="background:var(--rose)">D</span><div><b>Dan</b><p>And <span class="key">#42</span> in the repo looks like the same thing. Call at 11:00</p></div></div>
+            </div>
+            <div class="composer" id="composer">Message # release</div>
+          </div>
+
+          <div class="tapme" id="tapme">
+            <span class="t-kbd">Double-tap the right ⌘</span><span class="t-touch">Tap the key twice</span>
+            <button class="cmdkey" id="cmdKey" type="button" aria-label="Command key: press twice to open the palette">⌘<small>×2</small></button>
+          </div>
+
+          <div class="pal" id="pal" role="dialog" aria-label="Hopkey palette">
+            <div class="pal-h"><svg><use href="#i-search"/></svg><span class="q">Search apps, commands, calculator…</span><span class="kc">⌘F</span></div>
+            <div class="pal-sec">Toggles</div>
+            <div class="tiles">
+              <button class="tile mic" data-act="mic" data-code="KeyM" type="button"><span class="ti"><svg><use href="#i-mic"/></svg><b>Microphone</b></span><small data-state>on</small><span class="kc">M</span></button>
+              <button class="tile" data-act="sound" data-code="KeyA" type="button"><span class="ti"><svg><use href="#i-speaker"/></svg><b>Sound</b></span><small>AirPods · 62%</small><span class="kc">A</span></button>
+              <button class="tile" data-act="awake" data-code="KeyK" type="button"><span class="ti"><svg><use href="#i-cup"/></svg><b>Keep awake</b></span><small data-state>off</small><span class="kc">K</span></button>
+            </div>
+            <div class="pal-sec">Keys and snippets<span>all snippets — ⌃⌥V</span></div>
+            <div class="rows">
+              <button class="row" data-act="key" data-code="KeyQ" type="button"><svg><use href="#i-link"/></svg><span>Open link by key</span><span class="kc">Q</span></button>
+            </div>
+            <div class="chips">
+              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--violet)"><i>1</i>“After lunch”</button>
+              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--teal)"><i>2</i>Meeting room</button>
+              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--blue)"><i>3</i>Staging password</button>
+            </div>
+            <div class="pal-sec">Actions</div>
+            <div class="rows">
+              <button class="row" data-act="clip" data-code="KeyC" type="button"><svg><use href="#i-clip"/></svg><span>Clipboard history</span><span class="kc">C</span></button>
+              <button class="row" data-act="notes" data-code="KeyN" type="button"><svg><use href="#i-note"/></svg><span>Notes</span><span class="kc">N</span></button>
+              <button class="row" data-act="transform" data-code="KeyT" type="button"><svg><use href="#i-wand"/></svg><span>Transform selection</span><span class="kc">T</span></button>
+              <button class="row" data-act="ocr" data-code="KeyR" type="button"><svg><use href="#i-scan"/></svg><span>Recognize text on screen</span><span class="kc">R</span></button>
+            </div>
+            <div class="pal-f">↑↓ move · letters — tools · 1–9 — snippets · ↩ · Esc</div>
+          </div>
+
+          <div class="hud" id="hud" aria-live="polite"><svg><use href="#i-micoff"/></svg><span></span></div>
+          <div class="toast" id="toast" aria-live="polite"><img src="../assets/icon.png" alt=""><div><b>Hopkey</b><span></span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="why">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Why</div>
+        <h2>Three everyday chores: 12&nbsp;steps become&nbsp;5.</h2>
+        <p class="story">Hopkey is for people who spend the day between an issue tracker, a messenger and calls. Your workflow stays the same; only the extra steps go away.</p>
+      </div>
+      <div class="why">
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-link"/></svg></div><h3>A colleague writes “check <span class="nw">PROJ-4821</span>”</h3><a href="#keys">Key → link ↓</a></div>
+          <div class="why-no"><div class="lbl">Without Hopkey<span>4 steps</span></div><ol><li>Open the browser</li><li>Find the tracker tab</li><li>Paste the number into search</li><li>Open the issue</li></ol></div>
+          <div class="why-yes"><div class="lbl">With Hopkey<span>2 steps</span></div><ol><li>Copy the text <span class="kc">⌘C</span></li><li>Click the notification, and the issue is open</li></ol></div>
+        </article>
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>You need the staging password</h3><a href="#snippets">Snippets ↓</a></div>
+          <div class="why-no"><div class="lbl">Without Hopkey<span>5 steps</span></div><ol><li>Open your notes or password manager</li><li>Find the entry</li><li>Copy it</li><li>Switch back to the right window</li><li>Paste</li></ol></div>
+          <div class="why-yes"><div class="lbl">With Hopkey<span>2 steps</span></div><ol><li>Double-tap <span class="kc">⌘</span></li><li>Press <span class="kc">1</span>, and the password is in the field</li></ol></div>
+        </article>
+        <article class="why-r rv">
+          <div class="why-s"><div class="ico"><svg><use href="#i-mic"/></svg></div><h3>The call starts in a minute and it’s noisy around you</h3><a href="#sound">Sound and mic ↓</a></div>
+          <div class="why-no"><div class="lbl">Without Hopkey<span>3 steps</span></div><ol><li>Find the Zoom or Teams window</li><li>Find the mic button, which is different in every app</li><li>Check that it’s actually muted</li></ol></div>
+          <div class="why-yes"><div class="lbl">With Hopkey<span>1 step</span></div><ol><li><span class="kc">⇧⌘M</span> from any app, with the status shown in the menu bar</li></ol></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="keys">
+    <div class="wrap split">
+      <div class="rv">
+        <div class="kicker"><span class="kc">Q</span>Key → link</div>
+        <h2>Got an issue number? Hopkey opens the link.</h2>
+        <p class="story">Copy text with a key, and a notification appears; click it to open the page. Or select a key in any app and press <span class="kc">Q</span> in the palette.</p>
+        <ul class="facts">
+          <li>Regex → URL templates. Jira is just one preset, next to GitHub, GitLab, CVE and any pattern of your own.</li>
+          <li>Several keys in one text open together. Case doesn’t matter: <code>proj-7</code> → <code>PROJ-7</code>.</li>
+          <li>Prefer no notification? Open links right away with one switch in Settings.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card kl">
+          <label for="klIn">Text you just copied — try your own</label>
+          <textarea id="klIn" spellcheck="false">Questions on PROJ-4821 and #42, and please check cve-2024-3094 before the release.</textarea>
+          <div class="kl-out" id="klOut" aria-live="polite"></div>
+          <div class="tpl" aria-label="Templates">
+            <div class="tpl-r"><b>Jira</b><span class="re">PROJ-(\d+)</span><span class="ar">→</span><span class="url">jira.example.com/browse/PROJ-<em>$1</em></span></div>
+            <div class="tpl-r"><b>GitHub</b><span class="re">#(\d+)</span><span class="ar">→</span><span class="url">github.com/acme/app/issues/<em>$1</em></span></div>
+            <div class="tpl-r"><b>CVE</b><span class="re">CVE-(\d{4})-(\d+)</span><span class="ar">→</span><span class="url">nvd.nist.gov/vuln/detail/CVE-<em>$1</em>-<em>$2</em></span></div>
+          </div>
+        </div>
+        <div class="banner" id="klBanner"><img src="../assets/icon.png" alt=""><div><b>Hopkey</b><br><span id="klBannerText"></span></div><small>now</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="snippets">
+    <div class="wrap split flip">
+      <div class="rv">
+        <div class="kicker"><span class="kc">1–9</span>Snippets</div>
+        <h2>The staging password is a digit away, not a notes search.</h2>
+        <p class="story">Predefined values (passwords, meeting links, canned replies) are pasted wherever your cursor is. Use a digit in the palette, or the full list with <span class="kc">⌃⌥V</span> on top of any app.</p>
+        <ul class="facts">
+          <li>Values live in Keychain as one encrypted blob, read once per launch, so you don’t get a string of access prompts.</li>
+          <li>Pasting into another app needs Accessibility. Without it, the value simply lands in the clipboard.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card snip">
+          <div class="snip-h"><svg width="18" height="18" style="color:var(--accent-ink)"><use href="#i-snip"/></svg>Snippets<span class="kc">⌃⌥V</span></div>
+          <div class="snip-list" id="snipList">
+            <button class="snip-r" type="button" data-n="1" style="--c:var(--blue)"><i>1</i><span><b>Staging password</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
+            <button class="snip-r" type="button" data-n="2" style="--c:var(--teal)"><i>2</i><span><b>Meeting room</b><small>meet.example.com/team-standup</small></span></button>
+            <button class="snip-r" type="button" data-n="3" style="--c:var(--violet)"><i>3</i><span><b>“After lunch”</b><small>Thanks! I’ll look after lunch and get back to you.</small></span></button>
+            <button class="snip-r" type="button" data-n="4" style="--c:var(--rose)"><i>4</i><span><b>Billing details</b><small>billing@example.com · VAT EU000000000</small></span></button>
+          </div>
+          <div class="field">
+            <label>A field in another app</label>
+            <div class="in" id="snipField"><span class="caret"></span></div>
+            <div class="note" id="snipNote">Click a snippet and it’s pasted here.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="sound">
+    <div class="wrap split">
+      <div class="rv">
+        <div class="kicker"><span class="kc">M</span>Sound and mic</div>
+        <h2>Your mic is muted before you even join the&nbsp;call.</h2>
+        <p class="story">Mute works system-wide through CoreAudio, in any calling app. Press <span class="kc">M</span> in the palette or <span class="kc">⇧⌘M</span> from anywhere, and the menu bar icon shows whether anyone can hear you.</p>
+        <ul class="facts">
+          <li>Switch audio output and input: headphones, speakers, a headset mic.</li>
+          <li>Volume levels on the “Sound” card, with arrow keys and no mouse.</li>
+        </ul>
+      </div>
+      <div class="rv">
+        <div class="card snd">
+          <div class="snd-bar"><svg width="16" height="16"><use href="#i-hop"/></svg><span class="mono" style="font-size:12px;color:var(--faint)">menu bar</span><span class="r"><span class="mb-mic" id="sndMic"><svg width="13" height="13"><use href="#i-mic"/></svg></span><span class="mono" style="font-size:12px">10:59</span></span></div>
+          <div class="call">
+            <span class="av"><svg><use href="#i-phone"/></svg></span>
+            <span><b>Daily stand-up</b><small>in 1 minute · 6 people</small></span>
+            <button class="mutebtn" id="muteBtn" type="button" aria-pressed="false"><svg><use href="#i-mic"/></svg><span>Mic on</span><span class="kc">⇧⌘M</span></button>
+          </div>
+          <div class="lvls">
+            <div class="lvl"><svg><use href="#i-speaker"/></svg><span>AirPods Pro</span><input type="range" min="0" max="100" value="62" aria-label="Output volume"><output>62%</output></div>
+            <div class="lvl"><svg><use href="#i-mic"/></svg><span>MacBook Microphone</span><input type="range" min="0" max="100" value="80" aria-label="Input level"><output>80%</output></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="more">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Also at hand</div>
+        <h2>Everything else, on the same letters.</h2>
+        <p class="story">The palette’s secondary modules. Each is one key after a double <span class="kc">⌘</span>, and frequent commands can get a direct hotkey.</p>
+      </div>
+      <div class="more">
+        <div class="mod rv"><span class="kc">C</span><h3>Clipboard history</h3><p>Text and images, stored encrypted. Copies from password managers are never recorded.</p></div>
+        <div class="mod rv"><span class="kc">N</span><h3>Notes</h3><p>Seven persistent drafts in the spirit of Tot, one <span class="kc">⌃⌥N</span> away.</p></div>
+        <div class="mod rv"><span class="kc">T</span><h3>Transforms</h3><p>Case, JSON, URL, Base64, JWT and lines for the selected text, with a preview.</p></div>
+        <div class="mod rv"><span class="kc">R</span><h3>Text from screen</h3><p>Select an area, and the recognized text (en/ru) is already in the clipboard. Your Mac does the recognition.</p></div>
+        <div class="mod rv"><span class="kc">⌘F</span><h3>Search bar</h3><p>Apps, commands and a calculator, right in the palette.</p></div>
+        <div class="mod rv"><span class="kc">V</span><h3>Paste plain</h3><p>Paste only the text from the clipboard, without fonts or colors.</p></div>
+        <div class="mod rv"><span class="kc">O</span> <span class="kc">I</span><h3>Output and input</h3><p>Switch headphones, speakers or a headset mic without opening System Settings.</p></div>
+        <div class="mod rv"><span class="kc">K</span><h3>Keep awake</h3><p>One switch for long builds and big downloads.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="layout">
+    <div class="wrap split flip">
+      <div class="rv">
+        <div class="kicker">Keyboard layouts</div>
+        <h2>Any keyboard layout works.</h2>
+        <p class="story">Palette letters are matched by the physical key, not the character it types. <span class="kc">M</span> stays mute even when you’re typing in Cyrillic and that key produces “Ь”.</p>
+        <p class="story">Try pressing <span class="kc">M</span> on your keyboard, in any layout.</p>
+      </div>
+      <div class="rv">
+        <div class="card layout">
+          <div class="krow" id="krow">
+            <span class="bigkey" data-code="KeyQ">Q<span class="ru">Й</span></span>
+            <span class="bigkey" data-code="KeyC">C<span class="ru">С</span></span>
+            <span class="bigkey" data-code="KeyN">N<span class="ru">Т</span></span>
+            <span class="bigkey hot" data-code="KeyM">M<span class="ru">Ь</span></span>
+            <span class="bigkey" data-code="KeyT">T<span class="ru">Е</span></span>
+          </div>
+          <div class="kmap">
+            <div class="bad"><b>By character</b>Cyrillic sends “ь”, so no command is found.</div>
+            <div><b>By key · Hopkey</b>Same physical key, same mute.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wrap" style="margin-top:72px">
+      <div class="sec-head rv" style="margin-bottom:28px">
+        <h3 style="font-size:26px">How it differs from Raycast and Alfred</h3>
+      </div>
+      <div class="diff">
+        <div class="rv"><h3>No account, cloud or extension store</h3><p>Hopkey goes online only to check for updates.</p></div>
+        <div class="rv"><h3>Keys are caught on their own</h3><p>Copying the text is enough. No need to open the palette and type a query.</p></div>
+        <div class="rv"><h3>Layout-proof letters</h3><p>Palette letters follow the physical key in any layout.</p></div>
+        <div class="rv"><h3>Free and open source</h3><p>MIT license, source on GitHub.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="privacy">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">Privacy</div>
+        <h2>Everything stays on your Mac.</h2>
+        <p class="story">Hopkey has no servers of its own and no telemetry. Snippet passwords and clipboard history never leave your computer.</p>
+      </div>
+      <div class="priv">
+        <div class="rv"><svg><use href="#i-lock"/></svg><h3>Snippets in Keychain</h3><p>All values are stored as one encrypted macOS Keychain item.</p></div>
+        <div class="rv"><svg><use href="#i-shield"/></svg><h3>Encrypted clipboard</h3><p>History is stored under an AES key from Keychain. Copies from password managers are never saved.</p></div>
+        <div class="rv"><svg><use href="#i-folder"/></svg><h3>Notes are plain files</h3><p>Ordinary files in Application Support. You can take them with you, no Hopkey needed.</p></div>
+      </div>
+      <div class="netline rv"><b>Network:</b><span>Sparkle only, to check for updates</span><span>·</span><span>Hopkey servers: 0</span><span>·</span><span>telemetry: none</span></div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="faq">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <div class="kicker">FAQ</div>
+        <h2>What people ask first.</h2>
+      </div>
+      <div class="faq rv">
+        <details><summary>Why does Hopkey need Accessibility?</summary><p>To put the selected text into the key input window and to paste a snippet into another app’s field, Hopkey presses <span class="kc">⌘C</span> and <span class="kc">⌘V</span> for you. Without it, the input window opens empty and a snippet goes to the clipboard. Mic mute, keep-awake and text from screen need no extra permissions.</p></details>
+        <details><summary>Is it only for Jira?</summary><p>No. Recognition is set up with regex → URL templates. There are Jira, GitHub, GitLab and CVE presets; just fill in your domain or repository. You can add any pattern of your own.</p></details>
+        <details><summary>Can I use something other than double ⌘?</summary><p>Yes. In Settings, the double tap can switch to <span class="kc">⌥</span> or be turned off. A left click on the menu bar icon also opens the palette, and frequent commands can get direct hotkeys.</p></details>
+        <details><summary>Why doesn’t the key turn into a link right inside Slack or Telegram?</summary><p>macOS doesn’t let one app insert links into another app’s windows, and the system’s Text Replacements only do static swaps. So Hopkey recognizes the key and opens the right page instead.</p></details>
+        <details><summary>Will it run on my Mac?</summary><p>You need macOS 13 or later. It’s a universal build that runs on both Apple Silicon and Intel. Updates arrive through Sparkle.</p></details>
+        <details><summary>How much does it cost?</summary><p>Nothing. Hopkey is free and open source under the MIT license.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final" id="download">
+    <div class="wrap">
+      <img class="app rv" src="../assets/icon.png" alt="Hopkey icon" width="112" height="112">
+      <h2 class="rv">Two taps of <span class="kc" style="font-size:.6em;vertical-align:.18em">⌘</span>, and you’re where you were&nbsp;going.</h2>
+      <p class="story rv">Open the DMG, drag Hopkey to Applications and launch it. The icon shows up in the menu bar.</p>
+      <div class="cta rv">
+        <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Download for macOS</a>
+        <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
+      </div>
+      <div class="req rv"><span>macOS 13+</span><span>Apple Silicon &amp; Intel</span><span>EN / RU</span></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="../assets/icon.png" alt="" width="26" height="26">Hopkey</a>
+    <span class="motto">HOP TO THE KEY</span>
+    <nav aria-label="Links">
+      <a href="https://github.com/ilyabazhenov/Hopkey/releases">All versions</a>
+      <a href="https://github.com/ilyabazhenov/Hopkey/issues">Report an issue</a>
+      <a href="https://github.com/ilyabazhenov/Hopkey/blob/main/LICENSE">MIT license</a>
+      <a href="../" hreflang="ru" lang="ru">Русский</a>
+    </nav>
+    <div class="copy"><span>© 2026 Ilya Bazhenov</span><span>More apps for your workday at <a href="https://websystems.pro/en/">websystems.pro</a></span></div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>
