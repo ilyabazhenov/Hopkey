@@ -27,14 +27,6 @@ enum CommandSection: Int, CaseIterable {
     case toggles
     case actions
     case launchers
-
-    var titleKey: String {
-        switch self {
-        case .toggles: return "panel.section.toggles"
-        case .actions: return "panel.section.actions"
-        case .launchers: return "panel.section.launchers"
-        }
-    }
 }
 
 extension CommandID {

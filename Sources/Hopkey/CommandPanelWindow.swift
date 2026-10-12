@@ -1714,7 +1714,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         snippetDigitCounter = 0
 
         let toggles = commands.filter { $0.id.section == .toggles }
-        let actions = commands.filter { $0.id.section == .actions || $0.id.section == .launchers }
+        let launchers = commands.filter { $0.id.section == .launchers }
+        let actions = commands.filter { $0.id.section == .actions }
 
         // Зона «переключатели» — плитки по три в ряд: микрофон, карточка «Звук» (уровни) и keep-awake.
         // Громкость больше не занимает отдельную секцию из ползунков — она свёрнута в карточку «Звук»,
@@ -1736,6 +1737,14 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
                 addTileRow(Array(tiles[index..<min(index + 3, tiles.count)]))
                 index += 3
             }
+        }
+
+        // Зона «ключи и сниппеты» — ядро продукта сразу под переключателями: окно ввода ключа
+        // строкой на всю ширину, под ним сниппеты (каждый в один клик, цифры 1–9).
+        if !launchers.isEmpty || !snippets.isEmpty {
+            addHeader(L("panel.section.launchers"), trailing: snippets.isEmpty ? nil : L("panel.snippets.all"))
+            for command in launchers { addRow(makeCommandRow(command)) }
+            for snippet in snippets { addRow(makeSnippetRow(snippet)) }
         }
 
         // Зона «действия» — компактные строки по две в ряд. Колонки делим по центральной оси
@@ -1774,12 +1783,6 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
                     self?.finish { self?.lastNotes?.onOpen(strip.focusedIndex) }
                 },
                 adjust: { [weak strip] delta in strip?.moveFocus(delta) }))
-        }
-
-        // Зона «сниппеты» — каждый в один клик.
-        if !snippets.isEmpty {
-            addHeader(L("panel.section.snippets"), trailing: L("panel.snippets.all"))
-            for snippet in snippets { addRow(makeSnippetRow(snippet)) }
         }
 
         // Команды помечены буквами (см. makeTile/makeCommandRow), сниппеты — цифрами 1–9
@@ -2043,7 +2046,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         let digit = nextSnippetDigit()
         let badge = digit.map(String.init)
         row.configure(badge: badge, symbol: Self.snippetSymbol(snippet.kind),
-                      title: snippet.displayName, trailing: Self.snippetTypeLabel(snippet.kind))
+                      title: snippet.displayName, trailing: Self.snippetTypeLabel(snippet.kind),
+                      tint: Self.snippetTint(snippet.kind))
         // Вторичные действия = доступные, кроме первичного (первичное — по клику/Enter).
         let secondary = snippet.availableActivations.filter { $0 != snippet.primaryActivation }
         row.setActions(secondary.map { activation in
@@ -2334,6 +2338,16 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         case .secret: return "key.fill"
         case .text:   return "text.alignleft"
         case .link:   return "link"
+        }
+    }
+
+    /// Цветной чип сниппета по типу — в тон строке «Открыть ссылку по ключу» в той же зоне, чтобы
+    /// раздел «ключи и сниппеты» читался однородно (а цвет сразу говорил: ссылка/секрет/текст).
+    private static func snippetTint(_ kind: SnippetKind) -> NSColor {
+        switch kind {
+        case .secret: return .systemOrange
+        case .text:   return .systemPink
+        case .link:   return .systemGreen
         }
     }
 

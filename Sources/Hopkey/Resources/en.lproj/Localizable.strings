@@ -183,11 +183,10 @@
 "panel.notes.hint" = "←→ pick · ↩ open";
 
 /* Command panel */
-"panel.title" = "Commands";
+"panel.title" = "Hopkey";
 "panel.section.toggles" = "Toggles";
 "panel.section.actions" = "Actions";
-"panel.section.launchers" = "Jira and snippets";
-"panel.section.snippets" = "Snippets";
+"panel.section.launchers" = "Keys and snippets";
 "panel.section.clipboard" = "Clipboard";
 "panel.section.volume" = "Volume & devices";
 "panel.section.output" = "Output";
@@ -196,7 +195,7 @@
 "audio.levels.title" = "Levels";
 "panel.levels.footer" = "↑↓ move · ←→ level · Esc back";
 "panel.clipboard.clear" = "Clear history";
-"panel.snippets.all" = "⌃⌥V — all";
+"panel.snippets.all" = "all snippets — ⌃⌥V";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
 "panel.footer.history" = "↑↓ move · 1–9 · ↩ paste · ⌫ delete · Esc";
 "panel.footer.commands" = "↑↓ move · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";

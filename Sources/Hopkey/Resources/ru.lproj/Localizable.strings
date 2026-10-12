@@ -183,11 +183,10 @@
 "panel.notes.hint" = "←→ выбрать · ↩ открыть";
 
 /* Панель команд */
-"panel.title" = "Команды";
+"panel.title" = "Hopkey";
 "panel.section.toggles" = "Переключатели";
 "panel.section.actions" = "Действия";
-"panel.section.launchers" = "Jira и сниппеты";
-"panel.section.snippets" = "Сниппеты";
+"panel.section.launchers" = "Ключи и сниппеты";
 "panel.section.clipboard" = "Буфер";
 "panel.section.volume" = "Громкость и устройства";
 "panel.section.output" = "Выход";
@@ -196,7 +195,7 @@
 "audio.levels.title" = "Уровни";
 "panel.levels.footer" = "↑↓ выбрать · ←→ уровень · Esc назад";
 "panel.clipboard.clear" = "Очистить историю";
-"panel.snippets.all" = "⌃⌥V — все";
+"panel.snippets.all" = "все сниппеты — ⌃⌥V";
 "panel.footer" = "↑↓ выбрать · 1–9 выбор · ↩ выполнить · Esc закрыть";
 "panel.footer.history" = "↑↓ выбрать · 1–9 · ↩ вставить · ⌫ удалить · Esc";
 "panel.footer.commands" = "↑↓ выбрать · буквы — команды · 1–9 — сниппеты · ⌘F поиск · ↩ · Esc";
