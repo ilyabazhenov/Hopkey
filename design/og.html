@@ -1,0 +1,131 @@
+<!doctype html>
+<!--
+  Картинка-превью для соцсетей (1200×630) → docs/assets/og.png (RU) и og-en.png (EN).
+  Перерисовать из корня репозитория:
+    C="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    "$C" --headless=new --hide-scrollbars --allow-file-access-from-files --force-device-scale-factor=1 \
+      --window-size=1200,630 --virtual-time-budget=8000 \
+      --screenshot=docs/assets/og.png "file://$PWD/design/og.html#ru"
+    (то же с #en → docs/assets/og-en.png)
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=block" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    font-family: "Onest", sans-serif; color: #1e1a14; position: relative;
+    background:
+      radial-gradient(620px 420px at 86% 18%, rgba(245,166,35,.30), transparent 70%),
+      radial-gradient(520px 360px at 0% 100%, rgba(255,195,92,.18), transparent 70%),
+      #f7f2e8;
+  }
+  .mono { font-family: "JetBrains Mono", monospace; }
+  .left { position: absolute; left: 72px; top: 64px; width: 600px; height: 502px; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 16px; font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
+  .brand img { width: 64px; height: 64px; border-radius: 15px; box-shadow: 0 10px 24px -10px rgba(120,70,0,.45); }
+  .eyebrow { margin-top: 30px; font-size: 19px; font-weight: 500; color: #9a5b00; }
+  h1 { margin-top: 18px; font-size: 50px; line-height: 1.12; letter-spacing: -.035em; font-weight: 700; }
+  h1 span { display: block; white-space: nowrap; }
+  h1 i { font-style: normal; color: #f5a623; font-weight: 500; }
+  .lead { margin-top: 22px; font-size: 22px; line-height: 1.45; color: #4a443a; max-width: 560px; }
+  .foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; font-size: 18px; color: #6e665a; }
+  .foot b { color: #1e1a14; font-weight: 500; }
+
+  .kc {
+    display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 8px;
+    font: 500 15px/1 "JetBrains Mono", monospace; color: #4a443a; background: #fffaf0;
+    border: 1px solid rgba(30,26,20,.16); border-bottom-width: 3px; border-radius: 8px;
+  }
+  .tap { position: absolute; left: 700px; top: 64px; display: flex; align-items: center; gap: 10px; font: 500 16px/1 "JetBrains Mono", monospace; color: #9a5b00; }
+  .tap .kc { min-width: 46px; height: 46px; font-size: 22px; border-radius: 11px; border-bottom-width: 4px; color: #1e1a14; }
+
+  .pal {
+    position: absolute; left: 700px; top: 128px; width: 440px;
+    background: rgba(255,253,248,.94); border: 1px solid rgba(30,26,20,.12); border-radius: 22px;
+    box-shadow: 0 40px 80px -28px rgba(70,48,10,.45), 0 6px 18px -8px rgba(70,48,10,.2);
+    padding: 14px 14px 12px; font-size: 16px;
+  }
+  .q { display: flex; align-items: center; gap: 10px; padding: 4px 6px 12px; border-bottom: 1px solid rgba(30,26,20,.1); color: #9a9182; font-size: 15px; }
+  .q svg { width: 18px; height: 18px; color: #1e1a14; }
+  .sec { padding: 12px 6px 6px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #9a9182; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { border: 1px solid rgba(30,26,20,.1); border-radius: 13px; padding: 10px 11px; display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,.6); }
+  .tile .t { display: flex; align-items: center; gap: 7px; font-weight: 500; font-size: 15px; white-space: nowrap; }
+  .tile svg { width: 17px; height: 17px; flex: none; }
+  .tile small { font-size: 13px; color: #9a9182; }
+  .tile.mute { background: rgba(229,72,77,.12); border-color: rgba(229,72,77,.4); }
+  .tile.mute small { color: #e5484d; }
+  .row { display: flex; align-items: center; gap: 11px; padding: 8px 8px; border-radius: 11px; }
+  .row svg { width: 18px; height: 18px; color: #6e665a; flex: none; }
+  .row span:not(.kc) { flex: 1; }
+  .row .kc { min-width: 24px; height: 24px; font-size: 12px; border-radius: 6px; padding: 0 5px; }
+  .row.sel { background: rgba(245,166,35,.24); }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 2px 6px 4px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px 5px 5px; border: 1px solid rgba(30,26,20,.1); border-radius: 10px; font-size: 14px; background: rgba(255,255,255,.6); white-space: nowrap; }
+  .chip i { font: 600 12px/1 "JetBrains Mono", monospace; font-style: normal; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="brand"><img src="../docs/assets/icon.png" alt="">Hopkey</div>
+    <div class="eyebrow mono" data-t="eyebrow"></div>
+    <h1 data-t="h1"></h1>
+    <p class="lead" data-t="lead"></p>
+    <div class="foot mono"><span data-t="facts"></span><b>ilyabazhenov.github.io/Hopkey</b></div>
+  </div>
+
+  <div class="tap"><span class="kc">⌘</span><span class="kc">⌘</span><span data-t="double"></span></div>
+
+  <div class="pal">
+    <div class="q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><span data-t="search"></span></div>
+    <div class="sec" data-t="toggles"></div>
+    <div class="tiles">
+      <div class="tile mute"><span class="t"><svg viewBox="0 0 24 24" fill="none" stroke="#e5484d" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 3.5l16 17"/></svg><span data-t="mic"></span></span><small data-t="off"></small></div>
+      <div class="tile"><span class="t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></svg><span data-t="sound"></span></span><small>AirPods · 62%</small></div>
+      <div class="tile"><span class="t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M15.5 10.5h1.3a2.4 2.4 0 0 1 0 4.8h-1.5"/></svg><span data-t="awake"></span></span><small data-t="off2"></small></div>
+    </div>
+    <div class="sec" data-t="launchers"></div>
+    <div class="row sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span data-t="key"></span><span class="kc">Q</span></div>
+    <div class="chips">
+      <span class="chip"><i style="background:#13968a">1</i><span data-t="chip1"></span></span>
+      <span class="chip"><i style="background:#7b61d9">2</i><span data-t="chip2"></span></span>
+    </div>
+    <div class="sec" data-t="actions"></div>
+    <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="16.5" rx="2.5"/><path d="M9 3h6v3.5H9z"/></svg><span data-t="clip"></span><span class="kc">C</span></div>
+    <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8.5L19 7.5V21H6z"/><path d="M9 12h7M9 16h5"/></svg><span data-t="notes"></span><span class="kc">N</span></div>
+  </div>
+
+<script>
+  const T = {
+    ru: {
+      eyebrow: 'как Spotlight, только для мелочей рабочего дня',
+      h1: '<span>Номер задачи <i>→</i> ссылка.</span><span>Ссылка на созвон <i>→</i> в чат.</span><span>Микрофон <i>→</i> выкл.</span>',
+      lead: 'Палитра рабочего дня в строке меню Mac. Двойной&nbsp;⌘ и одна буква — без аккаунта и облака.',
+      facts: 'macOS 13+ · бесплатно · open source',
+      double: 'двойной',
+      search: 'Поиск: приложения, команды, калькулятор…',
+      toggles: 'Переключатели', mic: 'Микрофон', off: 'выкл', sound: 'Звук', awake: 'Не спать', off2: 'выкл',
+      launchers: 'Ключи и сниппеты', key: 'Открыть ссылку по ключу', chip1: 'Комната созвона', chip2: '«Посмотрю после обеда»',
+      actions: 'Действия', clip: 'История буфера', notes: 'Заметки',
+    },
+    en: {
+      eyebrow: 'Like Spotlight, for the small stuff of your workday',
+      h1: '<span>Issue number <i>→</i> link.</span><span>Meeting link <i>→</i> chat.</span><span>Mic <i>→</i> off.</span>',
+      lead: 'A workday palette in the Mac menu bar. Double-tap&nbsp;⌘, press one letter. No account, no cloud.',
+      facts: 'macOS 13+ · free · open source',
+      double: 'double-tap',
+      search: 'Search apps, commands, calculator…',
+      toggles: 'Toggles', mic: 'Microphone', off: 'off', sound: 'Sound', awake: 'Keep awake', off2: 'off',
+      launchers: 'Keys and snippets', key: 'Open link by key', chip1: 'Meeting room', chip2: '“After lunch”',
+      actions: 'Actions', clip: 'Clipboard history', notes: 'Notes',
+    },
+  };
+  const lang = location.hash === '#en' ? 'en' : 'ru';
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[lang][el.dataset.t]; });
+</script>
+</body>
+</html>
