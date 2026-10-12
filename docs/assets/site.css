@@ -180,6 +180,8 @@ h1 .kc { font-size: .62em; vertical-align: .14em; border-radius: 12px; border-bo
 .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .req { margin-top: 22px; font: 400 13px/1.6 var(--mono); color: var(--faint); display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .req span::before { content: "✓ "; color: var(--ok); }
+.req .ver { color: var(--accent-ink); font-weight: 500; }
+.req .ver::before { content: none; }
 @media (max-width: 960px) {
   .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .hero { padding-top: 36px; }
