@@ -28,6 +28,9 @@ make watch      # авто-пересборка/перезапуск при пр
   `Tests/HopkeyCoreTests/`. **Логику меняем здесь и держим под тестами.**
 - `Sources/Hopkey/` — GUI-таргет (AppKit, меню-бар). Окна, хоткеи, уведомления,
   `SnippetPickerWindow` / `SnippetEditorWindow`.
+- `docs/` — маркетинговый сайт (RU в корне, EN в `en/`), GitHub Pages публикует его прямо из
+  `main` → `/docs`: всё, что лежит в `docs/`, сразу уходит в публичный доступ. Обычные
+  проектные документы туда не кладём — для них `design/`.
 - `build.sh` собирает бинарник SwiftPM и вручную упаковывает его в `.app` (Info.plist,
   Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, подпись Developer ID +
   hardened runtime; фолбэк — self-signed «Hopkey Dev»/ad-hoc с `Signing/Hopkey-dev.entitlements`).
