@@ -90,17 +90,17 @@ GitLab, CVE и любых своих паттернов.
 
 ## Сборка
 
-Нужен Xcode / Swift 5.9+ (macOS 13+). Релизные артефакты собираются под **Apple Silicon
-(arm64)** — автообновление Sparkle работает на Mac с чипом Apple. На Intel Mac приложение
-из релиза не запустится (нужен universal binary — см. [RELEASING.md](RELEASING.md)).
+Нужен Xcode / Swift 5.9+ (macOS 13+). Релиз — **universal binary** (arm64 + x86_64):
+запускается и обновляется и на Apple Silicon, и на Intel.
 
 ```bash
 ./build.sh
 ```
 
-Скрипт соберёт release-бинарник, упакует его в `build/Hopkey.app` и подпишет
-стабильным self-signed-сертификатом «Hopkey Dev» (или ad-hoc, если его нет —
-см. `./setup-signing.sh`).
+Скрипт соберёт release-бинарник, упакует его в `build/Hopkey.app` и подпишет с
+hardened runtime: сертификатом **Developer ID Application**, если он есть в связке
+ключей, иначе self-signed «Hopkey Dev» (см. `./setup-signing.sh`) или ad-hoc.
+Нотаризацию Apple делает `release.sh` — см. [RELEASING.md](RELEASING.md).
 
 ## Разработка (watch-режим)
 
@@ -120,17 +120,14 @@ open build/Hopkey.app          # просто запустить
 cp -R build/Hopkey.app /Applications/   # установить
 ```
 
-> **Снятие карантина (обязательно для скачанного релиза).** Приложение подписано
-> self-signed-сертификатом без нотаризации Apple, поэтому скачанный из интернета
-> бандл (DMG из GitHub Releases) macOS блокирует с ошибкой «приложение
-> повреждено». Разрешите запуск одной командой:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/Hopkey.app
-> ```
->
-> Для локально собранного `build/Hopkey.app` это не требуется (карантин ставится
-> только на скачанные файлы), но команда безопасна и в этом случае.
+Релиз из [GitHub Releases](https://github.com/ilyabazhenov/Hopkey/releases/latest)
+подписан Developer ID и нотаризован Apple: откройте DMG, перетащите **Hopkey** в
+**Applications** и запустите двойным кликом — без `xattr` и обходов Gatekeeper.
+
+> **Обновление с версии 1.6.0 и раньше.** Ранние версии были подписаны self-signed-сертификатом.
+> После перехода на Developer ID macOS один раз считает Hopkey новым приложением: выдайте
+> заново **Универсальный доступ** (снимите и поставьте галочку Hopkey) и ответьте
+> «Всегда разрешать» на запрос доступа к связке ключей для сниппетов и истории буфера.
 
 Иконка появится в строке меню. **Левый клик открывает панель команд**, правый клик
 (или `⌥`+клик) — меню:

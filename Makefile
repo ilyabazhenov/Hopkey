@@ -40,7 +40,7 @@ run: ## Собрать dev .app (отдельный bundle id) и запусти
 watch: ## Dev: следить за Sources/ и пересобирать+перезапускать при изменениях
 	HOPKEY_BUNDLE_ID=$(DEV_BUNDLE_ID) ./dev-watch.sh
 
-setup-signing: ## Создать self-signed сертификат, чтобы Accessibility не слетал при пересборках
+setup-signing: ## Self-signed сертификат для машины без Developer ID (чтобы Accessibility не слетал)
 	./setup-signing.sh
 
 install: app ## Собрать .app и установить в /Applications
@@ -48,8 +48,6 @@ install: app ## Собрать .app и установить в /Applications
 	rm -rf "/Applications/$(APP_NAME).app"
 	cp -R "$(APP_BUNDLE)" /Applications/
 	@echo "✅ Установлено: /Applications/$(APP_NAME).app"
-	@echo "   Если macOS блокирует запуск — снимите карантин:"
-	@echo "     xattr -dr com.apple.quarantine /Applications/$(APP_NAME).app"
 
 uninstall: ## Остановить и удалить приложение из /Applications
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true

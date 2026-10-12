@@ -26,7 +26,10 @@ make watch      # авто-пересборка/перезапуск при пр
 - `Sources/Hopkey/` — GUI-таргет (AppKit, меню-бар). Окна, хоткеи, уведомления,
   `SnippetPickerWindow` / `SnippetEditorWindow`.
 - `build.sh` собирает бинарник SwiftPM и вручную упаковывает его в `.app` (Info.plist,
-  Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, self-signed подпись).
+  Sparkle.framework, `.lproj`-локализация в `Contents/Resources`, подпись Developer ID +
+  hardened runtime; фолбэк — self-signed «Hopkey Dev»/ad-hoc с `Signing/Hopkey-dev.entitlements`).
+  Нотаризацию делает только `release.sh`. Новому коду, которому нужен TCC-ресурс под hardened
+  runtime (микрофон-захват, камера, Apple Events…), нужен соответствующий entitlement.
 
 ## Тесты
 

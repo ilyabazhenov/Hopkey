@@ -9,8 +9,8 @@ GitHub Release. Каждый релиз содержит:
   `appcast.xml`; уже установленный Hopkey скачивает и ставит его сам.
 - **`Hopkey-<ver>.dmg`** — для **первой ручной установки** (drag-to-Applications).
 
-Подпись — стабильная self-signed («Hopkey Dev»), **без нотаризации Apple**, поэтому
-в release notes автоматически добавляется памятка про обход Gatekeeper (`xattr`).
+Подпись — **Developer ID + hardened runtime, нотаризация Apple** (staple и в `.app`, и в
+`.dmg`): скачанный релиз открывается двойным кликом, без `xattr` и обходов Gatekeeper.
 
 ---
 
@@ -67,10 +67,20 @@ git remote -v           # origin → github.com/ilyabazhenov/Hopkey
 xcrun --find hdiutil    # встроен в macOS, ставить отдельно не нужно
 ```
 
-Разовая настройка автообновления (если ещё не сделана):
+Разовая настройка подписи, нотаризации и автообновления (если ещё не сделана):
 
-- `./setup-signing.sh` — стабильный серт «Hopkey Dev» (иначе обновление
-  подпишется ad-hoc и Sparkle отвергнет его из-за несовпадения идентичности);
+- сертификат **«Developer ID Application»** в связке ключей входа
+  (`security find-identity -v -p codesigning`); `release.sh` без него не стартует;
+- профиль **notarytool** в связке ключей (по умолчанию `hopkey-notary`, другое имя —
+  через `NOTARY_PROFILE=…`). Нужен ключ App Store Connect API (`.p8`):
+
+  ```bash
+  xcrun notarytool store-credentials hopkey-notary \
+    --key AuthKey_<KEYID>.p8 --key-id <KEYID> --issuer <ISSUER-UUID>
+  ```
+
+  Профиль привязан к команде, а не к приложению — подойдёт и уже созданный для
+  соседних проектов (`NOTARY_PROFILE=<его имя> ./release.sh`);
 - `…/Sparkle/bin/generate_keys` — EdDSA-ключ (приватный в Keychain; публичный уже
   прописан в `build.sh` → `SUPublicEDKey`). **Сделайте бэкап приватного ключа**
   (`generate_keys -x файл`) — без него нельзя выпускать обновления, которые примет
@@ -119,12 +129,18 @@ echo "1.2.0" > VERSION
 ./release.sh
 ```
 
-Скрипт сам выполнит по порядку: предполётная проверка (чистое дерево + `swift
-test`) → `build.sh` → `Hopkey-1.2.0.zip` + подпись EdDSA и генерация `appcast.xml`
-→ **коммит `release v1.2.0` (`VERSION` + `appcast.xml`) + тег `v1.2.0` + push в
-`main`** → `Hopkey-1.2.0.dmg` (с ярлыком `/Applications`) → создание GitHub Release
-`v1.2.0` из уже запушенного тега (`--verify-tag`) с обоими файлами и готовыми
-release notes (список изменений относительно прошлого тега + памятка про `xattr`).
+Скрипт сам выполнит по порядку: предполётная проверка (чистое дерево, Developer ID,
+профиль notarytool, `swift test`) → `build.sh` с Developer ID и secure timestamp →
+**нотаризация + staple `.app`** (проверка `spctl`: «Notarized Developer ID») →
+`Hopkey-1.2.0.zip` + подпись EdDSA и генерация `appcast.xml` → `Hopkey-1.2.0.dmg`
+(с ярлыком `/Applications`) + **подпись, нотаризация и staple образа** → **коммит
+`release v1.2.0` (`VERSION` + `appcast.xml`) + тег `v1.2.0` + push в `main`** →
+создание GitHub Release `v1.2.0` из уже запушенного тега (`--verify-tag`) с обоими
+файлами и готовыми release notes (список изменений относительно прошлого тега).
+
+Нотаризация — две отправки по несколько минут (`.app`, затем `.dmg`). При отказе
+`release.sh` печатает лог notarytool с причинами и останавливается **до** push — тег
+и релиз не появляются.
 
 Список изменений собирается автоматически из git-истории. Чтобы задать
 курированный текст вместо авто-списка:
@@ -155,23 +171,39 @@ git ls-remote --tags origin v1.2.0   # тег указывает на комми
 
 Финально (на «чистой» машине/пути): автообновление — установить старую версию,
 нажать «Проверить обновления…», убедиться что Hopkey обновляется и
-перезапускается. Ручная установка — смонтировать DMG, перетащить в Applications,
-снять карантин, запустить.
+перезапускается. Ручная установка — скачать DMG **браузером** (чтобы стоял атрибут
+карантина, как у пользователя), перетащить в Applications, запустить двойным кликом —
+без предупреждений Gatekeeper.
+
+```bash
+spctl --assess --type execute -vv /Applications/Hopkey.app   # source=Notarized Developer ID
+xcrun stapler validate ~/Downloads/Hopkey-1.2.0.dmg
+```
 
 ---
 
-## Почему `xattr`, а не «правый клик → Открыть»
+## Подпись и hardened runtime
 
-Self-signed-подпись для Gatekeeper эквивалентна отсутствию валидной. Для
-скачанного из интернета бандла macOS нередко показывает не «неизвестный
-разработчик» (чинится правым кликом), а «приложение повреждено» — этот диалог
-правым кликом **не** обходится. Надёжный способ — снять атрибут карантина:
-`xattr -dr com.apple.quarantine /Applications/Hopkey.app`. Поэтому в памятке
-даём именно его.
-
-> Если появится платный Apple Developer ID — стоит перейти на Developer ID +
-> нотаризацию (`notarytool` + `stapler`); тогда DMG откроется двойным кликом без
-> терминала, а Sparkle сможет проверять обновления и по нотаризации.
+- `build.sh` подписывает **всё** с hardened runtime (`--options runtime`) — это
+  обязательное условие нотаризации, и dev-сборка так живёт в том же окружении, что и
+  релиз. Идентичность: Developer ID → «Hopkey Dev» → ad-hoc (`SIGN_IDENTITY=…` задаёт
+  явно). У self-signed/ad-hoc нет Team ID, поэтому им добавляется
+  `Signing/Hopkey-dev.entitlements` (отключает только library validation, иначе не
+  грузится Sparkle). Developer ID подписывается без entitlements.
+- Hopkey не использует TCC-ресурсов, требующих entitlement под hardened runtime:
+  Accessibility, синтез клавиш, Carbon-хоткеи, CoreAudio-мьют (свойства устройства, не
+  захват звука), IOKit и `screencapture` для OCR работают без них. Если появится захват
+  микрофона, камера или Apple Events — нужен соответствующий
+  `com.apple.security.device.*` / `automation.apple-events`.
+- **Sparkle и смена сертификата.** Обновление проверяется EdDSA-ключом; Sparkle
+  допускает смену Apple-подписи при неизменном EdDSA-ключе, поэтому установленные
+  self-signed-версии (≤ 1.6.0) обновляются на Developer ID-сборку штатно.
+- **Разовый эффект перехода для пользователей ≤ 1.6.0.** Designated requirement
+  приложения меняется, поэтому macOS считает Hopkey новым: слетает выданный
+  **Универсальный доступ** (снять и поставить галочку заново) и один раз спрашивается
+  доступ к записям Keychain (сниппеты, ключ истории буфера) — ответить «Всегда
+  разрешать». Это нужно написать в release notes первой Developer ID-версии
+  (`CHANGELOG=…`).
 
 ---
 
@@ -180,7 +212,7 @@ Self-signed-подпись для Gatekeeper эквивалентна отсут
 - [ ] `main` обновлён, рабочее дерево чистое (кроме поднятого `VERSION`)
 - [ ] `VERSION` поднят
 - [ ] release notes содержат список изменений относительно прошлой версии (проверен/курирован)
-- [ ] `./release.sh` отработал — тесты зелёные, релизный коммит+тег запушены в `main`, zip/dmg/appcast созданы, релиз опубликован
+- [ ] `./release.sh` отработал — тесты зелёные, `.app` и `.dmg` нотаризованы и застейплены, релизный коммит+тег запушены в `main`, zip/dmg/appcast созданы, релиз опубликован
 - [ ] `gh release view` — оба ассета (zip + dmg) на месте
 - [ ] `git ls-remote --tags origin vX` — тег на коммите «release vX»
 - [ ] проверка: автообновление со старой версии и ручная установка из DMG

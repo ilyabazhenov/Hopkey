@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ASCII ONLY. codesign parses this file with AMFIUnserializeXML, which
+         rejects non-ASCII bytes even inside comments ("syntax error near line N"),
+         while plutil -lint accepts it. Keep dashes and quotes plain. -->
+    <!-- Builds NOT signed with Developer ID only (self-signed "Hopkey Dev" or
+         ad-hoc). Hardened runtime is on for every build (see build.sh) and turns
+         on library validation, which only loads code with the app's own Team ID.
+         Self-signed and ad-hoc signatures have no Team ID, so Sparkle.framework
+         would be refused. Disabling library validation alone keeps the rest of
+         hardened runtime (DYLD_* variables stay ignored).
+         Developer ID builds are signed without entitlements: Sparkle is re-signed
+         with the same Team ID and loads under library validation. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Собирает release-бинарник через SwiftPM и упаковывает его в .app-бандл
-# с нужным Info.plist (LSUIElement, bundle id), затем ad-hoc подписывает.
+# с нужным Info.plist (LSUIElement, bundle id), затем подписывает (Developer ID,
+# если он есть в связке ключей; нотаризацию делает release.sh).
 
 APP_NAME="Hopkey"
 DISPLAY_NAME="Hopkey"
@@ -114,34 +115,67 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Подпись. Если есть стабильный self-signed сертификат "Hopkey Dev" (см.
-# setup-signing.sh), подписываем им — тогда разрешение Accessibility переживает
-# пересборки, а Sparkle принимает обновление (совпадение идентичности подписи).
-# Иначе откатываемся на ad-hoc (доверие слетает при каждой сборке).
-SIGN_ID="Hopkey Dev"
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "${SIGN_ID}"; then
-    echo "==> Сертификат «${SIGN_ID}» не найден — ad-hoc подпись (запустите ./setup-signing.sh)…"
-    SIGN_ID="-"
+# Подпись. Идентичность (можно задать явно: SIGN_IDENTITY="…" ./build.sh):
+#   1. «Developer ID Application: …» — основной путь, им же подписан релиз (его
+#      нотаризует release.sh). Team ID стабилен, поэтому Accessibility и доступ к
+#      Keychain переживают пересборки и обновления;
+#   2. self-signed «Hopkey Dev» (см. setup-signing.sh) — фолбэк для машины без
+#      Developer ID; такая сборка не нотаризуется;
+#   3. ad-hoc — доверие слетает при каждой сборке.
+if [ -z "${SIGN_IDENTITY:-}" ]; then
+    IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+    SIGN_IDENTITY="$(printf '%s\n' "${IDENTITIES}" \
+        | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)"
+    if [ -z "${SIGN_IDENTITY}" ]; then
+        if printf '%s\n' "${IDENTITIES}" | grep -q '"Hopkey Dev"'; then
+            SIGN_IDENTITY="Hopkey Dev"
+        else
+            echo "==> Ни Developer ID, ни «Hopkey Dev» не найдены — ad-hoc подпись (см. ./setup-signing.sh)…"
+            SIGN_IDENTITY="-"
+        fi
+    fi
+fi
+
+# Hardened runtime включён всегда — он обязателен для нотаризации, и dev-сборка
+# так проверяет то же окружение, что получит пользователь. Entitlements не нужны
+# только Developer ID: Sparkle переподписан тем же Team ID и грузится под library
+# validation. У self-signed/ad-hoc Team ID нет — им отключаем library validation
+# (см. Signing/Hopkey-dev.entitlements).
+case "${SIGN_IDENTITY}" in
+    "Developer ID Application:"*) APP_ENTITLEMENTS=() ;;
+    *) APP_ENTITLEMENTS=(--entitlements "Signing/Hopkey-dev.entitlements") ;;
+esac
+
+# Защищённый timestamp (SIGN_TIMESTAMP=secure) требует нотаризация — его ставит
+# release.sh. Это сетевой запрос на каждый подписываемый компонент, поэтому
+# dev-сборки по умолчанию обходятся без него. У ad-hoc timestamp невозможен.
+if [ "${SIGN_TIMESTAMP:-none}" = "secure" ] && [ "${SIGN_IDENTITY}" != "-" ]; then
+    TIMESTAMP_FLAG="--timestamp"
+else
+    TIMESTAMP_FLAG="--timestamp=none"
 fi
 
 # Подписываем строго изнутри наружу: вложенные хелперы Sparkle, затем сам
-# фреймворк, и только потом приложение (--deep некорректно пере-подписывает
-# вложенные XPC-сервисы, поэтому каждый компонент подписываем явно).
-sign() { codesign --force --timestamp=none --sign "${SIGN_ID}" "$1"; }
+# фреймворк, и только потом приложение (порядок из документации Sparkle). --deep
+# не используем: он проставил бы entitlements приложения на вложенный код, поэтому
+# каждый компонент подписываем явно и без entitlements.
+sign() { codesign --force --options runtime "${TIMESTAMP_FLAG}" --sign "${SIGN_IDENTITY}" "$@"; }
 
 EMBEDDED_FW="${FRAMEWORKS_DIR}/Sparkle.framework"
 if [ -d "${EMBEDDED_FW}" ]; then
-    echo "==> Подпись компонентов Sparkle сертификатом «${SIGN_ID}»…"
+    echo "==> Подпись компонентов Sparkle («${SIGN_IDENTITY}»)…"
     FW_V="${EMBEDDED_FW}/Versions/B"
     sign "${FW_V}/XPCServices/Downloader.xpc"
     sign "${FW_V}/XPCServices/Installer.xpc"
-    sign "${FW_V}/Updater.app"
     sign "${FW_V}/Autoupdate"
-    sign "${FW_V}"
+    sign "${FW_V}/Updater.app"
+    sign "${EMBEDDED_FW}"
 fi
 
-echo "==> Подпись приложения сертификатом «${SIGN_ID}»…"
-sign "${APP_DIR}"
+echo "==> Подпись приложения («${SIGN_IDENTITY}», hardened runtime)…"
+# ${arr[@]+…} — пустой массив под `set -u` в bash 3.2 (системный на macOS) иначе падает.
+sign ${APP_ENTITLEMENTS[@]+"${APP_ENTITLEMENTS[@]}"} "${APP_DIR}"
+codesign --verify --strict --deep "${APP_DIR}"
 
 # Проверка арки. При universal-сборке бинарник обязан содержать оба слайса —
 # иначе .app молча не запустится на Intel (или на Apple Silicon). Падаем сразу,
@@ -165,5 +199,4 @@ echo ""
 echo "✅ Готово: ${APP_DIR}"
 echo "   Запуск:    open \"${APP_DIR}\""
 echo "   Установка: cp -R \"${APP_DIR}\" /Applications/"
-echo "   Если macOS блокирует (скачанный/самоподписанный бандл) — снимите карантин:"
-echo "     xattr -dr com.apple.quarantine /Applications/Hopkey.app"
+echo "   Подпись:   ${SIGN_IDENTITY}"
