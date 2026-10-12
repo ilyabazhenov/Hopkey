@@ -3,12 +3,12 @@
     <channel>
         <title>Hopkey</title>
         <item>
-            <title>1.6.0</title>
-            <pubDate>Wed, 23 Sep 2026 14:10:51 +0400</pubDate>
-            <sparkle:version>1.6.0</sparkle:version>
-            <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
+            <title>1.7.0</title>
+            <pubDate>Mon, 12 Oct 2026 19:48:08 +0400</pubDate>
+            <sparkle:version>1.7.0</sparkle:version>
+            <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ilyabazhenov/Hopkey/releases/download/v1.6.0/Hopkey-1.6.0.zip" length="4342288" type="application/octet-stream" sparkle:edSignature="bhNiakD7bueoQOTCCM2KHaC2y7Hm43kKQ5InvA9AnJFRU+Eptfeg56jPROA4mkWwnT+ht3ocRwifZYacXm3dAA=="/>
+            <enclosure url="https://github.com/ilyabazhenov/Hopkey/releases/download/v1.7.0/Hopkey-1.7.0.zip" length="4397846" type="application/octet-stream" sparkle:edSignature="/FoD2E7iDARH/taTHkDSsuElZMi2s/ZJXLlx6AbxIxD6BoLZvUT/L216xoNxB4OEPmAnSPJ77iigtFmU+eA3DQ=="/>
         </item>
     </channel>
 </rss>
