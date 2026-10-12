@@ -155,6 +155,10 @@ final class HotKeyManager {
         flags: { CGEventSource.flagsState(.combinedSessionState).rawValue },
         schedule: { work in DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: work) })
 
+    /// Вызывается синхронно после каждой программной записи в буфер (вставка и восстановление):
+    /// владелец синхронизирует наблюдатель буфера, чтобы тот не принял запись за копию пользователя.
+    var onPasteboardWrite: (() -> Void)?
+
     private func whenModifiersCleared(_ work: @escaping () -> Void) {
         modifierWaiter.wait(work)
     }
@@ -189,7 +193,14 @@ final class HotKeyManager {
 
     /// Снимок содержимого буфера (копии элементов всех типов) для последующего восстановления.
     private func savedItems(of pasteboard: NSPasteboard) -> [NSPasteboardItem]? {
-        pasteboard.pasteboardItems?.compactMap { item in
+        // Скрытую копию (пароль из менеджера паролей или наш скопированный секрет) не сохраняем
+        // и не возвращаем: иначе после вставки она вернулась бы в буфер обычным текстом — без
+        // пометок и без автоочистки. Чтение её данных к тому же «сожгло» бы обещание вставки.
+        let concealed = NSPasteboard.PasteboardType(PasteboardMarker.concealed)
+        if pasteboard.pasteboardItems?.contains(where: { $0.types.contains(concealed) }) == true {
+            return nil
+        }
+        return pasteboard.pasteboardItems?.compactMap { item in
             let copy = NSPasteboardItem()
             var hasData = false
             for type in item.types {
@@ -220,12 +231,17 @@ final class HotKeyManager {
     /// Прежнее содержимое буфера восстанавливается, НО только когда Accessibility выдан
     /// (иначе Cmd+V не сработал — оставляем `text` в буфере как запасной путь для ручного
     /// ⌘V). `completion` всегда вызывается на главном потоке.
-    func paste(_ text: String, completion: (() -> Void)? = nil) {
+    ///
+    /// Запись помечается по `policy` (по умолчанию — временная и только для этого Mac), а
+    /// `onPasteboardWrite` вызывается синхронно сразу после неё: иначе опрос наблюдателя буфера
+    /// мог успеть увидеть значение в окне до восстановления и записать его в историю.
+    func paste(_ text: String, policy: SnippetClipboardPolicy = .paste(kind: .text),
+               completion: (() -> Void)? = nil) {
         whenModifiersCleared {
             let pasteboard = NSPasteboard.general
             let saved = self.savedItems(of: pasteboard)
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            URLOpener.write(text, policy: policy)
+            self.onPasteboardWrite?()
 
             self.synthesizePaste()
 
@@ -233,6 +249,7 @@ final class HotKeyManager {
                 if AXIsProcessTrusted() {
                     pasteboard.clearContents()
                     if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+                    self.onPasteboardWrite?()
                 }
                 completion?()
             }
@@ -245,8 +262,10 @@ final class HotKeyManager {
         whenModifiersCleared {
             let pasteboard = NSPasteboard.general
             let saved = self.savedItems(of: pasteboard)
-            pasteboard.clearContents()
+            pasteboard.prepareForNewContents(with: .currentHostOnly)
             pasteboard.setData(pngData, forType: .png)
+            pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType(PasteboardMarker.transient))
+            self.onPasteboardWrite?()
 
             self.synthesizePaste()
 
@@ -254,6 +273,7 @@ final class HotKeyManager {
                 if AXIsProcessTrusted() {
                     pasteboard.clearContents()
                     if let saved, !saved.isEmpty { pasteboard.writeObjects(saved) }
+                    self.onPasteboardWrite?()
                 }
                 completion?()
             }

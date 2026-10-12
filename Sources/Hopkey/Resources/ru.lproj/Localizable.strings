@@ -319,6 +319,7 @@
 "notif.copied.one" = "Ссылка скопирована";
 "notif.copied.many" = "Ссылки скопированы (%@)";
 "notif.snippet.copied" = "Сниппет скопирован";
+"notif.snippet.autoclear" = "Буфер очистится сразу после вставки или через %@ с, если не вставлять";
 "ocr.hud.copied" = "Скопировано";
 "ocr.hud.empty" = "Текст не распознан";
 "notif.denied.title" = "Уведомления выключены";

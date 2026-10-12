@@ -319,6 +319,7 @@
 "notif.copied.one" = "Link copied";
 "notif.copied.many" = "Links copied (%@)";
 "notif.snippet.copied" = "Snippet copied";
+"notif.snippet.autoclear" = "The clipboard clears right after you paste, or in %@ s if you don’t";
 "ocr.hud.copied" = "Copied";
 "ocr.hud.empty" = "No text found";
 "notif.denied.title" = "Notifications are off";

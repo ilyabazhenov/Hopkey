@@ -66,6 +66,13 @@ Carbon-хоткеи, `NSSound`, реальный Keychain) **не покрыва
 - **GUI:** вкладка «Сниппеты» в `SettingsWindow`, редактор `SnippetEditorWindow`,
   пикер `SnippetPickerWindow`. Вставка в чужое поле синтезирует `Cmd+V` через
   `HotKeyManager` — **требует Accessibility**. Без доступа значение копируется в буфер.
+- **Буфер:** как писать значение в буфер (пометки nspasteboard.org, только этот Mac,
+  автоочистка секрета) решает `SnippetClipboardPolicy` в ядре; GUI пишет через
+  `URLOpener.write(_:policy:onFirstRead:)`; скопированный секрет — обещанием
+  (`OneShotPasteProvider`), чтобы узнать момент вставки и стереть его через секунду (запасной
+  таймер — 30 с). Любая программная запись в буфер синхронизирует наблюдатель
+  **сразу**, в том же проходе главного цикла (`hotKey.onPasteboardWrite`), а не после паузы —
+  иначе опрос раз в 0,5 с успевает записать значение в историю.
 - **Тесты:** `SnippetStoreTests`, `SnippetQuickSelectTests`; реальный Keychain в тестах
   не используется — injectable `SnippetSecretStore`.
 

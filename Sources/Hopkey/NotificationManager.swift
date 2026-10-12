@@ -129,7 +129,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Короткое подтверждение, что значение сниппета скопировано в буфер. Копирование
     /// (в отличие от вставки) не оставляет видимого следа, поэтому полезен баннер.
     /// Если уведомления недоступны/запрещены — тихо ничего не делаем (буфер уже заполнен).
-    func confirmSnippetCopied() {
+    /// `clearsAfter` — через сколько секунд буфер очистится сам (секретный сниппет); nil — не очистится.
+    func confirmSnippetCopied(clearsAfter: TimeInterval? = nil) {
         guard let center else { return }
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized ||
@@ -137,6 +138,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
             let content = UNMutableNotificationContent()
             content.title = L("notif.snippet.copied")
+            if let clearsAfter {
+                content.body = L("notif.snippet.autoclear", "\(Int(clearsAfter))")
+            }
             content.sound = nil
             let request = UNNotificationRequest(
                 identifier: UUID().uuidString,
@@ -182,4 +186,34 @@ enum URLOpener {
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
     }
+
+    /// Кладёт строку в буфер по политике: пометки nspasteboard.org рядом со строкой (менеджеры
+    /// буфера и наша история такие копии пропускают) и, если нужно, только для этого Mac — без
+    /// Universal Clipboard. Возвращает `changeCount` сразу после записи (для автоочистки).
+    ///
+    /// Если передан `onFirstRead`, строка кладётся обещанием (`OneShotPasteProvider`):
+    /// колбэк сработает, когда буфер впервые прочитают, — то есть при вставке.
+    @discardableResult
+    static func write(_ string: String, policy: SnippetClipboardPolicy,
+                      onFirstRead: (() -> Void)? = nil) -> Int {
+        let pasteboard = NSPasteboard.general
+        pasteboard.prepareForNewContents(with: policy.currentHostOnly ? .currentHostOnly : [])
+        let item = NSPasteboardItem()
+        if let onFirstRead {
+            let provider = OneShotPasteProvider(value: string, onFirstRead: onFirstRead)
+            item.setDataProvider(provider, forTypes: [.string])
+            promiseProvider = provider
+        } else {
+            item.setString(string, forType: .string)
+            promiseProvider = nil
+        }
+        for marker in policy.markers {
+            item.setData(Data(), forType: NSPasteboard.PasteboardType(marker))
+        }
+        pasteboard.writeObjects([item])
+        return pasteboard.changeCount
+    }
+
+    /// Держим поставщика обещанных данных, пока его запись лежит в буфере.
+    private static var promiseProvider: OneShotPasteProvider?
 }
