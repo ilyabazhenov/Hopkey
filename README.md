@@ -10,6 +10,8 @@ A keyboard-first palette for the Mac menu bar. Double-tap the right ⌘ to open 
 as a link, paste a snippet, mute your mic before a call, or grab yesterday's clipboard.
 Everything runs locally, with no account and no cloud, and it works with a Russian keyboard layout.
 
+**[Сайт](https://ilyabazhenov.github.io/Hopkey/)** · **[Website](https://ilyabazhenov.github.io/Hopkey/en/)** · [Скачать / Download](https://github.com/ilyabazhenov/Hopkey/releases/latest)
+
 [![Release](https://img.shields.io/github/v/release/ilyabazhenov/Hopkey?label=release&color=f5a623)](https://github.com/ilyabazhenov/Hopkey/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/ilyabazhenov/Hopkey?color=blue)](LICENSE)
 ![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
