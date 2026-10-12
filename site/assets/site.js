@@ -19,7 +19,10 @@
     transform: 'Case, JSON, URL, Base64, JWT and lines, with a preview',
     ocr: 'Select an area and the text lands in the clipboard',
     pwd: 'Pasted from Keychain into the active field',
-    snips: { 1: 'Thanks! I’ll look after lunch and get back to you.', 2: 'meet.example.com/team-standup', 3: null },
+    snips: { 1: null, 2: 'meet.example.com/team-standup', 3: 'Thanks! I’ll look after lunch and get back to you.' },
+    story: ['A colleague sent an issue number — open it', 'Need the staging password — paste it', 'Call in a minute — mute the mic'],
+    storyToast: 'PROJ-4821 — click to open the link',
+    double: 'double',
     snipsBig: { 1: '••••••••••••', 2: 'meet.example.com/team-standup', 3: 'Thanks! I’ll look after lunch and get back to you.', 4: 'billing@example.com' },
     snipNote: (n) => n === 1 ? 'Pasted from Keychain. The value never shows on screen.' : 'Pasted where the cursor was.',
     noKeys: 'No keys here, so no notification',
@@ -40,7 +43,10 @@
     transform: 'Регистр, JSON, URL, Base64, JWT и строки — с превью',
     ocr: 'Выделите область — текст окажется в буфере',
     pwd: 'Вставлено из Keychain в активное поле',
-    snips: { 1: 'Спасибо! Посмотрю после обеда и вернусь.', 2: 'meet.example.com/team-standup', 3: null },
+    snips: { 1: null, 2: 'meet.example.com/team-standup', 3: 'Спасибо! Посмотрю после обеда и вернусь.' },
+    story: ['Коллега прислал номер задачи — открыть её', 'Нужен пароль от стенда — вставить в поле', 'Созвон через минуту — выключить микрофон'],
+    storyToast: 'PROJ-4821 — нажмите, чтобы открыть ссылку',
+    double: 'двойной',
     snipsBig: { 1: '••••••••••••', 2: 'meet.example.com/team-standup', 3: 'Спасибо! Посмотрю после обеда и вернусь.', 4: 'billing@example.com' },
     snipNote: (n) => n === 1 ? 'Вставлено из Keychain — значение не мелькает на экране.' : 'Вставлено туда, где стоял курсор.',
     noKeys: 'Ключей нет — уведомления не будет',
@@ -105,7 +111,7 @@
   }
   $('#muteBtn')?.addEventListener('click', () => setMic(!micMuted, false));
 
-  /* ── hero: палитра ────────────────────────────────────────────── */
+  /* ── hero: сам проигрывающаяся история + живая палитра ──────────── */
   const stage = $('#stage');
   if (stage) {
     const pal = $('#pal');
@@ -116,23 +122,19 @@
     const cmdKey = $('#cmdKey');
     const mbHop = $('#mbHop');
     const composerHint = composer.textContent;
-    let sel = 0, interacted = false, toastTimer, typing = null, awake = false;
+    let sel = 0, toastTimer, typing = null, awake = false;
 
     const isOpen = () => stage.classList.contains('open');
     const select = (i) => { sel = (i + items.length) % items.length; items.forEach((el, j) => el.classList.toggle('sel', j === sel)); };
-    function open() {
-      interacted = true;
-      stage.classList.add('open'); mbHop.classList.add('on');
-      select(0);
-    }
+    function open() { stage.classList.add('open'); mbHop.classList.add('on'); select(0); }
     function close() { stage.classList.remove('open'); mbHop.classList.remove('on'); }
     const toggle = () => (isOpen() ? close() : open());
 
-    function say(text) {
+    function say(text, ms = 2600) {
       toast.querySelector('span').textContent = text;
       toast.classList.add('show');
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), ms);
     }
 
     function typeInto(text, secret) {
@@ -188,6 +190,108 @@
       else if (act === 'ocr') say(T.ocr);
     }
 
+    /* история: три сценария по кругу, пока посетитель сам не возьмёт управление */
+    const keysOv = $('#keysOv'), capN = $('#capN'), capT = $('#capT'), capDots = $$('.cap-dots i');
+    const wBrowser = $('#wBrowser'), wLogin = $('#wLogin'), wCall = $('#wCall');
+    const pwdOut = $('#pwdField span'), loginBtn = $('#loginBtn');
+    const callMic = $('#callMic'), callMe = $('.ct.me'), callMeMic = $('#callMeMic');
+    const firstKey = $('#chatBody .key');
+    let storyTok = 0, storyMuted = false;
+    const playing = () => stage.classList.contains('story');
+    // ожидание, которое обрывает сценарий, если его остановили (сменился токен)
+    const wait = (ms, t) => new Promise((ok, stop) => setTimeout(() => (t === storyTok ? ok() : stop()), ms));
+
+    function showKeys(list) {
+      keysOv.innerHTML = list.map((k) => (k[0] === '~' ? `<span>${k.slice(1)}</span>` : `<b${k.length > 1 ? ' class="wide"' : ''}>${k}</b>`)).join('');
+      keysOv.classList.add('show');
+    }
+    const hideKeys = () => keysOv.classList.remove('show');
+    function caption(i) {
+      capN.textContent = `${i + 1}/3`;
+      capT.textContent = T.story[i];
+      capT.classList.remove('swap'); void capT.offsetWidth; capT.classList.add('swap');
+      capDots.forEach((d, j) => d.classList.toggle('on', j <= i));
+    }
+    function setCallMic(m) {
+      callMic.classList.toggle('muted', m);
+      callMe.classList.toggle('muted', m);
+      [callMic, callMeMic].forEach((el) => el.querySelector('use').setAttribute('href', m ? '#i-micoff' : '#i-mic'));
+    }
+    function resetScene() {
+      [wBrowser, wLogin, wCall].forEach((w) => w.classList.remove('show'));
+      hideKeys(); close();
+      toast.classList.remove('show', 'press');
+      hud.classList.remove('show');
+      firstKey.classList.remove('hl');
+      pwdOut.textContent = ''; loginBtn.classList.remove('press');
+      setCallMic(false);
+      if (storyMuted) { setMic(false, false); storyMuted = false; }
+    }
+
+    async function sceneKey(t) {
+      caption(0);
+      await wait(700, t); firstKey.classList.add('hl');
+      await wait(700, t); showKeys(['⌘', 'C']);
+      await wait(900, t); hideKeys();
+      await wait(300, t); say(T.storyToast, 4000);
+      await wait(1400, t); toast.classList.add('press');
+      await wait(180, t); toast.classList.remove('show', 'press'); firstKey.classList.remove('hl'); wBrowser.classList.add('show');
+      await wait(2400, t); wBrowser.classList.remove('show');
+      await wait(500, t);
+    }
+    async function scenePassword(t) {
+      caption(1); wLogin.classList.add('show');
+      await wait(1200, t); showKeys(['⌘', '⌘', '~' + T.double]);
+      await wait(800, t); hideKeys(); open(); select(items.findIndex((el) => el.dataset.code === 'Digit1'));
+      await wait(1100, t); showKeys(['1']);
+      await wait(450, t); close(); hideKeys();
+      for (let i = 1; i <= 12; i++) { pwdOut.textContent = '•'.repeat(i); await wait(35, t); }
+      await wait(900, t); loginBtn.classList.add('press');
+      await wait(220, t); loginBtn.classList.remove('press');
+      await wait(700, t); wLogin.classList.remove('show');
+      await wait(400, t); pwdOut.textContent = '';
+    }
+    async function sceneMic(t) {
+      caption(2); wCall.classList.add('show');
+      await wait(1300, t); showKeys(['⇧', '⌘', 'M']);
+      await wait(700, t); hideKeys(); storyMuted = true; setMic(true, true); setCallMic(true);
+      await wait(2400, t); wCall.classList.remove('show');
+      await wait(400, t); setMic(false, false); storyMuted = false; setCallMic(false);
+      await wait(300, t);
+    }
+    async function play() {
+      const t = ++storyTok;
+      resetScene();
+      stage.classList.add('story');
+      try { for (;;) { await sceneKey(t); await scenePassword(t); await sceneMic(t); } } catch (e) { /* сценарий остановлен */ }
+    }
+    function stopStory() {
+      if (!playing()) return;
+      storyTok++;
+      stage.classList.remove('story');
+      resetScene();
+    }
+
+    // любой клик по сцене во время истории — переход к живой палитре
+    stage.addEventListener('click', (e) => {
+      if (!playing()) return;
+      e.stopPropagation();
+      const wantsTry = e.target.closest('#capTry');
+      stopStory();
+      if (wantsTry) open();
+    }, true);
+    $('#replay')?.addEventListener('click', (e) => { e.stopPropagation(); play(); });
+
+    if (reduce) stage.classList.remove('story');
+    else if ('IntersectionObserver' in window) {
+      // играем только пока сцена на экране: иначе мьют из истории дёргал бы секцию «Звук»
+      new IntersectionObserver(([en]) => {
+        if (!playing()) return;
+        if (en.isIntersecting) play(); else { storyTok++; resetScene(); }
+      }, { threshold: 0.25 }).observe(stage);
+    } else play();
+
+    /* живая палитра */
     items.forEach((el, i) => {
       el.addEventListener('click', (e) => { e.stopPropagation(); select(i); run(el); });
       el.addEventListener('mousemove', () => { if (sel !== i) select(i); });
@@ -201,7 +305,6 @@
     let lastClick = 0;
     cmdKey.addEventListener('click', (e) => {
       e.stopPropagation();
-      interacted = true;
       const now = performance.now();
       if (now - lastClick < 550) { lastClick = 0; open(); } else lastClick = now;
     });
@@ -211,7 +314,7 @@
     addEventListener('keydown', (e) => {
       if (e.key === 'Meta') { metaDown = true; metaDirty = false; cmdKey.classList.add('down'); return; }
       if (metaDown || e.ctrlKey || e.altKey || e.metaKey) { metaDirty = true; return; }
-      if (!isOpen() || isField(e.target)) return;
+      if (!isOpen() || playing() || isField(e.target)) return;
       const k = e.key;
       if (k === 'Escape') { close(); e.preventDefault(); return; }
       if (k === 'ArrowDown' || k === 'ArrowRight') { select(sel + 1); e.preventDefault(); return; }
@@ -229,20 +332,12 @@
       const now = performance.now();
       if (now - lastTap < 450) {
         lastTap = 0;
-        interacted = true;
         const r = stage.getBoundingClientRect();
         if (r.bottom < 80 || r.top > innerHeight - 80) stage.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
-        toggle();
+        if (playing()) { stopStory(); open(); } else toggle();
       } else lastTap = now;
     });
     addEventListener('blur', () => { metaDown = false; cmdKey.classList.remove('down'); });
-
-    // если посетитель сам не открыл — один раз показываем двойной тап
-    const press = (cb) => { cmdKey.classList.add('down'); setTimeout(() => { cmdKey.classList.remove('down'); cb && cb(); }, 130); };
-    setTimeout(() => {
-      if (interacted || reduce) return;
-      press(() => setTimeout(() => press(() => { if (!interacted) open(); interacted = false; }), 140));
-    }, 1700);
   }
 
   function isField(t) {

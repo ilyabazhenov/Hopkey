@@ -76,7 +76,7 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div class="hero-text">
-        <div class="eyebrow rv"><span>Hopkey для Mac</span><span>двойной ⌘ — и всё мелкое уже под рукой</span></div>
+        <div class="eyebrow rv"><span>Hopkey для Mac</span><span>как Spotlight, только для мелочей рабочего дня</span></div>
         <h1 class="rv"><span class="ln">Номер задачи <span class="ar">→</span> ссылка.</span><span class="ln">Пароль <span class="ar">→</span> в&nbsp;поле.</span><span class="ln">Микрофон <span class="ar">→</span> выкл.</span></h1>
         <p class="lead rv">Мелочи, ради которых вы десятки раз в день переключаетесь между окнами: найти задачу по номеру из чата, достать пароль из заметок, поймать кнопку мьюта перед созвоном. Hopkey делает их из строки меню Mac — двойной <span class="kc">⌘</span> и одна буква.</p>
         <div class="cta rv">
@@ -87,7 +87,7 @@
       </div>
 
       <div class="rv">
-        <div class="stage" id="stage" aria-label="Интерактивная демонстрация палитры Hopkey">
+        <div class="stage story" id="stage" aria-label="Интерактивная демонстрация палитры Hopkey">
           <div class="mbar">
             <span aria-hidden="true"></span><span class="app">Чат</span>
             <span class="menus"><span>Файл</span><span>Правка</span><span>Вид</span></span>
@@ -107,9 +107,35 @@
             <div class="composer" id="composer">Сообщение в # релиз</div>
           </div>
 
+          <div class="win w-browser" id="wBrowser" aria-hidden="true">
+            <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><svg><use href="#i-lock"/></svg>jira.example.com/browse/PROJ-4821</span></div>
+            <div class="w-body">
+              <div class="jr-key">PROJ-4821</div>
+              <div class="w-h">Оплата падает при повторной попытке</div>
+              <div class="jr-meta"><span class="st">В работе</span><span>Исполнитель: Аня</span><span>Приоритет: высокий</span></div>
+              <div class="jr-lines"><i></i><i></i><i style="width:58%"></i></div>
+            </div>
+          </div>
+          <div class="win w-login" id="wLogin" aria-hidden="true">
+            <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><svg><use href="#i-lock"/></svg>staging.example.com/login</span></div>
+            <div class="w-body login">
+              <div class="w-h">Вход на стенд</div>
+              <label>Логин</label><div class="inp">qa@example.com</div>
+              <label>Пароль</label><div class="inp focus" id="pwdField"><span></span><span class="caret"></span></div>
+              <span class="go" id="loginBtn">Войти</span>
+            </div>
+          </div>
+          <div class="win w-call" id="wCall" aria-hidden="true">
+            <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url plain">Планёрка · 6 участников</span></div>
+            <div class="w-body call-grid"><div class="ct"><span class="av" style="background:var(--violet)">А</span><small>Аня</small></div><div class="ct"><span class="av" style="background:var(--rose)">Д</span><small>Дима</small></div><div class="ct"><span class="av" style="background:var(--teal)">М</span><small>Марк</small></div><div class="ct me"><span class="av">Я</span><small id="callMeMic"><svg><use href="#i-mic"/></svg>Я</small></div></div>
+            <div class="call-ctrl"><span class="cc" id="callMic"><svg><use href="#i-mic"/></svg>Микрофон</span><span class="cc">Камера</span><span class="cc end">Выйти</span></div>
+          </div>
+          <div class="keys-ov" id="keysOv" aria-hidden="true"></div>
+          <div class="cap" id="cap"><span class="cap-n mono" id="capN">1/3</span><span class="cap-t" id="capT"></span><span class="cap-dots"><i></i><i></i><i></i></span><button class="cap-try" id="capTry" type="button">Попробовать самому</button></div>
+
           <div class="tapme" id="tapme">
             <span class="t-kbd">Нажмите правый ⌘ дважды</span><span class="t-touch">Нажмите на клавишу дважды</span>
-            <button class="cmdkey" id="cmdKey" type="button" aria-label="Клавиша Command: нажмите дважды, чтобы открыть палитру">⌘<small>×2</small></button>
+            <button class="replay" id="replay" type="button" aria-label="Показать сценарий ещё раз">↺ Сценарий</button><button class="cmdkey" id="cmdKey" type="button" aria-label="Клавиша Command: нажмите дважды, чтобы открыть палитру">⌘<small>×2</small></button>
           </div>
 
           <div class="pal" id="pal" role="dialog" aria-label="Палитра Hopkey">
@@ -125,9 +151,9 @@
               <button class="row" data-act="key" data-code="KeyQ" type="button"><svg><use href="#i-link"/></svg><span>Открыть ссылку по ключу</span><span class="kc">Q</span></button>
             </div>
             <div class="chips">
-              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--violet)"><i>1</i>«Посмотрю после обеда»</button>
+              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--blue)"><i>1</i>Пароль стенда</button>
               <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--teal)"><i>2</i>Комната созвона</button>
-              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--blue)"><i>3</i>Пароль стенда</button>
+              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--violet)"><i>3</i>«Посмотрю после обеда»</button>
             </div>
             <div class="pal-sec">Действия</div>
             <div class="rows">
@@ -208,7 +234,8 @@
         <h2>Пароль от стенда — цифрой, а&nbsp;не поиском по заметкам.</h2>
         <p class="story">Заранее заданные значения — пароли, ссылки на комнаты, шаблонные ответы — вставляются туда, где стоит курсор. Цифра из палитры или отдельный список по <span class="kc">⌃⌥V</span> поверх любого приложения.</p>
         <ul class="facts">
-          <li>Значения лежат в Keychain одним зашифрованным блобом и читаются раз за запуск — без вереницы запросов доступа.</li>
+          <li>Значения хранятся в связке ключей macOS (Keychain) одной записью и читаются раз за запуск — без вереницы запросов доступа.</li>
+          <li>Вставленный пароль не оседает ни в истории буфера, ни в других менеджерах буфера и не уходит на iPhone. Скопированный — стирается из буфера сразу после вставки.</li>
           <li>Вставка в чужое поле нужна с Универсальным доступом. Без него значение просто окажется в буфере.</li>
         </ul>
       </div>
@@ -267,7 +294,7 @@
         <p class="story">Вторичные модули палитры. Каждый — одна клавиша после двойного <span class="kc">⌘</span>, а частым командам можно дать прямой хоткей.</p>
       </div>
       <div class="more">
-        <div class="mod rv"><span class="kc">C</span><h3>История буфера</h3><p>Текст и картинки, хранится зашифрованной. Копии из менеджеров паролей не записываются.</p></div>
+        <div class="mod rv"><span class="kc">C</span><h3>История буфера</h3><p>Текст и картинки, на диске — зашифрованно. Копии, которые менеджер паролей помечает как скрытые, не записываются.</p></div>
         <div class="mod rv"><span class="kc">N</span><h3>Заметки</h3><p>Семь постоянных черновиков в духе Tot — открываются по <span class="kc">⌃⌥N</span>.</p></div>
         <div class="mod rv"><span class="kc">T</span><h3>Преобразования</h3><p>Регистр, JSON, URL, Base64, JWT и строки — для выделенного текста, с превью.</p></div>
         <div class="mod rv"><span class="kc">R</span><h3>Текст с экрана</h3><p>Выделили область — распознанный текст (ru/en) уже в буфере. Распознаёт сам Mac.</p></div>
@@ -321,12 +348,12 @@
       <div class="sec-head rv">
         <div class="kicker">Приватность</div>
         <h2>Всё остаётся на вашем Mac.</h2>
-        <p class="story">У Hopkey нет своих серверов и нет телеметрии. Пароли из сниппетов и история буфера не покидают компьютер.</p>
+        <p class="story">У Hopkey нет своих серверов, аккаунта и телеметрии. Сниппеты и история буфера не синхронизируются ни в iCloud, ни в другие облака.</p>
       </div>
       <div class="priv">
-        <div class="rv"><svg><use href="#i-lock"/></svg><h3>Сниппеты в Keychain</h3><p>Все значения — одной зашифрованной записью в связке ключей macOS.</p></div>
-        <div class="rv"><svg><use href="#i-shield"/></svg><h3>Буфер зашифрован</h3><p>История хранится под AES-ключом из Keychain. Копии из менеджеров паролей не сохраняются вовсе.</p></div>
-        <div class="rv"><svg><use href="#i-folder"/></svg><h3>Заметки — просто файлы</h3><p>Обычные файлы в Application Support. Их можно забрать и без Hopkey.</p></div>
+        <div class="rv"><svg><use href="#i-lock"/></svg><h3>Сниппеты в Keychain</h3><p>Значения лежат в связке ключей macOS, другие приложения без вашего разрешения их не прочитают. Пароль стирается из буфера сразу после вставки.</p></div>
+        <div class="rv"><svg><use href="#i-shield"/></svg><h3>Буфер зашифрован</h3><p>История лежит на диске под AES-256-GCM, ключ — в Keychain. Копии, помеченные менеджером паролей как скрытые, не сохраняются.</p></div>
+        <div class="rv"><svg><use href="#i-folder"/></svg><h3>Заметки — просто файлы</h3><p>Обычные файлы в Application Support, без шифрования. Их можно забрать и без Hopkey — но пароли лучше держать в сниппетах.</p></div>
       </div>
       <div class="netline rv"><b>В сеть:</b><span>только Sparkle — проверить обновления</span><span>·</span><span>серверов Hopkey: 0</span><span>·</span><span>телеметрия: нет</span></div>
     </div>
