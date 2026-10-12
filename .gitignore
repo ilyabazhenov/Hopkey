@@ -4,3 +4,5 @@ dist/
 .DS_Store
 *.xcodeproj
 .swiftpm/
+# локальные настройки Claude Code (пути, разрешения)
+.claude/settings.local.json

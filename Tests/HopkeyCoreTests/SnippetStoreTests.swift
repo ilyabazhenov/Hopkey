@@ -302,8 +302,8 @@ final class SnippetStoreTests: XCTestCase {
     }
 
     func testURLForValuePreservesPathAndQuery() {
-        XCTAssertEqual(Snippet.url(forValue: "alfabank.ktalk.ru/ibazhenov"),
-                       URL(string: "https://alfabank.ktalk.ru/ibazhenov"))
+        XCTAssertEqual(Snippet.url(forValue: "meet.example.com/team-standup"),
+                       URL(string: "https://meet.example.com/team-standup"))
         XCTAssertEqual(Snippet.url(forValue: "https://x.io/room?id=1&t=2"),
                        URL(string: "https://x.io/room?id=1&t=2"))
     }

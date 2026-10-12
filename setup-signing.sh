@@ -45,8 +45,9 @@ echo "==> Упаковка в PKCS#12 (legacy-формат для совмест
 # `security import` не принимает («MAC verification failed»). -legacy + -macalg sha1
 # дают старый формат (3DES/RC2 + SHA1 MAC), понятный Keychain.
 # Пароль НЕ пустой: при пустом пароле OpenSSL и Apple по-разному считают MAC,
-# что тоже даёт «MAC verification failed». Пароль временный, нужен только для p12.
-P12_PASS="hopkeydev"
+# что тоже даёт «MAC verification failed». Пароль временный, нужен только для p12, —
+# генерируем случайный на каждый запуск, чтобы не держать его в репозитории.
+P12_PASS="$(openssl rand -hex 16)"
 openssl pkcs12 -export -inkey "${TMP}/key.pem" -in "${TMP}/cert.pem" \
     -out "${TMP}/identity.p12" -passout "pass:${P12_PASS}" -name "${CERT_NAME}" \
     -legacy -macalg sha1
