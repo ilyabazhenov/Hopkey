@@ -373,13 +373,6 @@ h1 .kc { font-size: .62em; vertical-align: .14em; border-radius: 12px; border-bo
 .jr-meta .st { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); font-weight: 600; font-size: 11px; padding: 3px 7px; border-radius: 5px; text-transform: uppercase; letter-spacing: .03em; }
 .jr-lines { display: grid; gap: 7px; margin-top: 8px; }
 .jr-lines i { height: 8px; border-radius: 4px; background: var(--line); }
-.login { max-width: 300px; width: 100%; margin: 0 auto; justify-content: center; }
-.login label { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
-.login .inp { height: 32px; display: flex; align-items: center; gap: 1px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--card-2); font: 400 13px/1 var(--mono); color: var(--fg); }
-.login .inp.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.login .inp .caret { width: 1.5px; height: 15px; background: var(--accent); animation: blink 1s steps(1) infinite; }
-.login .go { margin-top: 10px; text-align: center; padding: 8px; border-radius: 8px; background: var(--blue); color: #fff; font-weight: 600; transition: transform .1s, filter .1s; }
-.login .go.press { transform: scale(.97); filter: brightness(.9); }
 .call-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; background: #15171c; }
 .ct { position: relative; border-radius: 9px; background: #23262e; display: grid; place-items: center; min-height: 0; }
 .ct .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 13px; }
@@ -446,6 +439,7 @@ h3 { font-size: 21px; line-height: 1.25; letter-spacing: -.01em; margin: 0 0 8px
 @media (max-width: 960px) { .split, .split.flip { grid-template-columns: minmax(0, 1fr); gap: 36px; } .split.flip > :first-child { order: 0; } .sec { padding: 76px 0; } }
 .facts { list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 12px; }
 .facts li { position: relative; padding-left: 30px; color: var(--dim); font-size: 16px; line-height: 1.5; }
+.aside { margin: 24px 0 0; padding: 14px 18px; border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0; background: var(--accent-soft); color: var(--dim); font-size: 15.5px; line-height: 1.5; }
 .facts li::before { content: ""; position: absolute; left: 6px; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); transform: rotate(45deg); }
 
 .card {

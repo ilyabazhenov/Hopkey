@@ -77,8 +77,8 @@
     <div class="wrap hero-grid">
       <div class="hero-text">
         <div class="eyebrow rv"><span>Hopkey for Mac</span><span>Like Spotlight, for the small stuff of your workday</span></div>
-        <h1 class="rv"><span class="ln">Issue number <span class="ar">→</span> link.</span><span class="ln">Password <span class="ar">→</span> field.</span><span class="ln">Mic <span class="ar">→</span> off.</span></h1>
-        <p class="lead rv">The small chores that make you switch windows dozens of times a day: finding an issue from a number in chat, digging a password out of your notes, hunting for the mute button before a call. Hopkey handles them from the Mac menu bar. Double-tap <span class="kc">⌘</span>, press one letter.</p>
+        <h1 class="rv"><span class="ln">Issue number <span class="ar">→</span> link.</span><span class="ln">Meeting link <span class="ar">→</span> chat.</span><span class="ln">Mic <span class="ar">→</span> off.</span></h1>
+        <p class="lead rv">The small chores that make you switch windows dozens of times a day: finding an issue from a number in chat, digging the meeting link out of old messages, hunting for the mute button before a call. Hopkey handles them from the Mac menu bar. Double-tap <span class="kc">⌘</span>, press one letter.</p>
         <div class="cta rv">
           <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Download for macOS</a>
           <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>Source code</a>
@@ -116,15 +116,6 @@
               <div class="jr-lines"><i></i><i></i><i style="width:58%"></i></div>
             </div>
           </div>
-          <div class="win w-login" id="wLogin" aria-hidden="true">
-            <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><svg><use href="#i-lock"/></svg>staging.example.com/login</span></div>
-            <div class="w-body login">
-              <div class="w-h">Sign in to staging</div>
-              <label>Login</label><div class="inp">qa@example.com</div>
-              <label>Password</label><div class="inp focus" id="pwdField"><span></span><span class="caret"></span></div>
-              <span class="go" id="loginBtn">Sign in</span>
-            </div>
-          </div>
           <div class="win w-call" id="wCall" aria-hidden="true">
             <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url plain">Daily stand-up · 6 people</span></div>
             <div class="w-body call-grid"><div class="ct"><span class="av" style="background:var(--violet)">A</span><small>Anna</small></div><div class="ct"><span class="av" style="background:var(--rose)">D</span><small>Dan</small></div><div class="ct"><span class="av" style="background:var(--teal)">M</span><small>Mark</small></div><div class="ct me"><span class="av">Me</span><small id="callMeMic"><svg><use href="#i-mic"/></svg>Me</small></div></div>
@@ -151,9 +142,9 @@
               <button class="row" data-act="key" data-code="KeyQ" type="button"><svg><use href="#i-link"/></svg><span>Open link by key</span><span class="kc">Q</span></button>
             </div>
             <div class="chips">
-              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--blue)"><i>1</i>Staging password</button>
-              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--teal)"><i>2</i>Meeting room</button>
-              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--violet)"><i>3</i>“After lunch”</button>
+              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--teal)"><i>1</i>Meeting room</button>
+              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--violet)"><i>2</i>“After lunch”</button>
+              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--blue)"><i>3</i>Staging password</button>
             </div>
             <div class="pal-sec">Actions</div>
             <div class="rows">
@@ -186,9 +177,9 @@
           <div class="why-yes"><div class="lbl">With Hopkey<span>2 steps</span></div><ol><li>Copy the text <span class="kc">⌘C</span></li><li>Click the notification, and the issue is open</li></ol></div>
         </article>
         <article class="why-r rv">
-          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>You need the staging password</h3><a href="#snippets">Snippets ↓</a></div>
-          <div class="why-no"><div class="lbl">Without Hopkey<span>5 steps</span></div><ol><li>Open your notes or password manager</li><li>Find the entry</li><li>Copy it</li><li>Switch back to the right window</li><li>Paste</li></ol></div>
-          <div class="why-yes"><div class="lbl">With Hopkey<span>2 steps</span></div><ol><li>Double-tap <span class="kc">⌘</span></li><li>Press <span class="kc">1</span>, and the password is in the field</li></ol></div>
+          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>Someone asks for your meeting room link</h3><a href="#snippets">Snippets ↓</a></div>
+          <div class="why-no"><div class="lbl">Without Hopkey<span>5 steps</span></div><ol><li>Open your notes or bookmarks</li><li>Find the room link</li><li>Copy it</li><li>Switch back to the chat</li><li>Paste</li></ol></div>
+          <div class="why-yes"><div class="lbl">With Hopkey<span>2 steps</span></div><ol><li>Double-tap <span class="kc">⌘</span></li><li>Press <span class="kc">1</span>, and the link is in the chat</li></ol></div>
         </article>
         <article class="why-r rv">
           <div class="why-s"><div class="ico"><svg><use href="#i-mic"/></svg></div><h3>The call starts in a minute and it’s noisy around you</h3><a href="#sound">Sound and mic ↓</a></div>
@@ -231,22 +222,23 @@
     <div class="wrap split flip">
       <div class="rv">
         <div class="kicker"><span class="kc">1–9</span>Snippets</div>
-        <h2>The staging password is a digit away, not a notes search.</h2>
-        <p class="story">Predefined values (passwords, meeting links, canned replies) are pasted wherever your cursor is. Use a digit in the palette, or the full list with <span class="kc">⌃⌥V</span> on top of any app.</p>
+        <h2>A meeting link or a canned reply, one digit away.</h2>
+        <p class="story">Predefined values (meeting links, canned replies, billing details, test-environment passwords) are pasted wherever your cursor is. Use a digit in the palette, or the full list with <span class="kc">⌃⌥V</span> on top of any app.</p>
         <ul class="facts">
           <li>Values live in the macOS Keychain as a single item, read once per launch, so you don’t get a string of access prompts.</li>
-          <li>A pasted password never lingers in clipboard history or other clipboard managers, and never travels to your iPhone. A copied one is wiped from the clipboard right after you paste it.</li>
+          <li>Even a test password never lingers in clipboard history or other clipboard managers, and never travels to your iPhone. A copied one is wiped from the clipboard right after you paste it.</li>
           <li>Pasting into another app needs Accessibility. Without it, the value simply lands in the clipboard.</li>
         </ul>
+        <p class="aside">Keep production passwords in your password manager. Hopkey is for test environments and the things you need many times a day.</p>
       </div>
       <div class="rv">
         <div class="card snip">
           <div class="snip-h"><svg width="18" height="18" style="color:var(--accent-ink)"><use href="#i-snip"/></svg>Snippets<span class="kc">⌃⌥V</span></div>
           <div class="snip-list" id="snipList">
-            <button class="snip-r" type="button" data-n="1" style="--c:var(--blue)"><i>1</i><span><b>Staging password</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
-            <button class="snip-r" type="button" data-n="2" style="--c:var(--teal)"><i>2</i><span><b>Meeting room</b><small>meet.example.com/team-standup</small></span></button>
-            <button class="snip-r" type="button" data-n="3" style="--c:var(--violet)"><i>3</i><span><b>“After lunch”</b><small>Thanks! I’ll look after lunch and get back to you.</small></span></button>
-            <button class="snip-r" type="button" data-n="4" style="--c:var(--rose)"><i>4</i><span><b>Billing details</b><small>billing@example.com · VAT EU000000000</small></span></button>
+            <button class="snip-r" type="button" data-n="1" style="--c:var(--teal)"><i>1</i><span><b>Meeting room</b><small>meet.example.com/team-standup</small></span></button>
+            <button class="snip-r" type="button" data-n="2" style="--c:var(--violet)"><i>2</i><span><b>“After lunch”</b><small>Thanks! I’ll look after lunch and get back to you.</small></span></button>
+            <button class="snip-r" type="button" data-n="3" style="--c:var(--rose)"><i>3</i><span><b>Billing details</b><small>billing@example.com · VAT EU000000000</small></span></button>
+            <button class="snip-r" type="button" data-n="4" style="--c:var(--blue)"><i>4</i><span><b>Test environment password</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
           </div>
           <div class="field">
             <label>A field in another app</label>

@@ -77,8 +77,8 @@
     <div class="wrap hero-grid">
       <div class="hero-text">
         <div class="eyebrow rv"><span>Hopkey для Mac</span><span>как Spotlight, только для мелочей рабочего дня</span></div>
-        <h1 class="rv"><span class="ln">Номер задачи <span class="ar">→</span> ссылка.</span><span class="ln">Пароль <span class="ar">→</span> в&nbsp;поле.</span><span class="ln">Микрофон <span class="ar">→</span> выкл.</span></h1>
-        <p class="lead rv">Мелочи, ради которых вы десятки раз в день переключаетесь между окнами: найти задачу по номеру из чата, достать пароль из заметок, поймать кнопку мьюта перед созвоном. Hopkey делает их из строки меню Mac — двойной <span class="kc">⌘</span> и одна буква.</p>
+        <h1 class="rv"><span class="ln">Номер задачи <span class="ar">→</span> ссылка.</span><span class="ln">Ссылка на&nbsp;созвон <span class="ar">→</span> в&nbsp;чат.</span><span class="ln">Микрофон <span class="ar">→</span> выкл.</span></h1>
+        <p class="lead rv">Мелочи, ради которых вы десятки раз в день переключаетесь между окнами: найти задачу по номеру из чата, искать ссылку на созвон в старой переписке, поймать кнопку мьюта перед созвоном. Hopkey делает их из строки меню Mac — двойной <span class="kc">⌘</span> и одна буква.</p>
         <div class="cta rv">
           <a class="btn pri" href="https://github.com/ilyabazhenov/Hopkey/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Скачать для macOS</a>
           <a class="btn" href="https://github.com/ilyabazhenov/Hopkey"><svg aria-hidden="true"><use href="#i-gh"/></svg>Исходники</a>
@@ -116,15 +116,6 @@
               <div class="jr-lines"><i></i><i></i><i style="width:58%"></i></div>
             </div>
           </div>
-          <div class="win w-login" id="wLogin" aria-hidden="true">
-            <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><svg><use href="#i-lock"/></svg>staging.example.com/login</span></div>
-            <div class="w-body login">
-              <div class="w-h">Вход на стенд</div>
-              <label>Логин</label><div class="inp">qa@example.com</div>
-              <label>Пароль</label><div class="inp focus" id="pwdField"><span></span><span class="caret"></span></div>
-              <span class="go" id="loginBtn">Войти</span>
-            </div>
-          </div>
           <div class="win w-call" id="wCall" aria-hidden="true">
             <div class="w-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url plain">Планёрка · 6 участников</span></div>
             <div class="w-body call-grid"><div class="ct"><span class="av" style="background:var(--violet)">А</span><small>Аня</small></div><div class="ct"><span class="av" style="background:var(--rose)">Д</span><small>Дима</small></div><div class="ct"><span class="av" style="background:var(--teal)">М</span><small>Марк</small></div><div class="ct me"><span class="av">Я</span><small id="callMeMic"><svg><use href="#i-mic"/></svg>Я</small></div></div>
@@ -151,9 +142,9 @@
               <button class="row" data-act="key" data-code="KeyQ" type="button"><svg><use href="#i-link"/></svg><span>Открыть ссылку по ключу</span><span class="kc">Q</span></button>
             </div>
             <div class="chips">
-              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--blue)"><i>1</i>Пароль стенда</button>
-              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--teal)"><i>2</i>Комната созвона</button>
-              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--violet)"><i>3</i>«Посмотрю после обеда»</button>
+              <button class="chip" data-act="snip" data-n="1" data-code="Digit1" type="button" style="--c:var(--teal)"><i>1</i>Комната созвона</button>
+              <button class="chip" data-act="snip" data-n="2" data-code="Digit2" type="button" style="--c:var(--violet)"><i>2</i>«Посмотрю после обеда»</button>
+              <button class="chip" data-act="snip" data-n="3" data-code="Digit3" type="button" style="--c:var(--blue)"><i>3</i>Пароль стенда</button>
             </div>
             <div class="pal-sec">Действия</div>
             <div class="rows">
@@ -186,9 +177,9 @@
           <div class="why-yes"><div class="lbl">С Hopkey<span>2 действия</span></div><ol><li>Скопировать текст <span class="kc">⌘C</span></li><li>Нажать на уведомление — задача открыта</li></ol></div>
         </article>
         <article class="why-r rv">
-          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>Нужен пароль от тестового стенда</h3><a href="#snippets">Сниппеты ↓</a></div>
-          <div class="why-no"><div class="lbl">Без Hopkey<span>5 действий</span></div><ol><li>Открыть заметки или менеджер паролей</li><li>Найти запись</li><li>Скопировать</li><li>Вернуться в нужное окно</li><li>Вставить</li></ol></div>
-          <div class="why-yes"><div class="lbl">С Hopkey<span>2 действия</span></div><ol><li>Двойной <span class="kc">⌘</span></li><li>Цифра <span class="kc">1</span> — пароль уже в поле</li></ol></div>
+          <div class="why-s"><div class="ico"><svg><use href="#i-snip"/></svg></div><h3>Просят ссылку на вашу комнату для созвонов</h3><a href="#snippets">Сниппеты ↓</a></div>
+          <div class="why-no"><div class="lbl">Без Hopkey<span>5 действий</span></div><ol><li>Открыть заметки или закладки</li><li>Найти ссылку на комнату</li><li>Скопировать</li><li>Вернуться в чат</li><li>Вставить</li></ol></div>
+          <div class="why-yes"><div class="lbl">С Hopkey<span>2 действия</span></div><ol><li>Двойной <span class="kc">⌘</span></li><li>Цифра <span class="kc">1</span> — ссылка уже в чате</li></ol></div>
         </article>
         <article class="why-r rv">
           <div class="why-s"><div class="ico"><svg><use href="#i-mic"/></svg></div><h3>Созвон через минуту, а вокруг шумно</h3><a href="#sound">Звук и микрофон ↓</a></div>
@@ -231,22 +222,23 @@
     <div class="wrap split flip">
       <div class="rv">
         <div class="kicker"><span class="kc">1–9</span>Сниппеты</div>
-        <h2>Пароль от стенда — цифрой, а&nbsp;не поиском по заметкам.</h2>
-        <p class="story">Заранее заданные значения — пароли, ссылки на комнаты, шаблонные ответы — вставляются туда, где стоит курсор. Цифра из палитры или отдельный список по <span class="kc">⌃⌥V</span> поверх любого приложения.</p>
+        <h2>Ссылка на созвон, шаблонный ответ — одной цифрой.</h2>
+        <p class="story">Заранее заданные значения — ссылки на комнаты, шаблонные ответы, реквизиты, пароли от тестовых стендов — вставляются туда, где стоит курсор. Цифра из палитры или отдельный список по <span class="kc">⌃⌥V</span> поверх любого приложения.</p>
         <ul class="facts">
           <li>Значения хранятся в связке ключей macOS (Keychain) одной записью и читаются раз за запуск — без вереницы запросов доступа.</li>
-          <li>Вставленный пароль не оседает ни в истории буфера, ни в других менеджерах буфера и не уходит на iPhone. Скопированный — стирается из буфера сразу после вставки.</li>
+          <li>Даже тестовый пароль не оседает ни в истории буфера, ни в других менеджерах буфера и не уходит на iPhone. Скопированный — стирается из буфера сразу после вставки.</li>
           <li>Вставка в чужое поле нужна с Универсальным доступом. Без него значение просто окажется в буфере.</li>
         </ul>
+        <p class="aside">Боевые пароли пусть живут в менеджере паролей. Hopkey — для тестовых стендов и того, что нужно много раз за день.</p>
       </div>
       <div class="rv">
         <div class="card snip">
           <div class="snip-h"><svg width="18" height="18" style="color:var(--accent-ink)"><use href="#i-snip"/></svg>Сниппеты<span class="kc">⌃⌥V</span></div>
           <div class="snip-list" id="snipList">
-            <button class="snip-r" type="button" data-n="1" style="--c:var(--blue)"><i>1</i><span><b>Пароль стенда</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
-            <button class="snip-r" type="button" data-n="2" style="--c:var(--teal)"><i>2</i><span><b>Комната созвона</b><small>meet.example.com/team-standup</small></span></button>
-            <button class="snip-r" type="button" data-n="3" style="--c:var(--violet)"><i>3</i><span><b>«Посмотрю после обеда»</b><small>Спасибо! Посмотрю после обеда и вернусь.</small></span></button>
-            <button class="snip-r" type="button" data-n="4" style="--c:var(--rose)"><i>4</i><span><b>Реквизиты для счёта</b><small>billing@example.com · ИНН 7700000000</small></span></button>
+            <button class="snip-r" type="button" data-n="1" style="--c:var(--teal)"><i>1</i><span><b>Комната созвона</b><small>meet.example.com/team-standup</small></span></button>
+            <button class="snip-r" type="button" data-n="2" style="--c:var(--violet)"><i>2</i><span><b>«Посмотрю после обеда»</b><small>Спасибо! Посмотрю после обеда и вернусь.</small></span></button>
+            <button class="snip-r" type="button" data-n="3" style="--c:var(--rose)"><i>3</i><span><b>Реквизиты для счёта</b><small>billing@example.com · ИНН 7700000000</small></span></button>
+            <button class="snip-r" type="button" data-n="4" style="--c:var(--blue)"><i>4</i><span><b>Пароль тестового стенда</b><small>••••••••••••</small></span><svg class="lock"><use href="#i-lock"/></svg></button>
           </div>
           <div class="field">
             <label>Поле в другом приложении</label>

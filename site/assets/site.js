@@ -19,12 +19,13 @@
     transform: 'Case, JSON, URL, Base64, JWT and lines, with a preview',
     ocr: 'Select an area and the text lands in the clipboard',
     pwd: 'Pasted from Keychain into the active field',
-    snips: { 1: null, 2: 'meet.example.com/team-standup', 3: 'Thanks! I’ll look after lunch and get back to you.' },
-    story: ['A colleague sent an issue number — open it', 'Need the staging password — paste it', 'Call in a minute — mute the mic'],
+    snips: { 1: 'meet.example.com/team-standup', 2: 'Thanks! I’ll look after lunch and get back to you.', 3: null },
+    story: ['A colleague sent an issue number — open it', 'Someone asks for the meeting link — send it to chat', 'Call in a minute — mute the mic'],
+    ask: { av: 'M', name: 'Mark', text: 'Can you drop the meeting link?' },
     storyToast: 'PROJ-4821 — click to open the link',
     double: 'double',
-    snipsBig: { 1: '••••••••••••', 2: 'meet.example.com/team-standup', 3: 'Thanks! I’ll look after lunch and get back to you.', 4: 'billing@example.com' },
-    snipNote: (n) => n === 1 ? 'Pasted from Keychain. The value never shows on screen.' : 'Pasted where the cursor was.',
+    snipsBig: { 1: 'meet.example.com/team-standup', 2: 'Thanks! I’ll look after lunch and get back to you.', 3: 'billing@example.com', 4: '••••••••••••' },
+    snipNote: (n) => n === 4 ? 'Pasted from Keychain. The value never shows on screen.' : 'Pasted where the cursor was.',
     noKeys: 'No keys here, so no notification',
     open1: 'Click to open the link',
     openN: (n) => `Click to open the links (${n})`,
@@ -43,12 +44,13 @@
     transform: 'Регистр, JSON, URL, Base64, JWT и строки — с превью',
     ocr: 'Выделите область — текст окажется в буфере',
     pwd: 'Вставлено из Keychain в активное поле',
-    snips: { 1: null, 2: 'meet.example.com/team-standup', 3: 'Спасибо! Посмотрю после обеда и вернусь.' },
-    story: ['Коллега прислал номер задачи — открыть её', 'Нужен пароль от стенда — вставить в поле', 'Созвон через минуту — выключить микрофон'],
+    snips: { 1: 'meet.example.com/team-standup', 2: 'Спасибо! Посмотрю после обеда и вернусь.', 3: null },
+    story: ['Коллега прислал номер задачи — открыть её', 'Просят ссылку на созвон — отправить её в чат', 'Созвон через минуту — выключить микрофон'],
+    ask: { av: 'М', name: 'Марк', text: 'Кинь ссылку на созвон?' },
     storyToast: 'PROJ-4821 — нажмите, чтобы открыть ссылку',
     double: 'двойной',
-    snipsBig: { 1: '••••••••••••', 2: 'meet.example.com/team-standup', 3: 'Спасибо! Посмотрю после обеда и вернусь.', 4: 'billing@example.com' },
-    snipNote: (n) => n === 1 ? 'Вставлено из Keychain — значение не мелькает на экране.' : 'Вставлено туда, где стоял курсор.',
+    snipsBig: { 1: 'meet.example.com/team-standup', 2: 'Спасибо! Посмотрю после обеда и вернусь.', 3: 'billing@example.com', 4: '••••••••••••' },
+    snipNote: (n) => n === 4 ? 'Вставлено из Keychain — значение не мелькает на экране.' : 'Вставлено туда, где стоял курсор.',
     noKeys: 'Ключей нет — уведомления не будет',
     open1: 'Нажмите, чтобы открыть ссылку',
     openN: (n) => `Нажмите, чтобы открыть ссылки (${n})`,
@@ -192,10 +194,10 @@
 
     /* история: три сценария по кругу, пока посетитель сам не возьмёт управление */
     const keysOv = $('#keysOv'), capN = $('#capN'), capT = $('#capT'), capDots = $$('.cap-dots i');
-    const wBrowser = $('#wBrowser'), wLogin = $('#wLogin'), wCall = $('#wCall');
-    const pwdOut = $('#pwdField span'), loginBtn = $('#loginBtn');
+    const wBrowser = $('#wBrowser'), wCall = $('#wCall');
     const callMic = $('#callMic'), callMe = $('.ct.me'), callMeMic = $('#callMeMic');
-    const firstKey = $('#chatBody .key');
+    const chatInitial = chatBody.innerHTML;
+    const firstKey = () => $('#chatBody .key');
     let storyTok = 0, storyMuted = false;
     const playing = () => stage.classList.contains('story');
     // ожидание, которое обрывает сценарий, если его остановили (сменился токен)
@@ -218,38 +220,42 @@
       [callMic, callMeMic].forEach((el) => el.querySelector('use').setAttribute('href', m ? '#i-micoff' : '#i-mic'));
     }
     function resetScene() {
-      [wBrowser, wLogin, wCall].forEach((w) => w.classList.remove('show'));
+      [wBrowser, wCall].forEach((w) => w.classList.remove('show'));
       hideKeys(); close();
       toast.classList.remove('show', 'press');
       hud.classList.remove('show');
-      firstKey.classList.remove('hl');
-      pwdOut.textContent = ''; loginBtn.classList.remove('press');
+      clearInterval(typing); resetComposer();
+      chatBody.innerHTML = chatInitial;
       setCallMic(false);
       if (storyMuted) { setMic(false, false); storyMuted = false; }
     }
 
     async function sceneKey(t) {
       caption(0);
-      await wait(700, t); firstKey.classList.add('hl');
+      chatBody.innerHTML = chatInitial;
+      await wait(700, t); firstKey().classList.add('hl');
       await wait(700, t); showKeys(['⌘', 'C']);
       await wait(900, t); hideKeys();
       await wait(300, t); say(T.storyToast, 4000);
       await wait(1400, t); toast.classList.add('press');
-      await wait(180, t); toast.classList.remove('show', 'press'); firstKey.classList.remove('hl'); wBrowser.classList.add('show');
+      await wait(180, t); toast.classList.remove('show', 'press'); firstKey().classList.remove('hl'); wBrowser.classList.add('show');
       await wait(2400, t); wBrowser.classList.remove('show');
       await wait(500, t);
     }
-    async function scenePassword(t) {
-      caption(1); wLogin.classList.add('show');
-      await wait(1200, t); showKeys(['⌘', '⌘', '~' + T.double]);
+    async function sceneLink(t) {
+      caption(1);
+      const m = document.createElement('div');
+      m.className = 'msg new';
+      m.innerHTML = '<span class="av" style="background:var(--teal)"></span><div><b></b><p></p></div>';
+      m.querySelector('.av').textContent = T.ask.av;
+      m.querySelector('b').textContent = T.ask.name;
+      m.querySelector('p').textContent = T.ask.text;
+      chatBody.appendChild(m);
+      await wait(1300, t); showKeys(['⌘', '⌘', '~' + T.double]);
       await wait(800, t); hideKeys(); open(); select(items.findIndex((el) => el.dataset.code === 'Digit1'));
       await wait(1100, t); showKeys(['1']);
-      await wait(450, t); close(); hideKeys();
-      for (let i = 1; i <= 12; i++) { pwdOut.textContent = '•'.repeat(i); await wait(35, t); }
-      await wait(900, t); loginBtn.classList.add('press');
-      await wait(220, t); loginBtn.classList.remove('press');
-      await wait(700, t); wLogin.classList.remove('show');
-      await wait(400, t); pwdOut.textContent = '';
+      await wait(450, t); close(); hideKeys(); typeInto(T.snips[1], false);
+      await wait(2600, t);
     }
     async function sceneMic(t) {
       caption(2); wCall.classList.add('show');
@@ -263,7 +269,7 @@
       const t = ++storyTok;
       resetScene();
       stage.classList.add('story');
-      try { for (;;) { await sceneKey(t); await scenePassword(t); await sceneMic(t); } } catch (e) { /* сценарий остановлен */ }
+      try { for (;;) { await sceneKey(t); await sceneLink(t); await sceneMic(t); } } catch (e) { /* сценарий остановлен */ }
     }
     function stopStory() {
       if (!playing()) return;
