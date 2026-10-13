@@ -263,7 +263,24 @@ final class QuickTicketModule: NSObject, PaletteModule, NSTextFieldDelegate {
 
     /// Обновляет строку превью под полем. Показывает ровно то, что соберётся по ↩
     /// для текущего ввода и выбранного шаблона; если ввод не резолвится — прячет строку.
-    func controlTextDidChange(_ obj: Notification) { updatePreview() }
+    func controlTextDidChange(_ obj: Notification) {
+        // Ошибка («Не похоже на ключ») относится к прошлому вводу — при правке возвращаем подсказку.
+        if showsError { showHint() }
+        updatePreview()
+    }
+
+    /// ↑/↓ в поле перебирают шаблоны, когда их выбор показан — без мыши (палитра клавиатурная).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        let delta: Int
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)):   delta = -1
+        case #selector(NSResponder.moveDown(_:)): delta = 1
+        default: return false
+        }
+        guard !projectGroup.isHidden, !projectRadios.isEmpty else { return false }
+        selectTemplate((selectedTemplateIndex + delta + projectRadios.count) % projectRadios.count)
+        return true
+    }
 
     private func updatePreview() {
         let wasHidden = previewLabel.isHidden
@@ -335,10 +352,8 @@ final class QuickTicketModule: NSObject, PaletteModule, NSTextFieldDelegate {
             projectRadios[selectedTemplateIndex].state = .on
         }
 
-        let ambiguous = fillableTemplates.count > 1
-        projectGroup.isHidden = !ambiguous
-        showMessage(ambiguous ? L("quick.hint.ambiguous")
-                              : L("quick.hint.simple"), isError: false)
+        projectGroup.isHidden = fillableTemplates.count <= 1
+        showHint()
         updatePreview()
         host?.setNeedsResize()
     }
@@ -346,11 +361,29 @@ final class QuickTicketModule: NSObject, PaletteModule, NSTextFieldDelegate {
     /// Выбор шаблона — только запоминаем. Открытие/копирование делается кнопками
     /// (или ↩ / ⌘↩), а не самим кликом по радио.
     @objc private func projectRadioClicked(_ sender: NSButton) {
-        selectedTemplateIndex = sender.tag
+        selectTemplate(sender.tag)
+    }
+
+    /// Выбор шаблона (клик или ↑↓): переставляет радио и обновляет превью. Ошибка сборки ключа
+    /// зависела от прежнего шаблона — возвращаем подсказку.
+    private func selectTemplate(_ index: Int) {
+        guard projectRadios.indices.contains(index) else { return }
+        selectedTemplateIndex = index
+        for (i, radio) in projectRadios.enumerated() { radio.state = i == index ? .on : .off }
+        if showsError { showHint() }
         updatePreview()  // превью зависит от выбранного шаблона
     }
 
+    /// Сейчас под полем показана ошибка, а не подсказка.
+    private var showsError = false
+
+    /// Подсказка по клавишам — своя для режима с выбором шаблона.
+    private func showHint() {
+        showMessage(projectGroup.isHidden ? L("quick.hint.simple") : L("quick.hint.ambiguous"), isError: false)
+    }
+
     private func showMessage(_ text: String, isError: Bool) {
+        showsError = isError
         messageLabel.stringValue = text
         messageLabel.textColor = isError ? .systemRed : .secondaryLabelColor
     }

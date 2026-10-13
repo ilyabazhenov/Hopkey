@@ -57,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Карточка «Звук» проваливает в отдельный экран уровней (ползунки выхода/входа).
         controller.onOpenLevels = { [weak self] in self?.presentAudioLevels() }
+        // Подпись «все сниппеты — ⌃⌥V» берёт актуальную комбинацию, а не зашитую.
+        // Если комбинацию не удалось зарегистрировать (занята), подпись не показываем.
+        controller.snippetsHotKeyHint = { [weak self] in
+            guard let self, !self.failedCommandHotKeys.contains(.snippets) else { return nil }
+            return self.hotKeyHint(for: .snippets)
+        }
         return controller
     }()
 
@@ -71,22 +77,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Разворачивает инструмент команды прямо в палитре. Возвращает true, если команда — модульная.
     private func presentCommandModule(_ command: ToolboxCommand) -> Bool {
         switch command.id {
-        case .textTransform:    presentTransformModule(); return true
-        case .clipboardHistory: presentClipboardHistory(); return true
-        case .audioOutput:      presentAudioOutput(); return true
-        case .audioInput:       presentAudioInput(); return true
+        // Ввод ключа из палитры: палитру закрываем до захвата выделения (синтетический ⌘C должен
+        // уйти в целевое приложение), но модуль открываем вложенным — Esc вернёт в корень палитры.
+        case .quickInput:
+            commandPanel.close()
+            openQuickTicketFromSelection(standalone: false)
+            return true
+        case .textTransform:    presentTransformModule(standalone: false); return true
+        case .clipboardHistory: presentClipboardHistory(standalone: false); return true
+        case .audioOutput:      presentAudioOutput(standalone: false); return true
+        case .audioInput:       presentAudioInput(standalone: false); return true
         default: return false
         }
     }
 
-    /// Показывает transform как модуль палитры (палитра уже открыта и ключевая). Захват выделения —
-    /// как в `openTextTransforms`: палитра неактивирующая, фронтовым остаётся целевое приложение,
-    /// поэтому синтетический Cmd+C уходит туда. Приложение НЕ активируем — фокус уже у палитры.
-    private func presentTransformModule() {
+    /// Показывает transform как модуль палитры. Захват выделения идёт до показа модуля: при прямом
+    /// вызове палитра ещё закрыта, из палитры — она неактивирующая, и фронтовым остаётся целевое
+    /// приложение, поэтому синтетический Cmd+C уходит туда. Приложение НЕ активируем.
+    private func presentTransformModule(standalone: Bool) {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             transformModule.prefill(NSPasteboard.general.string(forType: .string) ?? "")
-            commandPanel.enterModule(transformModule)
+            showModule(transformModule, standalone: standalone)
             HotKeyManager.ensureAccessibility(prompt: true)
             return
         }
@@ -94,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.clipboard.syncChangeCount()
             self.transformModule.prefill(selection ?? "")
-            self.commandPanel.enterModule(self.transformModule)
+            self.showModule(self.transformModule, standalone: standalone)
         }
     }
     /// Реестр команд тулбокса — единый источник для меню, панели и хоткеев.
@@ -146,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Сниппеты НЕ читаем на старте: блоб из Keychain грузится лениво при первом
         // обращении (вкладка «Сниппеты» в настройках или первый показ пикера/вставка),
         // чтобы запрос доступа к связке не всплывал на запуске.
+        HotKeyManager.recordLaunchAccessibility()
         notifications.requestAuthorization()
         setupMainMenu()
         setupStatusItem()
@@ -387,6 +400,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Прямой вызов инструмента (хоткей/меню) даёт «самостоятельный» модуль, если пользователь не
+    /// видит корня палитры: она закрыта или в ней уже открыт самостоятельный модуль. Тогда Esc
+    /// закроет окно целиком. Если на экране корень — модуль вложен в него, Esc вернёт в корень.
+    /// Считается в момент вызова (до асинхронного захвата выделения), а не флагом «на потом».
+    private var isDirectModuleCall: Bool {
+        !panelIsOpen || commandPanel.isShowingStandaloneModule
+    }
+
+    /// Показывает модуль в палитре, открывая её при необходимости.
+    private func showModule(_ module: PaletteModule, standalone: Bool) {
+        if !panelIsOpen { openCommandPanel() }
+        commandPanel.enterModule(module, standalone: standalone)
+    }
+
     private func openCommandPanel() {
         // Прогреваем индекс приложений (однократно, в фоне) — к первому вводу в поиск он готов.
         appIndex.warmUp()
@@ -480,22 +507,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // соответствующий модуль — тот же единый вид, что при выборе команды внутри палитры. Отдельных
     // окон (transform/буфер/аудио) больше нет — всё живёт в одном окне палитры.
 
-    private func openClipboardHistory() {
-        if !panelIsOpen { openCommandPanel() }
-        presentClipboardHistory()
-    }
-    private func openTextTransforms() {
-        if !panelIsOpen { openCommandPanel() }
-        presentTransformModule()
-    }
-    private func openAudioOutput() {
-        if !panelIsOpen { openCommandPanel() }
-        presentAudioOutput()
-    }
-    private func openAudioInput() {
-        if !panelIsOpen { openCommandPanel() }
-        presentAudioInput()
-    }
+    private func openClipboardHistory() { presentClipboardHistory(standalone: isDirectModuleCall) }
+    private func openTextTransforms() { presentTransformModule(standalone: isDirectModuleCall) }
+    private func openAudioOutput() { presentAudioOutput(standalone: isDirectModuleCall) }
+    private func openAudioInput() { presentAudioInput(standalone: isDirectModuleCall) }
 
     // MARK: Списки как модули палитры (билдеры строк — статические в GlassListWindowController)
 
@@ -511,7 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// карточкой «Звук»; данные берём из тех же спеков, что раньше шли секцией слайдеров.
     private lazy var levelsModule = LevelsModule()
 
-    private func presentClipboardHistory() {
+    private func presentClipboardHistory(standalone: Bool) {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         let items = GlassListWindowController.historyItems(
             clipboardHistory.entries,
@@ -520,30 +535,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onDelete: { [weak self] entry in self?.clipboardHistory.delete(id: entry.id) }
         )
         clipboardHistoryModule.configure(items: items)
-        commandPanel.enterModule(clipboardHistoryModule)
+        showModule(clipboardHistoryModule, standalone: standalone)
     }
-    private func presentAudioOutput() {
+    private func presentAudioOutput(standalone: Bool) {
         let (items, preselect) = GlassListWindowController.audioItems(
             audio.outputDevices(), currentID: audio.currentOutputDeviceID()) { [weak self] id in
             self?.audio.setOutput(id)
         }
         audioOutputModule.configure(items: items, preselect: preselect)
-        commandPanel.enterModule(audioOutputModule)
+        showModule(audioOutputModule, standalone: standalone)
     }
-    private func presentAudioInput() {
+    private func presentAudioInput(standalone: Bool) {
         let (items, preselect) = GlassListWindowController.audioItems(
             audio.inputDevices(), currentID: audio.currentInputDeviceID()) { [weak self] id in
             self?.audio.setInput(id)
         }
         audioInputModule.configure(items: items, preselect: preselect)
-        commandPanel.enterModule(audioInputModule)
+        showModule(audioInputModule, standalone: standalone)
     }
     /// Разворачивает экран уровней (из карточки «Звук»): свежие спеки громкости → модуль.
     private func presentAudioLevels() {
         let sliders = volumeSliders()
         guard !sliders.isEmpty else { NSSound.beep(); return }
         levelsModule.configure(sliders: sliders)
-        commandPanel.enterModule(levelsModule)
+        showModule(levelsModule, standalone: false)
     }
 
     /// Вставляет результат преобразования на место выделения (синтез Cmd+V). Требует Accessibility.
@@ -553,7 +568,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let target = snippetTargetApp
         snippetTargetApp = nil
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
-            URLOpener.copy(text); clipboard.syncChangeCount(); return
+            // Запрос доступа уже показан при входе в модуль — второй раз не дёргаем.
+            URLOpener.copy(text); clipboard.syncChangeCount()
+            fallBackToManualPaste(promptAccess: false)
+            return
         }
         target?.activate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
@@ -578,7 +596,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .text(let text):
             guard !text.isEmpty else { NSSound.beep(); return }
             guard HotKeyManager.ensureAccessibility(prompt: false) else {
-                HotKeyManager.ensureAccessibility(prompt: true); return
+                URLOpener.copy(text); clipboard.syncChangeCount()
+                fallBackToManualPaste()
+                return
             }
             hotKey.paste(text) { [weak self] in self?.clipboard.syncChangeCount() }
         case .image(let ref):
@@ -622,6 +642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               case let matches = TicketParser.matches(in: text, templates: config.templates),
               !matches.isEmpty else {
             NSSound.beep()
+            hud.show(symbol: "questionmark.circle", message: L("hud.noKeyInClipboard"))
             return
         }
         perform(action, on: matches)
@@ -629,16 +650,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Прямой вызов (⌃⌥V / меню): открываем палитру и разворачиваем модуль пикера сниппетов.
     private func showSnippetPicker() {
-        if !panelIsOpen { openCommandPanel() }
-        presentSnippetPicker()
+        presentSnippetPicker(standalone: isDirectModuleCall)
     }
 
     /// Разворачивает пикер сниппетов внутри палитры, запомнив активное приложение — чтобы после
     /// выбора вставить значение туда, где стоял курсор (палитра неактивирующая, фокус не крадёт).
-    private func presentSnippetPicker() {
+    private func presentSnippetPicker(standalone: Bool) {
         snippetTargetApp = NSWorkspace.shared.frontmostApplication
         snippetPickerModule.reload()
-        commandPanel.enterModule(snippetPickerModule)
+        showModule(snippetPickerModule, standalone: standalone)
     }
 
     /// Вставляет выбранный сниппет в активное приложение: читает значение из Keychain
@@ -659,7 +679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // доступа — чтобы пользователь понимал, почему авто-вставка не случилась.
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             writeSnippetToClipboard(value, kind: snippet.kind)
-            HotKeyManager.ensureAccessibility(prompt: true)
+            fallBackToManualPaste()
             return
         }
 
@@ -742,14 +762,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Хоткей окна ввода: сам снимает выделение (с сохранением буфера) и открывает окно
     /// с подставленным текстом. Если Accessibility не выдан или ничего не выделено —
     /// откатываемся к числу из буфера (или пустому окну).
-    private func openQuickTicketFromSelection() {
+    /// `standalone` — см. `isDirectModuleCall`; по умолчанию (хоткей/меню) считается в момент вызова.
+    private func openQuickTicketFromSelection(standalone: Bool? = nil) {
+        let standalone = standalone ?? isDirectModuleCall
         // Подстановка выделения требует синтеза Cmd+C (Accessibility). Без доступа окно
         // открываем как обычно (по числу из буфера), но разово объясняем, почему выделение
         // не подставилось — иначе пустой ввод выглядит как баг. Захват не запускаем: без
         // доступа Cmd+C ничего не даст, только лишняя пауза.
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             showSelectionAccessibilityHintIfNeeded()
-            presentQuickTicket(prefill: clipboardBareNumber())
+            presentQuickTicket(prefill: clipboardBareNumber(), standalone: standalone)
             return
         }
         // Доступ есть — «перевзводим» подсказку: если позже он слетит (типичный случай —
@@ -762,15 +784,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let prefill = selection.flatMap(self.prefillToken) ?? self.clipboardBareNumber()
             // Наши манипуляции с буфером (Cmd+C + восстановление) не должны будить наблюдателя.
             self.clipboard.syncChangeCount()
-            self.presentQuickTicket(prefill: prefill)
+            self.presentQuickTicket(prefill: prefill, standalone: standalone)
         }
     }
 
     /// Разворачивает форму быстрого ввода тикета внутри палитры (открывая её при необходимости).
-    private func presentQuickTicket(prefill: String?) {
-        if !panelIsOpen { openCommandPanel() }
+    private func presentQuickTicket(prefill: String?, standalone: Bool) {
         quickTicketModule.prefill(prefill)
-        commandPanel.enterModule(quickTicketModule)
+        showModule(quickTicketModule, standalone: standalone)
     }
 
     /// Флаг «подсказку про Accessibility для подстановки выделения уже показывали».
@@ -792,9 +813,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L("hint.selectionAccess.openSettings"))
         alert.addButton(withTitle: L("notif.denied.later"))
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+        if alert.runModal() == .alertFirstButtonReturn {
+            HotKeyManager.openAccessibilitySettings()
         }
     }
 
@@ -953,13 +973,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               target.bundleIdentifier != Bundle.main.bundleIdentifier else {
             URLOpener.copy(text)
             clipboard.syncChangeCount()
-            hud.show(symbol: "doc.on.clipboard", message: L("notes.pasted.noTarget"))
+            hud.show(symbol: "doc.on.clipboard", message: L("hud.pasteManually"))
             return
         }
         guard HotKeyManager.ensureAccessibility(prompt: false) else {
             URLOpener.copy(text)
             clipboard.syncChangeCount()
-            HotKeyManager.ensureAccessibility(prompt: true)
+            fallBackToManualPaste()
             return
         }
         target.activate()
@@ -967,6 +987,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.hotKey.paste(text) { self.clipboard.syncChangeCount() }
         }
+    }
+
+    /// Авто-вставка не случится (нет Универсального доступа), но значение уже лежит в буфере:
+    /// говорим об этом тостом — иначе «ничего не произошло» выглядит как баг — и показываем
+    /// системный запрос доступа.
+    private func fallBackToManualPaste(promptAccess: Bool = true) {
+        hud.show(symbol: "doc.on.clipboard", message: L("hud.pasteManually"))
+        if promptAccess { HotKeyManager.ensureAccessibility(prompt: true) }
     }
 
     /// Копирует текст заметки в буфер (без вставки) с коротким HUD-подтверждением: копирование не

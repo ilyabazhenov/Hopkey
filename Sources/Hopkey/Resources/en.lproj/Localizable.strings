@@ -22,7 +22,7 @@
 "menu.window.close" = "Close";
 
 /* Status bar menu */
-"status.tooltip" = "Hopkey — open a link by its key";
+"status.tooltip" = "Hopkey — click for the palette, right-click for the menu";
 "status.openFromClipboard" = "Open link from clipboard";
 "status.copyFromClipboard" = "Copy link from clipboard";
 "status.openByKey" = "Open by key…";
@@ -63,12 +63,10 @@
 "settings.snippets.deleteMessage" = "Its value will be removed from the Keychain. This cannot be undone.";
 
 /* Settings — Hotkeys tab */
-"settings.hotkeys.header" = "Global hotkeys work in any application.";
 "settings.hotkey.input" = "Open input window";
 "settings.hotkey.snippets" = "Paste snippet";
 "settings.hotkey.input.hint" = "Opens the manual input window. No access needed; with Accessibility it prefills the selected text.";
 "settings.hotkey.snippets.hint" = "Opens the snippet list and pastes the chosen one into the active field. Requires Accessibility.";
-"settings.hotkeys.accessNote" = "Accessibility is granted in “System Settings ▸ Privacy & Security ▸ Accessibility”.";
 "settings.hotkey.conflict" = "⚠︎ This combination is already taken — pick another.";
 "settings.hotkey.risky" = "⚠︎ This combination may clash with app shortcuts — add ⌃ or ⌥.";
 "settings.hotkey.sounds" = "Play sound on hotkey press";
@@ -82,11 +80,17 @@
 "settings.hotkey.sound.submarine" = "Submarine";
 
 /* Settings — Commands tab (extra labels) */
-"settings.commands.header" = "Global hotkeys work in any application. The command panel is summoned by double-tapping the right modifier.";
+"settings.commands.header" = "The palette and global hotkeys work in any app. The checkbox enables a command’s direct hotkey — click the field to record a new shortcut.";
 "settings.command.mic" = "Microphone";
 "settings.command.keepAwake" = "Keep awake";
 "settings.command.pastePlain" = "Paste without formatting";
 "settings.palette.trigger" = "Summon command panel:";
+"settings.access.granted" = "✓ Accessibility access granted";
+"settings.access.missing" = "⚠︎ No Accessibility access — the double-tap, snippet pasting and selection prefill won’t work. Grant access, then restart Hopkey.";
+"settings.access.missing.noPalette" = "⚠︎ No Accessibility access — snippet pasting and selection prefill won’t work. Grant access, then restart Hopkey.";
+"settings.access.restartNeeded" = "⚠︎ Access granted — restart Hopkey for it to take effect.";
+"settings.access.restart" = "Restart Hopkey";
+"settings.access.open" = "Open Accessibility Settings…";
 "settings.palette.leftCommand" = "Double left ⌘";
 "settings.palette.rightCommand" = "Double right ⌘";
 "settings.palette.leftOption" = "Double left ⌥";
@@ -179,7 +183,6 @@
 "notes.clear.confirm.body" = "The note's text and name will be removed. This can't be undone.";
 "notes.placeholder" = "Empty — start typing";
 "notes.hint" = "⌘1–7 dots · ⌘↩ paste · Esc close";
-"notes.pasted.noTarget" = "Copied — paste manually (⌘V)";
 "panel.notes.hint" = "←→ pick · ↩ open";
 
 /* Command panel */
@@ -195,7 +198,7 @@
 "audio.levels.title" = "Levels";
 "panel.levels.footer" = "↑↓ move · ←→ level · Esc back";
 "panel.clipboard.clear" = "Clear history";
-"panel.snippets.all" = "all snippets — ⌃⌥V";
+"panel.snippets.all" = "all snippets — %@";
 "panel.footer" = "↑↓ move · 1–9 pick · ↩ run · Esc close";
 "panel.footer.history" = "↑↓ move · 1–9 · ↩ paste · ⌫ delete · Esc";
 "panel.footer.commands" = "↑↓ move · letters — tools · 1–9 — snippets · ⌘F search · ↩ · Esc";
@@ -209,6 +212,8 @@
 "panel.toggle.on" = "on";
 "panel.toggle.off" = "off";
 "status.micMuted" = "Microphone muted";
+"hud.pasteManually" = "Copied — paste manually (⌘V)";
+"hud.noKeyInClipboard" = "No key matching your templates in the clipboard";
 
 /* Settings — General tab */
 "settings.general.description" = "Hopkey spots keys (PROJ-123, #42) in your clipboard or selection and opens or copies the matching link from your templates.";
@@ -229,7 +234,7 @@
 
 /* Settings — About tab */
 "settings.about.version" = "Version %@";
-"settings.about.tagline" = "Spot the key — hop to the task.";
+"settings.about.tagline" = "Double-tap ⌘. The small stuff, at hand.";
 "settings.about.checkUpdates" = "Check for Updates…";
 "settings.about.github" = "Open on GitHub";
 "settings.about.copyright" = "© Ilya Bazhenov · MIT";
@@ -272,7 +277,7 @@
 "quick.notKey" = "Doesn’t look like a key";
 "quick.noTemplates" = "Add a template in settings first";
 "quick.buildFailed" = "Couldn’t build the key";
-"quick.hint.ambiguous" = "Enter a number and pick a template · ⌘↩ — copy";
+"quick.hint.ambiguous" = "Enter a number · ↑↓ template · ↩ open · ⌘↩ copy";
 "quick.hint.simple" = "↩ — open · ⌘↩ — copy link";
 
 /* Snippets picker */
@@ -323,11 +328,11 @@
 "ocr.hud.copied" = "Copied";
 "ocr.hud.empty" = "No text found";
 "notif.denied.title" = "Notifications are off";
-"notif.denied.body" = "Hopkey found a key in the clipboard but can’t show a banner to open it — notifications for the app are disabled.\n\nEnable them in System Settings, or choose “Open right away” in the Hopkey menu.";
+"notif.denied.body" = "Hopkey found a key in the clipboard but can’t show a banner to open it — notifications for the app are disabled.\n\nEnable them in System Settings, or choose “Open in browser right away” in Hopkey Settings ▸ General.";
 "notif.denied.openSettings" = "Open notification settings";
 "notif.denied.later" = "Later";
 
 /* Accessibility hint for selection prefill */
 "hint.selectionAccess.title" = "Selection isn’t inserted";
-"hint.selectionAccess.body" = "To prefill the input window with the text you selected, Hopkey needs Accessibility (it synthesizes Cmd+C over the selection). Without it the window still opens — just empty.\n\nGrant access, then restart Hopkey — the grant is only picked up at launch. After rebuilding the app you may need to grant it again.";
+"hint.selectionAccess.body" = "To prefill the input window with the text you selected, Hopkey needs Accessibility (it synthesizes Cmd+C over the selection). Without it the window still opens — just empty.\n\nGrant access, then restart Hopkey — the grant is only picked up at launch.";
 "hint.selectionAccess.openSettings" = "Open Accessibility settings";

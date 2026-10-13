@@ -1235,6 +1235,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// `LevelsModule` из актуальных данных громкости и делает `enterModule` — панель остаётся открытой.
     var onOpenLevels: (() -> Void)?
 
+    /// Текущий хоткей пикера сниппетов для подписи «все сниппеты — …» над их списком (nil —
+    /// хоткей выключен, подпись не показываем: не обещаем комбинацию, которой нет).
+    var snippetsHotKeyHint: (() -> String?)?
+
     /// Слайдер громкости в панели: иконка, стартовое значение (0…1), живой колбэк изменения и
     /// опциональное аудиоустройство для встроенной выпадашки выбора.
     struct VolumeSlider {
@@ -1295,6 +1299,15 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     }
     private var entries: [Entry] = []
     private var selectedIndex = 0
+    /// Текущий модуль открыт напрямую (см. `enterModule(_:standalone:)`).
+    private var moduleIsStandalone = false
+
+    /// На экране самостоятельный модуль (корня палитры пользователь не видит). Прямой вызов
+    /// другого инструмента в этот момент тоже должен быть самостоятельным.
+    var isShowingStandaloneModule: Bool {
+        if case .module = mode { return moduleIsStandalone }
+        return false
+    }
     private var finished = false
     /// Растёт на каждом `show()`. Отложенное закрытие по fade-out (см. `fadeOutAndClose`) сверяет
     /// поколение: если за время затухания панель открыли заново, «висящий» close() отменяется.
@@ -1474,7 +1487,10 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     /// Показать модуль на месте корневого списка: вставить его вьюху в тело модуля, свапнуть
     /// видимость, подогнать окно и передать фокус модулю. Опрос громкости на время модуля глушим.
-    func enterModule(_ module: PaletteModule) {
+    /// `standalone` — модуль вызван напрямую (хоткей/меню), минуя корень: Esc тогда закрывает окно
+    /// целиком, а не проваливает в корень палитры, которого пользователь и не открывал.
+    func enterModule(_ module: PaletteModule, standalone: Bool = false) {
+        moduleIsStandalone = standalone
         stopVolumePolling()
         moduleBody.subviews.forEach { $0.removeFromSuperview() }
         let view = module.contentView
@@ -1498,6 +1514,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// опрос громкости. Тело модуля очищаем (вьюха модуля отвязывается).
     private func enterRoot() {
         guard case .module = mode else { return }
+        moduleIsStandalone = false
         mode = .root
         headerLabel?.stringValue = L("panel.title")
         moduleBody.isHidden = true
@@ -1514,7 +1531,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
     /// Единая точка Esc: из модуля → корень; из поиска → очистить и вернуться в список; из
     /// «пустого» корня → закрыть окно. Так Esc везде значит «на шаг назад, из корня — закрыть».
     private func handleCancel() {
-        if case .module = mode { enterRoot(); return }
+        if case .module = mode { leaveModule(); return }
         if !currentQuery.isEmpty {
             searchField.stringValue = ""
             applyQuery()
@@ -1526,7 +1543,12 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     // MARK: - PaletteHost
 
-    func dismissModule() { enterRoot() }
+    func dismissModule() { leaveModule() }
+
+    /// Шаг назад из модуля: в корень палитры — или закрыть окно, если модуль открыт напрямую.
+    private func leaveModule() {
+        if moduleIsStandalone { fadeOutAndClose() } else { enterRoot() }
+    }
     func closePalette() { window?.close() }
     func setNeedsResize() { sizeToFit() }
 
@@ -1616,6 +1638,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         lastNotes = notes
         // Всегда открываемся в корне: сбрасываем возможный застрявший режим модуля прошлого показа.
         mode = .root
+        moduleIsStandalone = false
         moduleBody.subviews.forEach { $0.removeFromSuperview() }
         moduleBody.isHidden = true
         rootBody.isHidden = false
@@ -1742,7 +1765,8 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
         // Зона «ключи и сниппеты» — ядро продукта сразу под переключателями: окно ввода ключа
         // строкой на всю ширину, под ним сниппеты (каждый в один клик, цифры 1–9).
         if !launchers.isEmpty || !snippets.isEmpty {
-            addHeader(L("panel.section.launchers"), trailing: snippets.isEmpty ? nil : L("panel.snippets.all"))
+            let allHint = snippets.isEmpty ? nil : snippetsHotKeyHint?().map { L("panel.snippets.all", $0) }
+            addHeader(L("panel.section.launchers"), trailing: allHint)
             for command in launchers { addRow(makeCommandRow(command)) }
             for snippet in snippets { addRow(makeSnippetRow(snippet)) }
         }
@@ -1824,7 +1848,7 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
             ranked.append(Ranked(score: score) { [weak self] in
                 self?.addResultRow(symbol: command.symbol(), title: command.title(),
                                    trailing: L("panel.search.type.command"), image: nil,
-                                   run: { self?.finish { command.run() } })
+                                   run: { self?.runSearchCommand(command) })
             })
         }
 
@@ -2245,6 +2269,13 @@ final class CommandPanelWindowController: NSWindowController, NSWindowDelegate, 
 
     private func runSnippet(_ snippet: Snippet) {
         finish { [weak self] in self?.onSnippetActivation?(snippet, snippet.primaryActivation) }
+    }
+
+    /// Команда из результатов поиска — тем же путём, что из списка: модульная разворачивается внутри
+    /// палитры (Esc вернёт в корень), остальные закрывают палитру и выполняются.
+    private func runSearchCommand(_ command: ToolboxCommand) {
+        if onPresentCommandModule?(command) == true { return }
+        finish { command.run() }
     }
 
     private func finish(_ action: @escaping () -> Void) {

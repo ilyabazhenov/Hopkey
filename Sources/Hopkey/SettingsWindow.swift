@@ -107,6 +107,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         .doubleTap(.leftCommand), .doubleTap(.rightCommand),
         .doubleTap(.leftOption), .doubleTap(.rightOption), .disabled,
     ]
+    /// Статус Универсального доступа (без него не работают двойной тап, вставка и захват выделения).
+    private let accessStatusLabel = NSTextField(labelWithString: "")
+    private let accessButton = NSButton()
     private let hotKeySoundsCheck = NSButton(checkboxWithTitle: L("settings.hotkey.sounds"), target: nil, action: nil)
     private let hotKeySoundPopup = NSPopUpButton()
 
@@ -574,15 +577,34 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         soundsRow.spacing = 8
         soundsRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let accessNote = label(L("settings.hotkeys.accessNote"), secondary: true, wraps: true)
+        // Универсальный доступ: живой статус + кнопка в нужный раздел Системных настроек, а не
+        // голый текст с путём — пользователь сразу видит, выдан ли доступ, и попадает куда надо.
+        accessStatusLabel.font = .systemFont(ofSize: 11)
+        accessStatusLabel.lineBreakMode = .byWordWrapping
+        accessStatusLabel.maximumNumberOfLines = 0
+        accessStatusLabel.preferredMaxLayoutWidth = wrapWidth
+        accessStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        accessButton.bezelStyle = .rounded
+        accessButton.target = self
+        accessButton.action = #selector(accessButtonClicked)
+        accessButton.translatesAutoresizingMaskIntoConstraints = false
+        let accessBox = NSStackView(views: [accessStatusLabel, accessButton])
+        accessBox.orientation = .vertical
+        accessBox.alignment = .leading
+        accessBox.spacing = 6
+        accessBox.translatesAutoresizingMaskIntoConstraints = false
 
+        // Порядок: сперва главный вход в продукт (вызов палитры) и доступ, без которого он не
+        // работает, затем — прямые хоткеи команд и звук.
         let sep1 = separator()
         let sep2 = separator()
-        var views: [NSView] = [header]
+        var views: [NSView] = [header, paletteRow, accessBox, sep1]
         views.append(contentsOf: groups)
-        views.append(contentsOf: [sep1, paletteRow, sep2, soundsRow, accessNote])
+        views.append(contentsOf: [sep2, soundsRow])
         let stack = NSStackView(views: views)
         stack.spacing = 12
+        stack.setCustomSpacing(16, after: accessBox)
+        stack.setCustomSpacing(16, after: sep1)
         if let lastGroup = groups.last { stack.setCustomSpacing(16, after: lastGroup) }
         return tabView(stack) { _ in
             sep1.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -691,6 +713,38 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         let view = tabView(stack)
         stack.alignment = .centerX  // центрируем «визитку» по горизонтали
         return view
+    }
+
+    /// Обновляет строку статуса Универсального доступа. Зовётся при показе окна, смене триггера
+    /// палитры и каждый раз, когда окно становится ключевым (вернулись из Системных настроек).
+    /// Три состояния: нет доступа → кнопка в настройки; выдан после запуска → нужен перезапуск
+    /// (монитор и хоткеи подхватят грант только на старте); выдан с запуска → всё в порядке.
+    private func refreshAccessStatus() {
+        let granted = HotKeyManager.ensureAccessibility(prompt: false)
+        let needsRestart = granted && !HotKeyManager.accessibilityAtLaunch
+        let paletteOn = config.paletteTrigger != .disabled
+        let key: String
+        if !granted {
+            key = paletteOn ? "settings.access.missing" : "settings.access.missing.noPalette"
+        } else {
+            key = needsRestart ? "settings.access.restartNeeded" : "settings.access.granted"
+        }
+        accessStatusLabel.stringValue = L(key)
+        accessStatusLabel.textColor = granted && !needsRestart ? .secondaryLabelColor : .systemOrange
+        accessButton.isHidden = granted && !needsRestart
+        accessButton.title = L(needsRestart ? "settings.access.restart" : "settings.access.open")
+    }
+
+    @objc private func accessButtonClicked() {
+        if HotKeyManager.ensureAccessibility(prompt: false) {
+            Self.relaunch()  // доступ выдан, но вступит в силу только после перезапуска
+        } else {
+            HotKeyManager.openAccessibilitySettings()
+        }
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshAccessStatus()
     }
 
     @objc private func openRepository() {
@@ -870,6 +924,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         guard paletteTriggerOptions.indices.contains(index) else { return }
         config.paletteTrigger = paletteTriggerOptions[index]
         onSave?()
+        refreshAccessStatus()  // текст предупреждения зависит от того, включена ли палитра
     }
 
     @objc private func hotKeySoundsChanged() {
@@ -1160,6 +1215,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
         autoUpdateCheck.state = updater.automaticallyChecksForUpdates ? .on : .off
         updateDependentControls()
         refreshHotKeyWarnings()
+        refreshAccessStatus()
     }
 
     func showWindow() {

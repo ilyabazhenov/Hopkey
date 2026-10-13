@@ -38,6 +38,22 @@ final class HotKeyManager {
         return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
     }
 
+    /// Был ли доступ при запуске. Грант, выданный позже, глобальный монитор и хоткеи подхватят
+    /// только после перезапуска — настройки по этому флагу просят перезапустить Hopkey.
+    private(set) static var accessibilityAtLaunch = false
+
+    /// Запоминает состояние доступа на старте (вызывается один раз из `applicationDidFinishLaunching`).
+    static func recordLaunchAccessibility() {
+        accessibilityAtLaunch = ensureAccessibility(prompt: false)
+    }
+
+    /// Открывает раздел «Универсальный доступ» в Системных настройках.
+    static func openAccessibilitySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Регистрирует комбинацию под уникальным `id`, привязывая к ней действие над выделением
     /// (синтез Cmd+C → чтение буфера → `onCapture`). Требует Accessibility.
     /// Возвращает `false`, если комбинация занята и зарегистрировать её не удалось.
