@@ -230,14 +230,21 @@ final class HotKeyManager {
     }
 
     private func synthesizeCopy() {
+        synthesizeCommand(keyCode: CGKeyCode(kVK_ANSI_C), character: "c")
+    }
+
+    /// Синтезирует ⌘+клавиша. Символ события задаём явно: иначе macOS подставит его по
+    /// текущей раскладке (при русской — ⌘«м» вместо ⌘«v»), и приложения, сверяющие шорткат
+    /// по символу, а не по keyCode (Java, часть Electron/Qt, RDP/Citrix), его не узнают.
+    private func synthesizeCommand(keyCode: CGKeyCode, character: Character) {
         let source = CGEventSource(stateID: .combinedSessionState)
-        let cKey = CGKeyCode(kVK_ANSI_C)
-        let down = CGEvent(keyboardEventSource: source, virtualKey: cKey, keyDown: true)
-        down?.flags = .maskCommand
-        let up = CGEvent(keyboardEventSource: source, virtualKey: cKey, keyDown: false)
-        up?.flags = .maskCommand
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        var chars = Array(String(character).utf16)
+        for keyDown in [true, false] {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown)
+            event?.flags = .maskCommand
+            event?.keyboardSetUnicodeString(stringLength: chars.count, unicodeString: &chars)
+            event?.post(tap: .cghidEventTap)
+        }
     }
 
     /// Кладёт `text` в буфер и синтезирует Cmd+V — чтобы значение вставилось в поле,
@@ -297,14 +304,7 @@ final class HotKeyManager {
     }
 
     private func synthesizePaste() {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let vKey = CGKeyCode(kVK_ANSI_V)
-        let down = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true)
-        down?.flags = .maskCommand
-        let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
-        up?.flags = .maskCommand
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        synthesizeCommand(keyCode: CGKeyCode(kVK_ANSI_V), character: "v")
     }
 }
 
