@@ -133,8 +133,9 @@ echo "1.2.0" > VERSION
 профиль notarytool, `swift test`) → `build.sh` с Developer ID и secure timestamp →
 **нотаризация + staple `.app`** (проверка `spctl`: «Notarized Developer ID») →
 `Hopkey-1.2.0.zip` + подпись EdDSA и генерация `appcast.xml` → `Hopkey-1.2.0.dmg`
-(с ярлыком `/Applications`) + **подпись, нотаризация и staple образа** → **коммит
-`release v1.2.0` (`VERSION` + `appcast.xml`) + тег `v1.2.0` + push в `main`** →
+(с ярлыком `/Applications`) + **подпись, нотаризация и staple образа** → номер версии
+на сайте (`docs/`) → **коммит `release v1.2.0` (`VERSION` + `appcast.xml` + страницы
+сайта) + тег `v1.2.0` + push в `main`** →
 создание GitHub Release `v1.2.0` из уже запушенного тега (`--verify-tag`) с обоими
 файлами и готовыми release notes (список изменений относительно прошлого тега).
 
@@ -182,6 +183,20 @@ xcrun stapler validate ~/Downloads/Hopkey-1.2.0.dmg
 
 ---
 
+## Сайты
+
+- **Сайт Hopkey** (`docs/`, GitHub Pages из `main`) обновляется сам: `release.sh`
+  ставит номер в метку `<span class="ver">vX.Y.Z</span>` строки требований на обеих
+  страницах (`docs/index.html`, `docs/en/index.html`) и кладёт их в релизный коммит —
+  его push и пересобирает сайт. Метку не удаляйте: без неё скрипт лишь предупредит, и
+  номер на сайте останется старым.
+- **websystems.pro** — отдельный репозиторий (`~/Projects/websystems.pro`), его
+  `release.sh` не трогает. После релиза поправьте вручную подпись главы Hopkey
+  («macOS 13+ · v1.7 · …» в `index.html` и `en/index.html`, там только `MAJOR.MINOR`)
+  и запушьте — если поменялась минорная или мажорная версия.
+
+---
+
 ## Подпись и hardened runtime
 
 - `build.sh` подписывает **всё** с hardened runtime (`--options runtime`) — это
@@ -213,6 +228,8 @@ xcrun stapler validate ~/Downloads/Hopkey-1.2.0.dmg
 - [ ] `VERSION` поднят
 - [ ] release notes содержат список изменений относительно прошлой версии (проверен/курирован)
 - [ ] `./release.sh` отработал — тесты зелёные, `.app` и `.dmg` нотаризованы и застейплены, релизный коммит+тег запушены в `main`, zip/dmg/appcast созданы, релиз опубликован
+- [ ] на сайте Hopkey новый номер (`release.sh` ставит его сам — проверить после пересборки Pages)
+- [ ] websystems.pro: подпись главы Hopkey с новой `MAJOR.MINOR` (вручную, отдельный репозиторий)
 - [ ] `gh release view` — оба ассета (zip + dmg) на месте
 - [ ] `git ls-remote --tags origin vX` — тег на коммите «release vX»
 - [ ] проверка: автообновление со старой версии и ручная установка из DMG

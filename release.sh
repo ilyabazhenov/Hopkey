@@ -11,8 +11,9 @@ set -euo pipefail
 #      нотаризация и staple .app;
 #   2. zip → подпись EdDSA + генерация appcast.xml (generate_appcast);
 #   3. dmg (hdiutil, с ярлыком /Applications) → подпись, нотаризация и staple dmg;
-#   4. коммит «release vX» (VERSION + appcast.xml) + тег + push — ДО создания
-#      GitHub Release, чтобы тег всегда указывал на релизный коммит;
+#   4. версия на сайте (docs/, метка class="ver") → коммит «release vX» (VERSION +
+#      appcast.xml + страницы сайта) + тег + push — ДО создания GitHub Release, чтобы
+#      тег всегда указывал на релизный коммит; тот же push пересобирает GitHub Pages;
 #   5. GitHub Release из уже запушенного тега (--verify-tag) с обоими файлами.
 # Всё, что может упасть (сборка, нотаризация), идёт до push: неудачный релиз не
 # оставляет за собой запушенного тега.
@@ -144,12 +145,26 @@ codesign --force --timestamp --sign "${SIGN_IDENTITY}" "${DIST_DIR}/${DMG_NAME}"
 notarize "${DIST_DIR}/${DMG_NAME}"
 xcrun stapler staple "${DIST_DIR}/${DMG_NAME}"
 
-# 4. Коммит релиза + тег + push — ДО создания GitHub Release (см. шапку). Тег
+# 4. Версия на сайте: GitHub Pages публикует docs/ из main, номер стоит в метке
+# class="ver" строки требований. Правим здесь, после сборки и нотаризации: упавший
+# релиз сайт не трогает, а удачный обновляет его тем же push, что и appcast.
+SITE_PAGES=(docs/index.html docs/en/index.html)
+echo "==> Версия ${TAG} на сайте…"
+for page in "${SITE_PAGES[@]}"; do
+    if grep -q 'class="ver">v' "${page}"; then
+        sed -i '' -E "s#(class=\"ver\">v)[0-9][0-9.]*#\1${VERSION}#g" "${page}"
+    else
+        echo "⚠️  В ${page} нет метки версии (class=\"ver\") — номер на сайте не обновлён" >&2
+    fi
+done
+
+# Коммит релиза + тег + push — ДО создания GitHub Release (см. шапку). Тег
 # ставим на этот коммит и пушим, поэтому gh release create --verify-tag берёт
 # готовый тег на правильном коммите.
 echo "==> Коммит и push релизного коммита…"
-if ! git diff --quiet -- VERSION appcast.xml || ! git diff --cached --quiet -- VERSION appcast.xml; then
-    git add VERSION appcast.xml
+RELEASE_FILES=(VERSION appcast.xml "${SITE_PAGES[@]}")
+if ! git diff --quiet -- "${RELEASE_FILES[@]}" || ! git diff --cached --quiet -- "${RELEASE_FILES[@]}"; then
+    git add "${RELEASE_FILES[@]}"
     git commit -m "release ${TAG}"
 fi
 if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
